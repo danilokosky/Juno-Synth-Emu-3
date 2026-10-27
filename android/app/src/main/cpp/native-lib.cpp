@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <aaudio/AAudio.h>
 #include <android/log.h>
+#include <algorithm>
 #include "HeraEngine.hpp"
 
 #define TAG "HeraNative"
@@ -17,12 +18,12 @@ static aaudio_data_callback_result_t dataCallback(
     int32_t numFrames) {
 
     float* output = static_cast<float*>(audioData);
-    float bufL[512];
-    float bufR[512];
+    float bufL[256];
+    float bufR[256];
 
     int32_t framesRemaining = numFrames;
     while (framesRemaining > 0) {
-        int32_t chunk = std::min(framesRemaining, 512);
+        int32_t chunk = std::min(framesRemaining, 256);
         g_engine.render(bufL, bufR, chunk);
         for (int i = 0; i < chunk; ++i) {
             *output++ = bufL[i];
@@ -44,9 +45,9 @@ Java_com_herajuno_synth_audio_NativeAudioEngine_initAudio(JNIEnv* env, jobject t
 
     g_engine.init(static_cast<float>(sampleRate));
 
-    AAudioStreamBuilder* builder;
+    AAudioStreamBuilder* builder = nullptr;
     aaudio_result_t result = AAudio_createStreamBuilder(&builder);
-    if (result != AAUDIO_OK) {
+    if (result != AAUDIO_OK || builder == nullptr) {
         LOGE("Failed to create AAudio stream builder: %s", AAudio_convertResultToText(result));
         return JNI_FALSE;
     }
@@ -55,20 +56,31 @@ Java_com_herajuno_synth_audio_NativeAudioEngine_initAudio(JNIEnv* env, jobject t
     AAudioStreamBuilder_setChannelCount(builder, 2);
     AAudioStreamBuilder_setSampleRate(builder, sampleRate);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
-    AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_EXCLUSIVE);
+    // Use SHARED mode for rock-solid stability and zero audio glitches across all device brands
+    AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
     AAudioStreamBuilder_setDataCallback(builder, dataCallback, nullptr);
 
     result = AAudioStreamBuilder_openStream(builder, &g_stream);
     AAudioStreamBuilder_delete(builder);
 
-    if (result != AAUDIO_OK) {
+    if (result != AAUDIO_OK || g_stream == nullptr) {
         LOGE("Failed to open AAudio stream: %s", AAudio_convertResultToText(result));
         return JNI_FALSE;
+    }
+
+    // Set buffer size to 2 * burst size for glitch-free low latency audio on Android
+    int32_t burstSize = AAudioStream_getFramesPerBurst(g_stream);
+    if (burstSize > 0) {
+        int32_t desiredBufferSize = burstSize * 2;
+        AAudioStream_setBufferSizeInFrames(g_stream, desiredBufferSize);
+        LOGI("Configured AAudio buffer: burst=%d, buffer=%d frames", burstSize, desiredBufferSize);
     }
 
     result = AAudioStream_requestStart(g_stream);
     if (result != AAUDIO_OK) {
         LOGE("Failed to start AAudio stream: %s", AAudio_convertResultToText(result));
+        AAudioStream_close(g_stream);
+        g_stream = nullptr;
         return JNI_FALSE;
     }
 
