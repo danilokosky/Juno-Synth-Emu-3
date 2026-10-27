@@ -1,15 +1,16 @@
-name: Build Native Android APK
+name: Build and Release Android APK
 
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch: # Permite disparar manualmente pela aba Actions
+  workflow_dispatch: # Permite disparar manualmente com 1 clique pela aba Actions
+
+permissions:
+  contents: write
 
 jobs:
-  build-apk:
-    name: Compile Android APK (C++ NDK + Kotlin)
+  build-and-release:
+    name: Compile & Publish Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -35,9 +36,34 @@ jobs:
         working-directory: ./android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK Artifact
+      - name: Prepare APK Asset
+        run: |
+          mkdir -p release-assets
+          cp android/app/build/outputs/apk/debug/app-debug.apk release-assets/Hera-Juno-Synth-debug.apk
+
+      - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Hera-Juno-Synth-Debug-APK
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: release-assets/Hera-Juno-Synth-debug.apk
           retention-days: 30
+
+      - name: Publish Direct APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: latest-apk
+          name: "Hera Juno Synthesizer (Android APK)"
+          body: |
+            ### 📱 Hera Juno Synthesizer - Pacote APK Android (Debug)
+            Compilado automaticamente pelo GitHub Actions.
+
+            #### 📥 Instalação Direta no Celular:
+            1. Baixe o arquivo **`Hera-Juno-Synth-debug.apk`** abaixo diretamente pelo navegador do seu celular Android.
+            2. Toque no arquivo baixado para instalar (ative a permissão para instalar apps desconhecidos no navegador se solicitado).
+            3. Abra o app, conecte seu teclado controlador via USB-OTG ou Bluetooth MIDI e toque à vontade!
+          draft: false
+          prerelease: false
+          files: release-assets/Hera-Juno-Synth-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

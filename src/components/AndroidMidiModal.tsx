@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smartphone, Cpu, Radio, Sliders, CheckCircle, Copy, ExternalLink, HelpCircle } from 'lucide-react';
+import { Smartphone, Cpu, Radio, Sliders, CheckCircle, Copy, ExternalLink, HelpCircle, Download } from 'lucide-react';
 import { DEFAULT_MIDI_CC_MAP } from '../audio/MidiManager';
 import { HeraParameters } from '../types/synth';
 
@@ -255,17 +255,49 @@ export const AndroidMidiModal: React.FC<AndroidMidiModalProps> = ({
           )}
 
           {activeTab === 'instructions' && (
-            <div className="space-y-3">
-              <p className="text-zinc-300 leading-relaxed">
-                The entire native Android project is structured in the <code className="text-emerald-400 font-mono bg-zinc-950 px-1 py-0.5 rounded">android/</code> directory of this workspace.
-              </p>
-              <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-800 font-mono text-[11px] text-zinc-300 space-y-1">
-                <p className="text-amber-400 font-bold">// Steps to build the APK:</p>
-                <p>1. Open Android Studio.</p>
-                <p>2. Choose "Open" and navigate to the project directory.</p>
-                <p>3. Gradle will sync with NDK CMake, AAudio, and Jetpack Compose.</p>
-                <p>4. Connect your Android phone or tablet via USB.</p>
-                <p>5. Click Run (Shift + F10) to deploy the native Hera Juno synth APK!</p>
+            <div className="space-y-4">
+              {/* Direct GitHub Release Download Box */}
+              <div className="bg-gradient-to-r from-emerald-950/60 to-zinc-900 p-4 rounded-xl border border-emerald-500/40 shadow-lg space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-400 font-mono font-bold text-sm">
+                    📦 Download Direto do APK no Navegador (GitHub Releases)
+                  </span>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/40 font-mono">
+                    Automático
+                  </span>
+                </div>
+                <p className="text-zinc-300 text-xs leading-relaxed">
+                  O GitHub Actions compila o projeto nativo em C++ e publica automaticamente o arquivo <code className="text-amber-400 font-mono">Hera-Juno-Synth-debug.apk</code> na aba <strong>Releases</strong>. Você pode baixar direto no seu celular Android:
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <a
+                    href="https://github.com/danilokosky/Hera_Juno/releases/tag/latest-apk"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold text-xs rounded-lg shadow-md cursor-pointer transition-all active:scale-95"
+                  >
+                    <Download size={14} />
+                    <span>Baixar APK (GitHub Releases)</span>
+                    <ExternalLink size={12} className="opacity-70" />
+                  </a>
+                  <a
+                    href="https://github.com/danilokosky/Hera_Juno/actions"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-mono text-xs rounded-lg border border-zinc-700 cursor-pointer transition-colors"
+                  >
+                    <span>Ver Execuções no GitHub Actions</span>
+                    <ExternalLink size={12} className="opacity-70" />
+                  </a>
+                </div>
+              </div>
+
+              {/* How it works directly from the browser */}
+              <div className="bg-zinc-950 p-3.5 rounded-lg border border-zinc-800 font-mono text-xs text-zinc-300 space-y-2">
+                <p className="text-amber-400 font-bold">// Fluxo 100% pelo Navegador:</p>
+                <p className="text-zinc-400">1. A cada commit ou quando você clica em <strong>"Run workflow"</strong> na aba Actions do GitHub, a máquina virtual do GitHub compila o código em C++ NDK e Kotlin.</p>
+                <p className="text-zinc-400">2. A action gera o release oficial <code className="text-emerald-400">latest-apk</code> com o arquivo <code className="text-emerald-400">Hera-Juno-Synth-debug.apk</code> anexado.</p>
+                <p className="text-zinc-400">3. Pelo navegador do seu celular Android, basta abrir o link de Releases, tocar no APK para baixar e instalar diretamente!</p>
               </div>
 
               <button
@@ -274,7 +306,7 @@ export const AndroidMidiModal: React.FC<AndroidMidiModalProps> = ({
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded font-mono text-xs cursor-pointer border border-zinc-700"
               >
                 {copied ? <CheckCircle size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                <span>{copied ? 'Copied to clipboard!' : 'Copy Build Instructions'}</span>
+                <span>{copied ? 'Instruções copiadas!' : 'Copiar Instruções'}</span>
               </button>
             </div>
           )}
