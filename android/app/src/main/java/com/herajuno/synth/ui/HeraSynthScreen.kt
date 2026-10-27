@@ -31,9 +31,7 @@ import androidx.compose.ui.unit.sp
 import com.herajuno.synth.audio.NativeAudioEngine
 import com.herajuno.synth.midi.MidiControllerManager
 import com.herajuno.synth.midi.MidiParams
-import com.herajuno.synth.presets.JunoPreset
 import com.herajuno.synth.presets.JunoPresets
-import kotlinx.coroutines.isActive
 
 @Composable
 fun HeraSynthScreen(midiManager: MidiControllerManager) {
@@ -772,7 +770,7 @@ fun JunoMultiTouchKeyboard(octaveShift: Int) {
             .fillMaxSize()
             .pointerInput(baseNote) {
                 awaitPointerEventScope {
-                    while (isActive) {
+                    while (true) {
                         val event = awaitPointerEvent()
                         val numWhite = whiteNotes.size
                         val whiteKeyWidth = size.width / numWhite

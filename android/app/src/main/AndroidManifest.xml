@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.herajuno.synth">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Audio and MIDI Hardware Features -->
     <uses-feature android:name="android.hardware.audio.low_latency" android:required="true" />
