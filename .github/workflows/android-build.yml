@@ -24,30 +24,24 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Accept Android SDK Licenses & Setup NDK
+      - name: Accept Android SDK Licenses
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager --install "cmake;3.22.1" "ndk;26.1.10909125" || true
 
       - name: Build Debug APK with Gradle
         working-directory: ./android
         run: |
-          # Garante que o wrapper seja gerado caso esteja vazio
-          if [ ! -s "./gradlew" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Inicializando wrapper do Gradle..."
-            gradle wrapper --gradle-version 8.2 || true
-          fi
           chmod +x ./gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          ./gradlew :app:assembleDebug --no-daemon
 
       - name: Locate and Prepare APK Asset
         run: |
           mkdir -p release-assets
           echo "Procurando arquivo APK gerado pelo Gradle..."
-          APK_FILE=$(find . -type f -name "*.apk" | head -n 1)
+          APK_FILE=$(find android -type f -name "*.apk" | head -n 1)
           if [ -z "$APK_FILE" ]; then
             echo "ERRO: Nenhum arquivo APK foi encontrado no diretório de compilação!"
-            find . -type d -name "build"
+            find android -type d -name "build"
             exit 1
           fi
           echo "APK encontrado com sucesso em: $APK_FILE"

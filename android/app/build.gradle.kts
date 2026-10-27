@@ -6,7 +6,6 @@ plugins {
 android {
     namespace = "com.herajuno.synth"
     compileSdk = 34
-    ndkVersion = "26.1.10909125"
 
     defaultConfig {
         applicationId = "com.herajuno.synth"
@@ -27,7 +26,7 @@ android {
             }
         }
         ndk {
-            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64"))
+            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
         }
     }
 
@@ -61,7 +60,6 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
         }
     }
 
@@ -83,7 +81,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
