@@ -5,7 +5,7 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
-  workflow_dispatch: # Permite compilar manualmente com 1 clique na aba Actions
+  workflow_dispatch: # Permite disparar manualmente pela aba Actions
 
 jobs:
   build-apk:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -23,12 +23,10 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Setup Android SDK & NDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install CMake & NDK Components
+      - name: Accept Android SDK Licenses & Setup NDK
         run: |
-          sdkmanager --install "cmake;3.22.1" "ndk;26.1.10909125"
+          yes | sdkmanager --licenses || true
+          sdkmanager --install "cmake;3.22.1" "ndk;26.1.10909125" || true
 
       - name: Grant Execute Permission to Gradlew
         run: chmod +x ./android/gradlew
@@ -37,7 +35,7 @@ jobs:
         working-directory: ./android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK to GitHub Actions Artifacts
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Hera-Juno-Synth-Debug-APK
