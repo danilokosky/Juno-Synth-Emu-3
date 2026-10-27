@@ -2,93 +2,136 @@ package com.herajuno.synth
 
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.webkit.*
 import androidx.activity.ComponentActivity
+import androidx.webkit.WebViewAssetLoader
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var webView: WebView
+    private val TAG = "HeraJuno"
+    private var webView: WebView? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Lock landscape for full synthesizer layout
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        // Keep screen on during live synth performance
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        try {
+            // Keep screen on during live synthesizer performance
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window.setBackgroundDrawableResource(android.R.color.black)
 
-        // Fullscreen immersive mode
-        hideSystemUI()
+            // Setup secure local asset loader for Vite ES modules & Web Audio
+            val assetLoader = WebViewAssetLoader.Builder()
+                .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+                .build()
 
-        webView = WebView(this).apply {
-            settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                databaseEnabled = true
-                mediaPlaybackRequiresUserGesture = false
-                allowFileAccess = true
-                allowContentAccess = true
-                setSupportZoom(false)
-                builtInZoomControls = false
-                displayZoomControls = false
-                useWideViewPort = true
-                loadWithOverviewMode = true
-                cacheMode = WebSettings.LOAD_DEFAULT
-            }
+            val wv = WebView(this).apply {
+                setBackgroundColor(Color.BLACK)
 
-            // Enable hardware acceleration for smooth 60fps oscilloscope and knobs
-            setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    mediaPlaybackRequiresUserGesture = false
+                    allowFileAccess = true
+                    allowContentAccess = true
+                    setSupportZoom(false)
+                    builtInZoomControls = false
+                    displayZoomControls = false
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    cacheMode = WebSettings.LOAD_DEFAULT
 
-            // WebChromeClient for permissions (Audio / MIDI)
-            webChromeClient = object : WebChromeClient() {
-                override fun onPermissionRequest(request: PermissionRequest?) {
-                    request?.grant(request.resources)
+                    // Allow local scripts to access local files if fallback to file:// is used
+                    @Suppress("DEPRECATION")
+                    allowFileAccessFromFileURLs = true
+                    @Suppress("DEPRECATION")
+                    allowUniversalAccessFromFileURLs = true
                 }
 
-                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                    android.util.Log.d("HeraJuno", "[Web] ${consoleMessage?.message()}")
-                    return true
+                // Enable OpenGL hardware acceleration
+                setLayerType(View.LAYER_TYPE_HARDWARE, null)
+
+                webChromeClient = object : WebChromeClient() {
+                    override fun onPermissionRequest(request: PermissionRequest?) {
+                        try {
+                            request?.grant(request.resources)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Permission request error", e)
+                        }
+                    }
+
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                        consoleMessage?.let {
+                            Log.d(TAG, "[WebConsole] ${it.message()} (line ${it.lineNumber()})")
+                        }
+                        return true
+                    }
+                }
+
+                webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(
+                        view: WebView,
+                        request: WebResourceRequest
+                    ): WebResourceResponse? {
+                        return assetLoader.shouldInterceptRequest(request.url)
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                        error: WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
+                        Log.e(TAG, "WebView load error: ${error?.description} for ${request?.url}")
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        Log.i(TAG, "Hera Juno Synthesizer loaded successfully: $url")
+                    }
                 }
             }
 
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-                    android.util.Log.i("HeraJuno", "Synth Web Engine loaded successfully: $url")
-                }
-            }
+            this.webView = wv
+            setContentView(wv)
+
+            // Load via secure asset loader (enables ES Modules & Web Audio with zero CORS issues)
+            wv.loadUrl("https://appassets.androidplatform.net/assets/index.html")
+
+        } catch (e: Throwable) {
+            Log.e(TAG, "Fatal error initializing MainActivity", e)
         }
-
-        setContentView(webView)
-
-        // Load the offline bundled synthesizer app
-        webView.loadUrl("file:///android_asset/index.html")
     }
 
     private fun hideSystemUI() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let { controller ->
-                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.insetsController?.let { controller ->
+                    controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                    controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    or View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                )
             }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                or View.SYSTEM_UI_FLAG_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Non-fatal error in hideSystemUI", e)
         }
     }
 
@@ -101,16 +144,29 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        webView.onResume()
+        try {
+            webView?.onResume()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onResume", e)
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        webView.onPause()
+        try {
+            webView?.onPause()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onPause", e)
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        webView.destroy()
+        try {
+            webView?.destroy()
+            webView = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onDestroy", e)
+        }
     }
 }

@@ -1,40 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Audio and MIDI Hardware Features -->
-    <uses-feature android:name="android.hardware.audio.low_latency" android:required="true" />
+    <!-- Audio and MIDI Hardware Features (Optional so all devices can install & run) -->
+    <uses-feature android:name="android.hardware.audio.low_latency" android:required="false" />
     <uses-feature android:name="android.hardware.audio.pro" android:required="false" />
-    <uses-feature android:name="android.hardware.midi" android:required="true" />
+    <uses-feature android:name="android.hardware.midi" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
-    <!-- Permissions for USB & Bluetooth MIDI Controllers -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <!-- Permissions for Audio, Storage & MIDI -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:allowBackup="true"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="Hera Juno Synth"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:hardwareAccelerated="true"
+        android:theme="@style/Theme.HeraJuno">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode"
             android:screenOrientation="sensorLandscape"
-            android:theme="@android:style/Theme.Material.NoActionBar">
+            android:windowSoftInputMode="adjustNothing"
+            android:theme="@style/Theme.HeraJuno">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <!-- USB MIDI Controller Auto-attach Intent -->
-            <intent-filter>
-                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
         </activity>
     </application>
