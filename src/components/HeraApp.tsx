@@ -21,11 +21,13 @@ import {
   Sparkles,
   Info,
   Layers,
-  HelpCircle
+  HelpCircle,
+  Sliders,
+  Check,
+  Smartphone
 } from 'lucide-react';
 
 import { AndroidMidiModal } from './AndroidMidiModal';
-import { Smartphone } from 'lucide-react';
 
 export const HeraApp: React.FC = () => {
   const [params, setParams] = useState<HeraParameters>(() => {
@@ -49,6 +51,11 @@ export const HeraApp: React.FC = () => {
   const [midiActive, setMidiActive] = useState<boolean>(false);
   const [midiManagerInstance, setMidiManagerInstance] = useState<MidiManager | null>(null);
   const [currentMidiMapping, setCurrentMidiMapping] = useState<Record<number, keyof HeraParameters>>({});
+
+  // Interactive MIDI Learn Mode State
+  const [isMidiLearnActive, setIsMidiLearnActive] = useState<boolean>(false);
+  const [selectedLearnParam, setSelectedLearnParam] = useState<keyof HeraParameters | null>(null);
+  const [lastLearnedInfo, setLastLearnedInfo] = useState<{ param: string; cc: number } | null>(null);
 
   // Help & Android modals
   const [showHelp, setShowHelp] = useState<boolean>(false);
@@ -83,6 +90,14 @@ export const HeraApp: React.FC = () => {
       },
       (param, val) => {
         setParams((prev) => ({ ...prev, [param]: val }));
+      },
+      (mapping, learnedParam, learnedCC) => {
+        setCurrentMidiMapping({ ...mapping });
+        if (learnedParam && learnedCC !== undefined) {
+          setSelectedLearnParam(null);
+          setLastLearnedInfo({ param: String(learnedParam), cc: learnedCC });
+          setTimeout(() => setLastLearnedInfo(null), 3500);
+        }
       }
     );
 
@@ -131,6 +146,33 @@ export const HeraApp: React.FC = () => {
     handleParamChange(chorusNum, current > 0.5 ? 0 : 1);
   };
 
+  // MIDI Learn Selection & Unmapping Helpers
+  const handleSelectForLearn = (param: keyof HeraParameters) => {
+    if (selectedLearnParam === param) {
+      setSelectedLearnParam(null);
+      midiManagerInstance?.setLearnParam(null);
+    } else {
+      setSelectedLearnParam(param);
+      midiManagerInstance?.setLearnParam(param);
+    }
+  };
+
+  const handleUnmapParam = (param: keyof HeraParameters) => {
+    midiManagerInstance?.unmapParam(param);
+    setCurrentMidiMapping(midiManagerInstance?.getMapping() || {});
+    if (selectedLearnParam === param) {
+      setSelectedLearnParam(null);
+      midiManagerInstance?.setLearnParam(null);
+    }
+  };
+
+  const getMappedCC = (param: keyof HeraParameters): number | null => {
+    for (const [ccStr, p] of Object.entries(currentMidiMapping)) {
+      if (p === param) return Number(ccStr);
+    }
+    return null;
+  };
+
   return (
     <div
       onClick={startAudioOnInteraction}
@@ -140,8 +182,8 @@ export const HeraApp: React.FC = () => {
       <div className="flex-1 max-w-[1440px] w-full mx-auto my-0 sm:my-3 px-1 sm:px-3">
         <div className="relative rounded-lg shadow-2xl border-4 border-stone-800 bg-zinc-900 flex flex-col overflow-hidden">
           {/* Wood Cheeks Simulation (Left & Right Borders) */}
-          <div className="hidden lg:block absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r from-amber-950 via-amber-900 to-amber-950 border-r border-amber-900/60 z-30" />
-          <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-3 bg-gradient-to-l from-amber-950 via-amber-900 to-amber-950 border-l border-amber-900/60 z-30" />
+          <div className="hidden lg:block absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r from-amber-950 via-amber-900 to-amber-950 border-r border-amber-900/60 z-30 pointer-events-none" />
+          <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-3 bg-gradient-to-l from-amber-950 via-amber-900 to-amber-950 border-l border-amber-900/60 z-30 pointer-events-none" />
 
           {/* Top Roland Header Bar */}
           <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 px-4 py-2 border-b-2 border-zinc-700 flex flex-wrap items-center justify-between gap-3">
@@ -185,6 +227,33 @@ export const HeraApp: React.FC = () => {
                     }`}
                   />
                 </div>
+
+                {/* Interactive MIDI LEARN Main Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isMidiLearnActive;
+                    setIsMidiLearnActive(next);
+                    if (!next) {
+                      setSelectedLearnParam(null);
+                      midiManagerInstance?.setLearnParam(null);
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono font-bold transition-all cursor-pointer shadow-sm ${
+                    isMidiLearnActive
+                      ? 'bg-amber-500 text-zinc-950 border-2 border-amber-300 ring-2 ring-amber-400/80 animate-pulse'
+                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700'
+                  }`}
+                  title="Ativar/Desativar modo MIDI Learn para mapear controles físicos do teclado"
+                >
+                  <Sliders size={13} className={isMidiLearnActive ? 'text-zinc-950' : 'text-amber-400'} />
+                  <span>{isMidiLearnActive ? 'LEARN [ATIVO]' : 'MIDI LEARN'}</span>
+                  <span className={`text-[10px] px-1 py-0.2 rounded font-mono ${
+                    isMidiLearnActive ? 'bg-zinc-950 text-amber-300' : 'bg-zinc-900 text-zinc-400'
+                  }`}>
+                    {Object.keys(currentMidiMapping).length}
+                  </span>
+                </button>
 
                 {/* Record Button */}
                 <button
@@ -242,15 +311,15 @@ export const HeraApp: React.FC = () => {
                   />
                 </div>
 
-                {/* Android Native C++ & MIDI Mapping Button */}
+                {/* Android Native APK & MIDI Mapping Button */}
                 <button
                   type="button"
                   onClick={() => setShowAndroidModal(true)}
                   className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 rounded text-xs font-mono font-bold cursor-pointer transition-colors shadow-sm"
-                  title="Open Android Native C++ & MIDI Mapping settings"
+                  title="Abrir configurações de MIDI e download do APK Android"
                 >
                   <Smartphone size={13} />
-                  <span>Android NDK & MIDI</span>
+                  <span>Android & MIDI</span>
                 </button>
 
                 {/* Help button */}
@@ -258,7 +327,7 @@ export const HeraApp: React.FC = () => {
                   type="button"
                   onClick={() => setShowHelp(true)}
                   className="p-1 text-zinc-400 hover:text-zinc-200 rounded cursor-pointer"
-                  title="Keyboard shortcuts & manual"
+                  title="Ajuda e manual do Juno-60"
                 >
                   <HelpCircle size={15} />
                 </button>
@@ -266,12 +335,60 @@ export const HeraApp: React.FC = () => {
             </div>
           </div>
 
-          {/* Juno Synthetic Control Panel (Sliders & Sections) */}
-          <div className="bg-gradient-to-b from-[#1b1c20] to-[#121316] p-2 sm:p-4 border-b border-zinc-800 overflow-x-auto">
-            <div className="flex flex-nowrap items-stretch gap-2 sm:gap-3 min-w-[940px]">
+          {/* Interactive MIDI Learn Floating Status Banner */}
+          {isMidiLearnActive && (
+            <div className="bg-gradient-to-r from-amber-950 via-zinc-900 to-amber-950 border-b-2 border-amber-500 px-4 py-2 flex flex-wrap items-center justify-between gap-2 shadow-lg animate-in fade-in slide-in-from-top-1 duration-200">
+              <div className="flex items-center gap-2">
+                <span className="flex h-3 w-3 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                </span>
+                {selectedLearnParam ? (
+                  <span className="text-xs sm:text-sm font-mono text-amber-300 font-bold">
+                    🎯 AURÉOLA ATIVA: <span className="text-white bg-amber-900/60 px-2 py-0.5 rounded border border-amber-400 uppercase tracking-wider">{selectedLearnParam}</span> — Mova agora qualquer knob, fader ou botão no seu teclado MIDI para vincular!
+                  </span>
+                ) : (
+                  <span className="text-xs sm:text-sm font-mono text-zinc-300">
+                    ⚡ <strong className="text-amber-400">MODO MIDI LEARN ATIVO</strong>: Toque em qualquer fader ou botão abaixo (com a auréola) para selecioná-lo e girar o botão no seu controlador. Para desmapear, clique no <strong className="text-red-400">✕</strong> da etiqueta.
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {lastLearnedInfo && (
+                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-emerald-600 text-white font-bold animate-in fade-in">
+                    ✓ CC {lastLearnedInfo.cc} mapeado para {lastLearnedInfo.param}!
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMidiLearnActive(false);
+                    setSelectedLearnParam(null);
+                    midiManagerInstance?.setLearnParam(null);
+                  }}
+                  className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-mono font-bold rounded border border-zinc-600 cursor-pointer"
+                >
+                  Concluir
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Roland Multi-Stripe Color Separator */}
+          <div className="flex h-1.5 w-full">
+            <div className="flex-1 bg-red-600" />
+            <div className="flex-1 bg-amber-600" />
+            <div className="flex-1 bg-yellow-500" />
+            <div className="flex-1 bg-cyan-500" />
+            <div className="flex-1 bg-blue-600" />
+          </div>
+
+          {/* Main Juno-60 Synth Control Panel */}
+          <div className="bg-zinc-900 p-2 sm:p-4 border-b border-zinc-800">
+            <div className="flex flex-col lg:flex-row gap-2 sm:gap-3 overflow-x-auto pb-2">
               {/* SECTION: LFO */}
-              <div className="flex-1 bg-zinc-950/70 border-t-4 border-t-amber-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
-                <div className="text-[11px] font-black font-mono tracking-widest text-amber-400 uppercase text-center pb-1 border-b border-zinc-800/80">
+              <div className="flex-1 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md min-w-[130px]">
+                <div className="text-[11px] font-black font-mono tracking-widest text-yellow-400 uppercase text-center pb-1 border-b border-zinc-800/80">
                   LFO
                 </div>
                 <div className="flex items-center justify-around gap-2 my-2">
@@ -281,6 +398,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('LFORate', v)}
                     defaultValue={0.6}
                     color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'LFORate'}
+                    mappedCC={getMappedCC('LFORate')}
+                    onSelectForLearn={() => handleSelectForLearn('LFORate')}
+                    onUnmap={() => handleUnmapParam('LFORate')}
                   />
                   <Slider
                     label="Delay"
@@ -288,6 +410,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('LFODelay', v)}
                     defaultValue={0.0}
                     color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'LFODelay'}
+                    mappedCC={getMappedCC('LFODelay')}
+                    onSelectForLearn={() => handleSelectForLearn('LFODelay')}
+                    onUnmap={() => handleUnmapParam('LFODelay')}
                   />
                 </div>
                 {/* Manual LFO Trigger button (iconic Juno button!) */}
@@ -348,6 +475,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('DCOPitchModDepth', v)}
                     defaultValue={0}
                     color="red"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'DCOPitchModDepth'}
+                    mappedCC={getMappedCC('DCOPitchModDepth')}
+                    onSelectForLearn={() => handleSelectForLearn('DCOPitchModDepth')}
+                    onUnmap={() => handleUnmapParam('DCOPitchModDepth')}
                   />
                   <Slider
                     label="PWM"
@@ -355,6 +487,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('DCOPWMDepth', v)}
                     defaultValue={0}
                     color="red"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'DCOPWMDepth'}
+                    mappedCC={getMappedCC('DCOPWMDepth')}
+                    onSelectForLearn={() => handleSelectForLearn('DCOPWMDepth')}
+                    onUnmap={() => handleUnmapParam('DCOPWMDepth')}
                   />
                   <Slider
                     label="Pulse"
@@ -362,6 +499,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('DCOPulseLevel', v)}
                     defaultValue={0}
                     color="red"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'DCOPulseLevel'}
+                    mappedCC={getMappedCC('DCOPulseLevel')}
+                    onSelectForLearn={() => handleSelectForLearn('DCOPulseLevel')}
+                    onUnmap={() => handleUnmapParam('DCOPulseLevel')}
                   />
                   <Slider
                     label="Saw"
@@ -369,6 +511,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('DCOSawLevel', v)}
                     defaultValue={1.0}
                     color="red"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'DCOSawLevel'}
+                    mappedCC={getMappedCC('DCOSawLevel')}
+                    onSelectForLearn={() => handleSelectForLearn('DCOSawLevel')}
+                    onUnmap={() => handleUnmapParam('DCOSawLevel')}
                   />
                   <Slider
                     label="Sub"
@@ -376,6 +523,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('DCOSubLevel', v)}
                     defaultValue={0}
                     color="red"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'DCOSubLevel'}
+                    mappedCC={getMappedCC('DCOSubLevel')}
+                    onSelectForLearn={() => handleSelectForLearn('DCOSubLevel')}
+                    onUnmap={() => handleUnmapParam('DCOSubLevel')}
                   />
                   <Slider
                     label="Noise"
@@ -383,6 +535,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('DCONoiseLevel', v)}
                     defaultValue={0}
                     color="red"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'DCONoiseLevel'}
+                    mappedCC={getMappedCC('DCONoiseLevel')}
+                    onSelectForLearn={() => handleSelectForLearn('DCONoiseLevel')}
+                    onUnmap={() => handleUnmapParam('DCONoiseLevel')}
                   />
                 </div>
                 <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
@@ -403,6 +560,11 @@ export const HeraApp: React.FC = () => {
                     defaultValue={0}
                     color="cyan"
                     formatValue={(v) => (v < 0.05 ? '0' : (v * 3).toFixed(0))}
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'HPF'}
+                    mappedCC={getMappedCC('HPF')}
+                    onSelectForLearn={() => handleSelectForLearn('HPF')}
+                    onUnmap={() => handleUnmapParam('HPF')}
                   />
                 </div>
                 <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
@@ -422,6 +584,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('VCFCutoff', v)}
                     defaultValue={0.5}
                     color="cyan"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'VCFCutoff'}
+                    mappedCC={getMappedCC('VCFCutoff')}
+                    onSelectForLearn={() => handleSelectForLearn('VCFCutoff')}
+                    onUnmap={() => handleUnmapParam('VCFCutoff')}
                   />
                   <Slider
                     label="Res"
@@ -429,6 +596,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('VCFResonance', v)}
                     defaultValue={0}
                     color="cyan"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'VCFResonance'}
+                    mappedCC={getMappedCC('VCFResonance')}
+                    onSelectForLearn={() => handleSelectForLearn('VCFResonance')}
+                    onUnmap={() => handleUnmapParam('VCFResonance')}
                   />
                   <Slider
                     label="Env"
@@ -441,6 +613,11 @@ export const HeraApp: React.FC = () => {
                     defaultValue={0}
                     color="cyan"
                     formatValue={(v) => (v > 0 ? `+${(v * 10).toFixed(1)}` : (v * 10).toFixed(1))}
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'VCFEnv'}
+                    mappedCC={getMappedCC('VCFEnv')}
+                    onSelectForLearn={() => handleSelectForLearn('VCFEnv')}
+                    onUnmap={() => handleUnmapParam('VCFEnv')}
                   />
                   <Slider
                     label="LFO"
@@ -448,6 +625,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('VCFLFO', v)}
                     defaultValue={0}
                     color="cyan"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'VCFLFO'}
+                    mappedCC={getMappedCC('VCFLFO')}
+                    onSelectForLearn={() => handleSelectForLearn('VCFLFO')}
+                    onUnmap={() => handleUnmapParam('VCFLFO')}
                   />
                   <Slider
                     label="Kybd"
@@ -455,6 +637,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('VCFKey', v)}
                     defaultValue={0}
                     color="cyan"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'VCFKey'}
+                    mappedCC={getMappedCC('VCFKey')}
+                    onSelectForLearn={() => handleSelectForLearn('VCFKey')}
+                    onUnmap={() => handleUnmapParam('VCFKey')}
                   />
                   <Slider
                     label="Bend"
@@ -462,6 +649,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('VCFBendDepth', v)}
                     defaultValue={0}
                     color="cyan"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'VCFBendDepth'}
+                    mappedCC={getMappedCC('VCFBendDepth')}
+                    onSelectForLearn={() => handleSelectForLearn('VCFBendDepth')}
+                    onUnmap={() => handleUnmapParam('VCFBendDepth')}
                   />
                 </div>
                 <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
@@ -490,6 +682,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('VCADepth', v)}
                     defaultValue={0.5}
                     color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'VCADepth'}
+                    mappedCC={getMappedCC('VCADepth')}
+                    onSelectForLearn={() => handleSelectForLearn('VCADepth')}
+                    onUnmap={() => handleUnmapParam('VCADepth')}
                   />
                 </div>
                 <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
@@ -509,6 +706,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('ENVAttack', v)}
                     defaultValue={0}
                     color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'ENVAttack'}
+                    mappedCC={getMappedCC('ENVAttack')}
+                    onSelectForLearn={() => handleSelectForLearn('ENVAttack')}
+                    onUnmap={() => handleUnmapParam('ENVAttack')}
                   />
                   <Slider
                     label="D"
@@ -516,6 +718,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('ENVDecay', v)}
                     defaultValue={0}
                     color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'ENVDecay'}
+                    mappedCC={getMappedCC('ENVDecay')}
+                    onSelectForLearn={() => handleSelectForLearn('ENVDecay')}
+                    onUnmap={() => handleUnmapParam('ENVDecay')}
                   />
                   <Slider
                     label="S"
@@ -523,6 +730,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('ENVSustain', v)}
                     defaultValue={1.0}
                     color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'ENVSustain'}
+                    mappedCC={getMappedCC('ENVSustain')}
+                    onSelectForLearn={() => handleSelectForLearn('ENVSustain')}
+                    onUnmap={() => handleUnmapParam('ENVSustain')}
                   />
                   <Slider
                     label="R"
@@ -530,6 +742,11 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('ENVRelease', v)}
                     defaultValue={0}
                     color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'ENVRelease'}
+                    mappedCC={getMappedCC('ENVRelease')}
+                    onSelectForLearn={() => handleSelectForLearn('ENVRelease')}
+                    onUnmap={() => handleUnmapParam('ENVRelease')}
                   />
                 </div>
                 <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
@@ -547,11 +764,21 @@ export const HeraApp: React.FC = () => {
                     label="I"
                     active={params.ChorusI > 0.5}
                     onClick={() => handleChorusToggle('ChorusI')}
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'ChorusI'}
+                    mappedCC={getMappedCC('ChorusI')}
+                    onSelectForLearn={() => handleSelectForLearn('ChorusI')}
+                    onUnmap={() => handleUnmapParam('ChorusI')}
                   />
                   <ChorusButton
                     label="II"
                     active={params.ChorusII > 0.5}
                     onClick={() => handleChorusToggle('ChorusII')}
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'ChorusII'}
+                    mappedCC={getMappedCC('ChorusII')}
+                    onSelectForLearn={() => handleSelectForLearn('ChorusII')}
+                    onUnmap={() => handleUnmapParam('ChorusII')}
                   />
                 </div>
                 <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
@@ -589,7 +816,7 @@ export const HeraApp: React.FC = () => {
           <div className="bg-zinc-900 border border-zinc-700 rounded-lg max-w-lg w-full p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
               <h3 className="font-mono text-lg font-bold text-amber-400">
-                Hera Juno Synthesizer Guide
+                Guia do Hera Juno Synthesizer
               </h3>
               <button
                 type="button"
@@ -602,39 +829,43 @@ export const HeraApp: React.FC = () => {
 
             <div className="text-xs space-y-3 text-zinc-300 font-sans">
               <div>
-                <h4 className="font-bold text-zinc-100 mb-1">Computer Keyboard Shortcuts</h4>
+                <h4 className="font-bold text-zinc-100 mb-1">Como usar o MIDI Learn</h4>
+                <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-1.5 border border-zinc-800 text-zinc-300">
+                  <p>1. Clique no botão <strong className="text-amber-400">MIDI LEARN</strong> na barra superior.</p>
+                  <p>2. Todos os controles mostrarão as etiquetas de CC atual ou botão <code className="text-amber-400">+ LEARN</code>.</p>
+                  <p>3. Toque no controle desejado: uma <strong className="text-amber-400">auréola luminosa pulsante</strong> indicará que ele está selecionado.</p>
+                  <p>4. Mova qualquer knob ou fader no seu teclado MIDI externo: o controle será vinculado imediatamente!</p>
+                  <p>5. Para desmapear, basta clicar no <strong className="text-red-400">✕</strong> na etiqueta do controle.</p>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-zinc-100 mb-1">Atalhos de Teclado no PC</h4>
                 <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] grid grid-cols-2 gap-2 border border-zinc-800">
                   <div>
-                    <span className="text-amber-400 font-bold">Lower Octave:</span>
+                    <span className="text-amber-400 font-bold">Oitava Inferior:</span>
                     <p className="text-zinc-400">Z, S, X, D, C, V, G, B, H, N, J, M</p>
                   </div>
                   <div>
-                    <span className="text-amber-400 font-bold">Upper Octave:</span>
+                    <span className="text-amber-400 font-bold">Oitava Superior:</span>
                     <p className="text-zinc-400">Q, 2, W, 3, E, R, 5, T, 6, Y, 7, U, I</p>
                   </div>
                 </div>
               </div>
 
               <div>
-                <h4 className="font-bold text-zinc-100 mb-1">Roland Juno Chorus</h4>
+                <h4 className="font-bold text-zinc-100 mb-1">Roland Juno Chorus BBD</h4>
                 <p className="text-zinc-400 leading-relaxed">
-                  Press <strong>Chorus I</strong> for gentle stereo shimmer (0.513 Hz LFO),{' '}
-                  <strong>Chorus II</strong> for deeper, richer wobble (0.863 Hz LFO), or{' '}
-                  <strong>both I & II</strong> simultaneously for the legendary Juno fast vibrato / rotary Leslie swirl (9.75 Hz)!
+                  Pressione <strong>Chorus I</strong> para ambiência suave (0.513 Hz),{' '}
+                  <strong>Chorus II</strong> para modulação mais profunda (0.863 Hz), ou{' '}
+                  <strong>ambos I & II</strong> para o lendário efeito rotary/vibrato rápido (9.75 Hz)!
                 </p>
               </div>
 
               <div>
-                <h4 className="font-bold text-zinc-100 mb-1">Web MIDI Support</h4>
+                <h4 className="font-bold text-zinc-100 mb-1">Gerenciador de Presets</h4>
                 <p className="text-zinc-400 leading-relaxed">
-                  Plug in any USB or Bluetooth MIDI keyboard controller. Hera detects it automatically with full support for Note On/Off, Pitch Bend Wheel, Modulation Wheel, Cutoff (CC 74), and Resonance (CC 71).
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-zinc-100 mb-1">Preset Management</h4>
-                <p className="text-zinc-400 leading-relaxed">
-                  Includes all 56 authentic Roland Juno-60 factory presets (Presets 000 - 055). You can customize any parameter, save your own custom presets to browser storage, and export/import XML preset files compatible with the Hera engine.
+                  Inclui todos os 56 presets de fábrica autênticos do Roland Juno-60 (000 - 055). Você pode salvar presets customizados no armazenamento local e exportar/importar arquivos XML.
                 </p>
               </div>
             </div>
@@ -645,7 +876,7 @@ export const HeraApp: React.FC = () => {
                 onClick={() => setShowHelp(false)}
                 className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-mono font-bold rounded cursor-pointer text-xs"
               >
-                Close
+                Entendi
               </button>
             </div>
           </div>
@@ -666,4 +897,3 @@ export const HeraApp: React.FC = () => {
     </div>
   );
 };
-

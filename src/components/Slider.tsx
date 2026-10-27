@@ -12,6 +12,13 @@ interface SliderProps {
   formatValue?: (val: number) => string;
   onChange: (val: number) => void;
   className?: string;
+
+  // MIDI Learn Integration
+  isMidiLearnActive?: boolean;
+  isSelectedForLearn?: boolean;
+  mappedCC?: number | null;
+  onSelectForLearn?: () => void;
+  onUnmap?: () => void;
 }
 
 export const Slider: React.FC<SliderProps> = ({
@@ -26,7 +33,13 @@ export const Slider: React.FC<SliderProps> = ({
   formatValue,
   onChange,
   className = '',
+  isMidiLearnActive = false,
+  isSelectedForLearn = false,
+  mappedCC = null,
+  onSelectForLearn,
+  onUnmap,
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
@@ -41,6 +54,8 @@ export const Slider: React.FC<SliderProps> = ({
       if (!track) return;
       const rect = track.getBoundingClientRect();
       const height = rect.height;
+      if (height <= 0) return;
+
       // Inverted: bottom is min, top is max
       const ratio = 1 - Math.max(0, Math.min(1, (clientY - rect.top) / height));
       let newVal = min + ratio * range;
@@ -53,20 +68,55 @@ export const Slider: React.FC<SliderProps> = ({
     [min, max, range, step, onChange]
   );
 
+  // Window-level pointer listeners while dragging for glitch-free touch response
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleWindowPointerMove = (e: PointerEvent) => {
+      e.preventDefault();
+      updateFromPointer(e.clientY);
+    };
+
+    const handleWindowPointerUp = () => {
+      setIsDragging(false);
+      setShowTooltip(false);
+    };
+
+    window.addEventListener('pointermove', handleWindowPointerMove, { passive: false });
+    window.addEventListener('pointerup', handleWindowPointerUp);
+    window.addEventListener('pointercancel', handleWindowPointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handleWindowPointerMove);
+      window.removeEventListener('pointerup', handleWindowPointerUp);
+      window.removeEventListener('pointercancel', handleWindowPointerUp);
+    };
+  }, [isDragging, updateFromPointer]);
+
+  // Touch and pointer down handler
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.stopPropagation();
+
+    // In MIDI learn mode: select this control for mapping instead of moving the fader
+    if (isMidiLearnActive) {
+      onSelectForLearn?.();
+      return;
+    }
+
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // Fallback gracefully if pointer capture is not supported
+    }
+
     setIsDragging(true);
     setShowTooltip(true);
     updateFromPointer(e.clientY);
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging) return;
-    updateFromPointer(e.clientY);
-  };
-
   const handlePointerUp = (e: React.PointerEvent) => {
+    e.preventDefault();
     if (isDragging) {
       setIsDragging(false);
       setShowTooltip(false);
@@ -74,6 +124,7 @@ export const Slider: React.FC<SliderProps> = ({
   };
 
   const handleWheel = (e: React.WheelEvent) => {
+    if (isMidiLearnActive) return;
     e.preventDefault();
     const delta = -Math.sign(e.deltaY) * (step || 0.05);
     const newVal = Math.max(min, Math.min(max, value + delta));
@@ -81,7 +132,9 @@ export const Slider: React.FC<SliderProps> = ({
   };
 
   const handleDoubleClick = () => {
-    onChange(defaultValue);
+    if (!isMidiLearnActive) {
+      onChange(defaultValue);
+    }
   };
 
   const displayString = formatValue
@@ -100,22 +153,75 @@ export const Slider: React.FC<SliderProps> = ({
 
   return (
     <div
-      className={`flex flex-col items-center select-none text-center ${className}`}
+      ref={containerRef}
+      className={`relative flex flex-col items-center select-none text-center p-1 rounded-lg transition-all duration-150 touch-none ${
+        isSelectedForLearn
+          ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-zinc-950 shadow-[0_0_24px_rgba(251,191,36,0.9)] animate-pulse bg-amber-500/10'
+          : isMidiLearnActive
+          ? 'hover:bg-zinc-800/40 cursor-pointer'
+          : ''
+      } ${className}`}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => !isDragging && setShowTooltip(false)}
       onWheel={handleWheel}
       onDoubleClick={handleDoubleClick}
+      onClick={() => {
+        if (isMidiLearnActive) {
+          onSelectForLearn?.();
+        }
+      }}
       title={`${label}: ${displayString} (Double-click to reset)`}
     >
+      {/* MIDI Learn Badge / Etiqueta */}
+      {isMidiLearnActive && (
+        <div className="mb-1 flex items-center justify-center min-h-[18px]">
+          {mappedCC !== null && mappedCC !== undefined ? (
+            <div className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[9px] font-mono font-black px-1.5 py-0.5 rounded shadow-md border border-amber-300 animate-in fade-in zoom-in-95">
+              <span>CC {mappedCC}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUnmap?.();
+                }}
+                className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-red-700 hover:bg-red-800 text-white text-[9px] font-black cursor-pointer leading-none transition-transform active:scale-90"
+                title={`Desmapear CC ${mappedCC}`}
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectForLearn?.();
+              }}
+              className={`text-[8px] font-mono px-1.5 py-0.5 rounded border border-dashed cursor-pointer transition-all ${
+                isSelectedForLearn
+                  ? 'bg-amber-500 text-zinc-950 font-bold border-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
+                  : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border-zinc-600'
+              }`}
+            >
+              {isSelectedForLearn ? 'AURA ON' : '+ LEARN'}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Label */}
-      <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider mb-1 truncate max-w-[48px]">
+      <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider mb-1 truncate max-w-[52px]">
         {label}
       </span>
 
-      {/* Fader Track & Scale */}
-      <div className="relative flex items-center justify-center w-8 h-28 my-1">
-        {/* Tick scale marks on left and right */}
-        <div className="absolute left-0 top-1 bottom-1 flex flex-col justify-between items-end pr-1 text-[7px] font-mono text-zinc-500 pointer-events-none">
+      {/* Fader Touch Target Container (Generous width for finger tap & drag) */}
+      <div
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        className="relative flex items-center justify-center w-10 sm:w-11 h-28 my-1 cursor-pointer touch-none active:brightness-110"
+      >
+        {/* Tick scale marks left side */}
+        <div className="absolute left-0.5 top-1 bottom-1 flex flex-col justify-between items-end pr-1 text-[7px] font-mono text-zinc-500 pointer-events-none">
           <span>10</span>
           <span>5</span>
           <span>0</span>
@@ -124,11 +230,11 @@ export const Slider: React.FC<SliderProps> = ({
         {/* Vertical Groove Slot */}
         <div
           ref={trackRef}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          className="relative w-2 h-full bg-zinc-950 rounded-full border border-zinc-800 shadow-inner cursor-pointer"
+          className={`relative w-2.5 h-full rounded-full border shadow-inner transition-colors ${
+            isDragging
+              ? 'bg-zinc-900 border-amber-500/70 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+              : 'bg-zinc-950 border-zinc-800'
+          }`}
         >
           {/* Center line for bipolar */}
           {bipolar && (
@@ -137,31 +243,41 @@ export const Slider: React.FC<SliderProps> = ({
 
           {/* Slider Cap */}
           <div
-            className="absolute left-1/2 -translate-x-1/2 w-6 h-6 -translate-y-1/2 pointer-events-none transition-transform duration-75"
+            className={`absolute left-1/2 -translate-x-1/2 w-7 h-7 -translate-y-1/2 pointer-events-none transition-transform duration-75 ${
+              isDragging ? 'scale-105 drop-shadow-[0_2px_8px_rgba(245,158,11,0.5)]' : ''
+            }`}
             style={{
-              bottom: `calc(${normalizedValue * 100}% - 12px)`,
+              bottom: `calc(${normalizedValue * 100}% - 14px)`,
             }}
           >
             {/* Ribbed Juno Fader Knob */}
             <div
-              className={`w-full h-full rounded shadow-md border bg-gradient-to-b ${capColorClass} flex items-center justify-center`}
+              className={`w-full h-full rounded-md shadow-lg border bg-gradient-to-b ${capColorClass} flex items-center justify-center ${
+                isDragging ? 'border-amber-300 ring-2 ring-amber-400/50' : ''
+              }`}
             >
-              {/* Center Line on knob cap */}
-              <div className="w-4 h-[2px] bg-zinc-950 shadow-sm rounded-full" />
+              {/* White Center Line on knob cap */}
+              <div className="w-5 h-[2.5px] bg-zinc-950 shadow-sm rounded-full" />
             </div>
           </div>
         </div>
 
         {/* Tick scale marks right side */}
-        <div className="absolute right-0 top-1 bottom-1 flex flex-col justify-between items-start pl-1 text-[7px] font-mono text-zinc-500 pointer-events-none">
-          <div className="w-1 h-[1px] bg-zinc-600" />
-          <div className="w-1.5 h-[1px] bg-zinc-500" />
-          <div className="w-1 h-[1px] bg-zinc-600" />
+        <div className="absolute right-0.5 top-1 bottom-1 flex flex-col justify-between items-start pl-1 text-[7px] font-mono text-zinc-500 pointer-events-none">
+          <div className="w-1.5 h-[1px] bg-zinc-600" />
+          <div className="w-2 h-[1px] bg-zinc-500" />
+          <div className="w-1.5 h-[1px] bg-zinc-600" />
         </div>
       </div>
 
       {/* Numerical Readout */}
-      <div className="mt-0.5 text-[9px] font-mono font-medium text-amber-400 bg-zinc-900/90 border border-zinc-800/80 rounded px-1 min-w-[28px] shadow-inner">
+      <div
+        className={`mt-0.5 text-[9px] font-mono font-medium rounded px-1 min-w-[28px] shadow-inner transition-colors ${
+          isDragging
+            ? 'text-amber-300 bg-zinc-950 border border-amber-500'
+            : 'text-amber-400 bg-zinc-900/90 border border-zinc-800/80'
+        }`}
+      >
         {displayString}
       </div>
     </div>

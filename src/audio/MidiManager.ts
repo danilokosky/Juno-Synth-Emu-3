@@ -44,6 +44,11 @@ export class MidiManager {
   private onDevicesChanged?: (devices: MidiDevice[]) => void;
   private onMidiActivity?: (cc?: number, value?: number) => void;
   private onParamChangedFromMidi?: (param: keyof HeraParameters, value: number) => void;
+  private onMappingChanged?: (
+    mapping: Record<number, keyof HeraParameters>,
+    learnedParam?: keyof HeraParameters,
+    learnedCC?: number
+  ) => void;
   private synth: HeraSynthesizerEngine;
 
   private ccMapping: Record<number, keyof HeraParameters> = { ...DEFAULT_MIDI_CC_MAP };
@@ -56,11 +61,17 @@ export class MidiManager {
   async init(
     onDevicesChanged?: (devices: MidiDevice[]) => void,
     onMidiActivity?: (cc?: number, value?: number) => void,
-    onParamChangedFromMidi?: (param: keyof HeraParameters, value: number) => void
+    onParamChangedFromMidi?: (param: keyof HeraParameters, value: number) => void,
+    onMappingChanged?: (
+      mapping: Record<number, keyof HeraParameters>,
+      learnedParam?: keyof HeraParameters,
+      learnedCC?: number
+    ) => void
   ) {
     this.onDevicesChanged = onDevicesChanged;
     this.onMidiActivity = onMidiActivity;
     this.onParamChangedFromMidi = onParamChangedFromMidi;
+    this.onMappingChanged = onMappingChanged;
 
     if (typeof navigator !== 'undefined' && 'requestMIDIAccess' in navigator) {
       this.isSupported = true;
@@ -76,6 +87,16 @@ export class MidiManager {
     }
   }
 
+  setOnMappingChanged(
+    cb: (
+      mapping: Record<number, keyof HeraParameters>,
+      learnedParam?: keyof HeraParameters,
+      learnedCC?: number
+    ) => void
+  ) {
+    this.onMappingChanged = cb;
+  }
+
   setLearnParam(param: keyof HeraParameters | null) {
     this.activeLearnParam = param;
   }
@@ -85,11 +106,44 @@ export class MidiManager {
   }
 
   mapCC(cc: number, param: keyof HeraParameters) {
+    // Remove existing mapping for this parameter if any
+    for (const [k, v] of Object.entries(this.ccMapping)) {
+      if (v === param) {
+        delete this.ccMapping[Number(k)];
+      }
+    }
     this.ccMapping[cc] = param;
+    this.onMappingChanged?.(this.getMapping(), param, cc);
+  }
+
+  unmapParam(param: keyof HeraParameters) {
+    for (const [k, v] of Object.entries(this.ccMapping)) {
+      if (v === param) {
+        delete this.ccMapping[Number(k)];
+      }
+    }
+    this.onMappingChanged?.(this.getMapping());
+  }
+
+  unmapCC(cc: number) {
+    delete this.ccMapping[cc];
+    this.onMappingChanged?.(this.getMapping());
+  }
+
+  getCCForParam(param: keyof HeraParameters): number | null {
+    for (const [ccStr, p] of Object.entries(this.ccMapping)) {
+      if (p === param) return Number(ccStr);
+    }
+    return null;
   }
 
   getMapping(): Record<number, keyof HeraParameters> {
     return { ...this.ccMapping };
+  }
+
+  resetToDefaultMapping() {
+    this.ccMapping = { ...DEFAULT_MIDI_CC_MAP };
+    this.onMappingChanged?.(this.getMapping());
   }
 
   private updateInputs() {
@@ -156,9 +210,16 @@ export class MidiManager {
 
         // MIDI Learn interception
         if (this.activeLearnParam) {
-          this.ccMapping[cc] = this.activeLearnParam;
           const learned = this.activeLearnParam;
+          // Remove existing mappings for this param
+          for (const [k, v] of Object.entries(this.ccMapping)) {
+            if (v === learned) {
+              delete this.ccMapping[Number(k)];
+            }
+          }
+          this.ccMapping[cc] = learned;
           this.activeLearnParam = null;
+          this.onMappingChanged?.(this.getMapping(), learned, cc);
           console.log(`MIDI Learn complete: CC ${cc} mapped to ${learned}`);
         }
 
