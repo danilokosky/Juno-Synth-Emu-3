@@ -1,0 +1,8 @@
+{
+  "name": "Hera Juno Synthesizer",
+  "description": "Authentic Roland Juno-60/106 polyphonic analog synthesizer emulation featuring 6-voice polyphony, DCO (pulse, saw, sub, noise), resonant 24dB VCF filter, HPF, ADSR envelope, delayable LFO, and the iconic Roland stereo chorus.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
