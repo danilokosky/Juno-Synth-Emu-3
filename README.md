@@ -1,52 +1,50 @@
-# Hera Juno Synthesizer (React + Web Audio)
+# Hera Juno Synthesizer (React + Web Audio & Android Native C++)
 
-A high-fidelity web emulation of the iconic Roland Juno-60 polyphonic analog synthesizer, rewritten from the Hera JUCE/C++ synthesizer into a modern React + TypeScript + Web Audio application.
+A high-fidelity emulation of the iconic Roland Juno-60 polyphonic analog synthesizer, featuring both a live web interface and a complete **Android Native C++ (NDK + AAudio + Jetpack Compose)** implementation with full USB/Bluetooth MIDI hardware controller support.
 
-## Features
+---
 
-- **6-Voice Polyphony**: Authentic 6-voice polyphonic voice allocation and voice-stealing model.
-- **DCO (Digitally Controlled Oscillator)**:
-  - Range switch: 16', 8', 4'
-  - Waveforms: Sawtooth, Pulse with PWM (Manual, LFO, Envelope mod), Sub-oscillator (-1 octave square), Pink/White noise.
-  - LFO pitch modulation depth.
-- **HPF (High-Pass Filter)**:
-  - 4-position stepped high-pass filter curve (Bypass, 140 Hz, 250 Hz, 520 Hz, 1220 Hz).
-- **VCF (Voltage Controlled Filter)**:
-  - 4-pole cascaded 24dB/oct resonant filter model with non-linear saturation.
-  - Cutoff frequency, resonance with self-oscillation, bipolar envelope modulation depth (-1.0 to +1.0), LFO filter mod, keyboard tracking, and pitch bend depth.
-- **VCA (Voltage Controlled Amplifier)**:
-  - Gate or Envelope mode with master depth control.
-- **LFO (Low Frequency Oscillator)**:
-  - Rate (0.3 Hz to 22.2 Hz) and delay time controls.
-  - Auto trigger and manual trigger button.
-- **ADSR Envelope Generator**:
-  - Classic exponential analog curves for Attack, Decay, Sustain, and Release.
-- **Roland Stereo Chorus**:
-  - Recreates the iconic dual-BBD analog chorus:
-    - Mode I (0.513 Hz slow lush shimmer)
-    - Mode II (0.863 Hz deeper modulation)
-    - Mode I + II (9.75 Hz fast vibrato / rotary Leslie swirl)
-- **Preset Management**:
-  - Full bank of 56 original Juno-60 factory presets (Strings 1-3, Organ 1-3, Brass, Phase Brass, Piano, Celesta, Harpsichord, Bass, Clavichord, etc.).
-  - Search, categorize, save custom patches to local storage, and export/import Hera XML preset files.
-- **Arpeggiator**:
-  - Built-in arpeggiator with Up, Down, Up/Down, and Random modes, 1-3 octave ranges, tempo sync (BPM), and note divisions.
-- **Real-Time Visualizer**:
-  - CRT phosphor oscilloscope displaying the audio output waveform post-VCF and Chorus.
-- **Playing Controls & MIDI**:
-  - Interactive multi-octave piano keyboard with QWERTY computer keyboard shortcuts and touch glissando.
-  - Pitch bender lever and modulation wheel.
-  - Web MIDI API integration with automatic detection of USB and Bluetooth MIDI keyboards.
-  - In-browser performance recording and audio export.
+## 📱 Android Native C++ App & GitHub Actions Compilação Automática
 
-## Running the App
+O projeto inclui um aplicativo nativo completo para Android na pasta `/android`:
+- **Engine DSP em C++ Puro (`HeraEngine.hpp`)**: Osciladores PolyBLEP, filtro ressonante 4-pole 24dB com saturação `tanh`, envelopes ADSR, LFO e Chorus estéreo analógico.
+- **Áudio Nativo AAudio de Baixíssima Latência (`native-lib.cpp`)**: Latência inferior a 10ms.
+- **Suporte MIDI USB-OTG e Bluetooth LE (`MidiControllerManager.kt`)**: Detecção automática de teclados controladores e superfícies de controle externas.
+- **Mapeamento Total de Knobs e Faders (CC Table + MIDI Learn)**: Todos os parâmetros do sintetizador mapeáveis via hardware.
+
+### 🚀 Como baixar o APK diretamente pelo GitHub Actions:
+
+1. Faça push ou acesse seu repositório no GitHub.
+2. Clique na aba **Actions** no topo da página do repositório.
+3. No menu à esquerda, selecione o workflow **"Build Native Android APK"**.
+4. Clique no botão **"Run workflow"** (ou faça um commit no branch principal para disparar automaticamente).
+5. Quando o build finalizar (cerca de 2 a 3 minutos), clique na execução concluída.
+6. Na seção **Artifacts** na parte inferior da página, clique em **`Hera-Juno-Synth-Debug-APK`** para baixar o arquivo `.apk` pronto para instalar no seu celular ou tablet Android!
+
+---
+
+## 🎛️ Features Principais
+
+- **Polifonia de 6 Vozes**: Alocação dinâmica com algoritmo *voice-stealing*.
+- **DCO**: Range 16', 8', 4', Sawtooth anti-aliased, Pulse com PWM contínuo, Sub-oscilador onda quadrada e gerador de ruído.
+- **HPF**: Filtro passa-altas com 4 posições autênticas.
+- **VCF 24dB/oct**: Filtro passa-baixas em cascata de 4 polos com saturação OTA e auto-oscilação na ressonância máxima.
+- **VCA & ADSR**: Curvas exponenciais para Attack, Decay, Sustain e Release ou modo instantâneo Gate.
+- **Roland Stereo Chorus**: Modos I (0.513 Hz), II (0.863 Hz) e I+II (9.75 Hz rotativo/vibrato).
+- **56 Presets de Fábrica**: Presets autênticos do Juno-60 (Strings, Brass, Organ, Bass, Clavinet, Piano, Pads, Leads, etc.).
+- **Arpeggiator Juno**: Modos Up, Down, Up/Down, Random, 1 a 3 oitavas, sincronização de tempo (BPM) e divisões rítmicas.
+- **Osciloscópio CRT**: Visualizador em tempo real da forma de onda pós-filtro e pós-chorus.
+
+---
+
+## 💻 Rodando o App no Navegador (Web Preview)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Build for production:
+Build de produção:
 
 ```bash
 npm run build
