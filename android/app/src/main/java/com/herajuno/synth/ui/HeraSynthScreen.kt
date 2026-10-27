@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import com.herajuno.synth.audio.NativeAudioEngine
 import com.herajuno.synth.midi.MidiControllerManager
 import com.herajuno.synth.midi.MidiParams
+import com.herajuno.synth.presets.JunoPreset
 import com.herajuno.synth.presets.JunoPresets
 
 @Composable
