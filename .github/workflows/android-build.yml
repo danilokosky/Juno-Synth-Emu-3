@@ -29,12 +29,16 @@ jobs:
           yes | sdkmanager --licenses || true
           sdkmanager --install "cmake;3.22.1" "ndk;26.1.10909125" || true
 
-      - name: Grant Execute Permission to Gradlew
-        run: chmod +x ./android/gradlew
-
       - name: Build Debug APK with Gradle
         working-directory: ./android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          # Garante que o wrapper seja gerado caso esteja vazio
+          if [ ! -s "./gradlew" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Inicializando wrapper do Gradle..."
+            gradle wrapper --gradle-version 8.2 || true
+          fi
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Locate and Prepare APK Asset
         run: |
