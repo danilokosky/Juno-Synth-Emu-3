@@ -17,6 +17,20 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Build Web Application
+        run: |
+          npm ci || npm install
+          npm run build
+          mkdir -p android/app/src/main/assets
+          cp -r dist/* android/app/src/main/assets/
+          ls -la android/app/src/main/assets/
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -40,7 +54,7 @@ jobs:
           echo "Procurando arquivo APK gerado pelo Gradle..."
           APK_FILE=$(find android -type f -name "*.apk" | head -n 1)
           if [ -z "$APK_FILE" ]; then
-            echo "ERRO: Nenhum arquivo APK foi encontrado no diretório de compilação!"
+            echo "ERRO: Nenhum arquivo APK foi encontrado após assembleDebug!"
             find android -type d -name "build"
             exit 1
           fi
@@ -62,13 +76,18 @@ jobs:
           tag_name: latest-apk
           name: "Hera Juno Synthesizer (Android APK)"
           body: |
-            ### 📱 Hera Juno Synthesizer - Pacote APK Android (Debug)
+            ### 📱 Hera Juno Synthesizer - Pacote APK Android
             Compilado automaticamente pelo GitHub Actions.
+
+            #### 🎹 Características:
+            - **Interface 100% Idêntica ao Preview**: Faders analógicos, painéis de madeira de nogueira, osciloscópio CRT fosforescente em 60fps, matriz de presets e teclado interativo.
+            - **Suporte MIDI Hardware**: Conecte teclados controladores via USB-OTG ou Bluetooth MIDI.
+            - **Motor de Áudio**: Polifonia de 6 vozes, filtro 24dB e Chorus estéreo Roland analógico sem cortes ou distorções.
 
             #### 📥 Instalação Direta no Celular:
             1. Baixe o arquivo **`Hera-Juno-Synth-debug.apk`** abaixo diretamente pelo navegador do seu celular Android.
-            2. Toque no arquivo baixado para instalar (ative a permissão para instalar apps desconhecidos no navegador se solicitado).
-            3. Abra o app, conecte seu teclado controlador via USB-OTG ou Bluetooth MIDI e toque à vontade!
+            2. Toque no arquivo baixado para instalar.
+            3. Abra o app e toque à vontade!
           draft: false
           prerelease: false
           make_latest: true

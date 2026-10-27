@@ -57,14 +57,14 @@ export const AndroidMidiModal: React.FC<AndroidMidiModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-mono text-base font-bold text-zinc-100">
-                  Android Native C++ & MIDI Mapping
+                  Android APK & Mapeamento MIDI
                 </h3>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-600/30 border border-emerald-500/50 text-emerald-300 font-bold">
-                  AAudio + NDK
+                  Motor Orgânico Unificado
                 </span>
               </div>
               <p className="text-xs text-zinc-400">
-                Native C++ audio engine, USB/Bluetooth MIDI controller support & mapping
+                APK standalone com o mesmo som e interface do preview, suporte a MIDI USB e Bluetooth
               </p>
             </div>
           </div>
