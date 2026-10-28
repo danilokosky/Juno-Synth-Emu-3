@@ -239,9 +239,9 @@ class HeraVoiceInstance {
 
   scheduleLfo(params: HeraParameters, modWheelAmount: number, t: number) {
     // Pitch modulation in cents: DCO LFO slider modulates pitch (vibrato)
-    const targetPitchCents = (params.DCOPitchModDepth * 280) + (modWheelAmount * 280);
-    // VCF modulation in cents: up to 2400 cents (2 octaves of sweep)
-    const targetFilterCents = params.VCFLFO * 2400;
+    const targetPitchCents = (params.DCOPitchModDepth * 320) + (modWheelAmount * 320);
+    // VCF modulation in cents: up to 2600 cents (over 2 octaves of sweep)
+    const targetFilterCents = params.VCFLFO * 2600;
 
     const delaySec = getLfoDelaySec(params.LFODelay);
 
@@ -249,26 +249,53 @@ class HeraVoiceInstance {
     this.voiceLfoFilterGain.gain.cancelScheduledValues(t);
 
     if (delaySec < 0.02) {
-      // Immediate LFO modulation
-      this.voiceLfoPitchGain.gain.setValueAtTime(targetPitchCents, t);
-      this.voiceLfoFilterGain.gain.setValueAtTime(targetFilterCents, t);
-    } else {
-      // Authentic Juno-60 Delay: 0 depth during delay period, then smoothly blossoms into vibrato
-      this.voiceLfoPitchGain.gain.setValueAtTime(0, t);
-      this.voiceLfoPitchGain.gain.setValueAtTime(0, t + delaySec);
-      this.voiceLfoPitchGain.gain.linearRampToValueAtTime(targetPitchCents, t + delaySec + 0.45);
+      // Immediate LFO modulation with smooth 15ms target to prevent pops
+      this.voiceLfoPitchGain.gain.setValueAtTime(this.voiceLfoPitchGain.gain.value, t);
+      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.015);
 
+      this.voiceLfoFilterGain.gain.setValueAtTime(this.voiceLfoFilterGain.gain.value, t);
+      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.015);
+    } else {
+      // Authentic Roland Juno-60 analog RC Delay:
+      // 1. Immediately silence modulation at note strike
+      this.voiceLfoPitchGain.gain.setValueAtTime(0, t);
       this.voiceLfoFilterGain.gain.setValueAtTime(0, t);
+
+      // 2. Hold at 0 until delay duration finishes
+      this.voiceLfoPitchGain.gain.setValueAtTime(0, t + delaySec);
       this.voiceLfoFilterGain.gain.setValueAtTime(0, t + delaySec);
-      this.voiceLfoFilterGain.gain.linearRampToValueAtTime(targetFilterCents, t + delaySec + 0.45);
+
+      // 3. Smooth exponential bloom modeling the analog RC capacitor charging curve
+      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t + delaySec, 0.14);
+      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t + delaySec, 0.14);
     }
   }
 
   updateLfoDepth(params: HeraParameters, modWheelAmount: number) {
     if (!this.active) return;
     const t = this.ctx.currentTime;
-    const targetPitchCents = (params.DCOPitchModDepth * 280) + (modWheelAmount * 280);
-    const targetFilterCents = params.VCFLFO * 2400;
+    const targetPitchCents = (params.DCOPitchModDepth * 320) + (modWheelAmount * 320);
+    const targetFilterCents = params.VCFLFO * 2600;
+
+    const delaySec = getLfoDelaySec(params.LFODelay);
+    const elapsed = t - this.startTime;
+
+    // If voice is currently waiting inside its initial delay window, maintain delay onset:
+    if (delaySec >= 0.02 && elapsed < delaySec) {
+      const remainingDelay = delaySec - elapsed;
+      this.voiceLfoPitchGain.gain.cancelScheduledValues(t);
+      this.voiceLfoPitchGain.gain.setValueAtTime(0, t);
+      this.voiceLfoPitchGain.gain.setValueAtTime(0, t + remainingDelay);
+      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t + remainingDelay, 0.14);
+
+      this.voiceLfoFilterGain.gain.cancelScheduledValues(t);
+      this.voiceLfoFilterGain.gain.setValueAtTime(0, t);
+      this.voiceLfoFilterGain.gain.setValueAtTime(0, t + remainingDelay);
+      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t + remainingDelay, 0.14);
+      return;
+    }
+
+    // Past delay window or zero delay: apply target depth smoothly
     this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.02);
     this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.02);
   }

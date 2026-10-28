@@ -41,6 +41,7 @@ export const Slider: React.FC<SliderProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
 
@@ -73,11 +74,14 @@ export const Slider: React.FC<SliderProps> = ({
     if (!isDragging) return;
 
     const handleWindowPointerMove = (e: PointerEvent) => {
+      if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) return;
       e.preventDefault();
       updateFromPointer(e.clientY);
     };
 
-    const handleWindowPointerUp = () => {
+    const handleWindowPointerUp = (e: PointerEvent) => {
+      if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) return;
+      activePointerIdRef.current = null;
       setIsDragging(false);
       setShowTooltip(false);
     };
@@ -104,6 +108,8 @@ export const Slider: React.FC<SliderProps> = ({
       return;
     }
 
+    activePointerIdRef.current = e.pointerId;
+
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
@@ -117,6 +123,8 @@ export const Slider: React.FC<SliderProps> = ({
 
   const handlePointerUp = (e: React.PointerEvent) => {
     e.preventDefault();
+    if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) return;
+    activePointerIdRef.current = null;
     if (isDragging) {
       setIsDragging(false);
       setShowTooltip(false);

@@ -357,13 +357,22 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
                     key={k.midi}
                     onPointerDown={(e) => {
                       e.preventDefault();
+                      try {
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      } catch {}
                       playNote(k.midi);
                     }}
                     onPointerEnter={() => {
                       if (isMouseDownRef.current) playNote(k.midi);
                     }}
-                    onPointerLeave={() => releaseNote(k.midi)}
-                    onPointerUp={() => releaseNote(k.midi)}
+                    onPointerUp={(e) => {
+                      e.preventDefault();
+                      try {
+                        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                      } catch {}
+                      releaseNote(k.midi);
+                    }}
+                    onPointerCancel={() => releaseNote(k.midi)}
                     className={`relative flex-1 h-full rounded-b border border-zinc-300 shadow transition-colors cursor-pointer flex flex-col justify-end items-center pb-1.5 select-none ${
                       isActive
                         ? 'bg-gradient-to-b from-amber-200 via-amber-300 to-amber-400 border-amber-500 shadow-[0_0_12px_#f59e0b]'
@@ -399,13 +408,22 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
                   onPointerDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    try {
+                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                    } catch {}
                     playNote(k.midi);
                   }}
                   onPointerEnter={() => {
                     if (isMouseDownRef.current) playNote(k.midi);
                   }}
-                  onPointerLeave={() => releaseNote(k.midi)}
-                  onPointerUp={() => releaseNote(k.midi)}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    try {
+                      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                    } catch {}
+                    releaseNote(k.midi);
+                  }}
+                  onPointerCancel={() => releaseNote(k.midi)}
                   style={{
                     left: `${leftPercent}%`,
                     width: `${widthPercent}%`,

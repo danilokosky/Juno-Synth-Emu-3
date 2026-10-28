@@ -44,8 +44,8 @@ export const DEFAULT_PARAMETERS: HeraParameters = {
   DCORange: 1, // 8'
   LFOTrigMode: 1, // Auto
   DCOPWMMod: 1, // LFO
-  DCOPitchModDepth: 0.0,
-  DCOPWMDepth: 0.0,
+  DCOPitchModDepth: 0.2, // Default audible musical vibrato
+  DCOPWMDepth: 0.2,
   DCOPulseLevel: 0.0,
   DCOSawLevel: 1.0,
   DCOSubLevel: 0.0,
@@ -60,7 +60,7 @@ export const DEFAULT_PARAMETERS: HeraParameters = {
   VCFKey: 1.0,
   VCFBendDepth: 0.0,
 
-  LFORate: 0.6,
+  LFORate: 0.5,
   LFODelay: 0.0,
 
   VCAType: 0, // Envelope

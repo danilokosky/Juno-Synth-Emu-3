@@ -176,11 +176,11 @@ export const HeraApp: React.FC = () => {
   return (
     <div
       onClick={startAudioOnInteraction}
-      className="min-h-screen bg-stone-950 text-zinc-100 flex flex-col justify-between"
+      className="min-h-screen h-auto w-full bg-stone-950 text-zinc-100 flex flex-col justify-start overflow-y-auto overscroll-y-auto"
     >
       {/* Outer Synthetic Chassis with Walnut Wood Cheeks */}
-      <div className="flex-1 max-w-[1440px] w-full mx-auto my-0 sm:my-1.5 px-0.5 sm:px-2">
-        <div className="relative rounded-lg shadow-2xl border-2 sm:border-4 border-stone-800 bg-zinc-900 flex flex-col overflow-hidden">
+      <div className="flex-1 max-w-[1440px] w-full mx-auto my-0 sm:my-1.5 px-0.5 sm:px-2 pb-6">
+        <div className="relative rounded-lg shadow-2xl border-2 sm:border-4 border-stone-800 bg-zinc-900 flex flex-col">
           {/* Wood Cheeks Simulation (Left & Right Borders) */}
           <div className="hidden lg:block absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r from-amber-950 via-amber-900 to-amber-950 border-r border-amber-900/60 z-30 pointer-events-none" />
           <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-3 bg-gradient-to-l from-amber-950 via-amber-900 to-amber-950 border-l border-amber-900/60 z-30 pointer-events-none" />
@@ -384,8 +384,8 @@ export const HeraApp: React.FC = () => {
           </div>
 
           {/* Main Juno-60 Synth Control Panel */}
-          <div className="bg-zinc-900 px-1 py-1 sm:py-2 border-b border-zinc-800 w-full overflow-hidden">
-            <div className="w-full overflow-x-auto pb-1.5 scrollbar-thin overscroll-x-contain touch-pan-x">
+          <div className="bg-zinc-900 px-1 py-1 sm:py-2 border-b border-zinc-800 w-full">
+            <div className="w-full overflow-x-auto pb-1.5 scrollbar-thin overscroll-x-contain">
               <div className="min-w-max w-fit flex flex-row items-stretch justify-start gap-1 sm:gap-1.5 px-2 mx-auto">
                 {/* SECTION: LFO */}
               <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
