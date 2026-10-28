@@ -38,14 +38,20 @@ export interface HeraParameters {
   // Chorus
   ChorusI: number;           // 0 or 1
   ChorusII: number;          // 0 or 1
+
+  // Stereo Echo / Delay Effect
+  DelayEnabled: number;      // 0 or 1
+  DelayTime: number;         // 0.0 - 1.0 (50ms - 800ms)
+  DelayFeedback: number;     // 0.0 - 1.0 (0% - 85%)
+  DelayMix: number;          // 0.0 - 1.0 (Dry/Wet)
 }
 
 export const DEFAULT_PARAMETERS: HeraParameters = {
   DCORange: 1, // 8'
   LFOTrigMode: 1, // Auto
   DCOPWMMod: 1, // LFO
-  DCOPitchModDepth: 0.2, // Default audible musical vibrato
-  DCOPWMDepth: 0.2,
+  DCOPitchModDepth: 0.0, // Default pitch mod 0 so notes are strictly in tune
+  DCOPWMDepth: 0.3,
   DCOPulseLevel: 0.0,
   DCOSawLevel: 1.0,
   DCOSubLevel: 0.0,
@@ -53,7 +59,7 @@ export const DEFAULT_PARAMETERS: HeraParameters = {
 
   HPF: 0.0,
 
-  VCFCutoff: 0.7,
+  VCFCutoff: 0.65,
   VCFResonance: 0.0,
   VCFEnv: 0.0,
   VCFLFO: 0.0,
@@ -73,6 +79,11 @@ export const DEFAULT_PARAMETERS: HeraParameters = {
 
   ChorusI: 1,
   ChorusII: 0,
+
+  DelayEnabled: 0,
+  DelayTime: 0.35,
+  DelayFeedback: 0.4,
+  DelayMix: 0.35,
 };
 
 export interface VoiceStatus {

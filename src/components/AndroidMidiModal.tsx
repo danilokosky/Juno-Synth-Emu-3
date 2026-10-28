@@ -204,6 +204,10 @@ export const AndroidMidiModal: React.FC<AndroidMidiModalProps> = ({
                   <option value="VCADepth">VCA Master Depth</option>
                   <option value="ChorusI">Chorus I Switch</option>
                   <option value="ChorusII">Chorus II Switch</option>
+                  <option value="DelayEnabled">Echo Delay On/Off</option>
+                  <option value="DelayTime">Echo Delay Time</option>
+                  <option value="DelayFeedback">Echo Delay Feedback</option>
+                  <option value="DelayMix">Echo Delay Mix</option>
                 </select>
                 <button
                   type="button"

@@ -176,7 +176,7 @@ export const HeraApp: React.FC = () => {
   return (
     <div
       onClick={startAudioOnInteraction}
-      className="min-h-screen h-auto w-full bg-stone-950 text-zinc-100 flex flex-col justify-start overflow-y-auto overscroll-y-auto"
+      className="min-h-screen h-auto w-full bg-stone-950 text-zinc-100 flex flex-col justify-start"
     >
       {/* Outer Synthetic Chassis with Walnut Wood Cheeks */}
       <div className="flex-1 max-w-[1440px] w-full mx-auto my-0 sm:my-1.5 px-0.5 sm:px-2 pb-6">
@@ -385,7 +385,7 @@ export const HeraApp: React.FC = () => {
 
           {/* Main Juno-60 Synth Control Panel */}
           <div className="bg-zinc-900 px-1 py-1 sm:py-2 border-b border-zinc-800 w-full">
-            <div className="w-full overflow-x-auto pb-1.5 scrollbar-thin overscroll-x-contain">
+            <div className="w-full overflow-x-auto pb-1.5 scrollbar-thin">
               <div className="min-w-max w-fit flex flex-row items-stretch justify-start gap-1 sm:gap-1.5 px-2 mx-auto">
                 {/* SECTION: LFO */}
               <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
@@ -406,7 +406,7 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('LFORate')}
                   />
                   <Slider
-                    label="Delay"
+                    label="Vib Del"
                     value={params.LFODelay}
                     onChange={(v) => handleParamChange('LFODelay', v)}
                     defaultValue={0.0}
@@ -792,6 +792,68 @@ export const HeraApp: React.FC = () => {
                     : 'OFF'}
                 </div>
               </div>
+
+              {/* SECTION: STEREO ECHO DELAY */}
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-emerald-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
+                <div className="flex items-center justify-between pb-0.5 border-b border-zinc-800/80 gap-1.5 px-0.5">
+                  <span className="text-[10px] font-black font-mono tracking-widest text-emerald-400 uppercase">
+                    ECHO DELAY
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleParamChange('DelayEnabled', params.DelayEnabled > 0.5 ? 0 : 1)}
+                    className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold border transition-all cursor-pointer ${
+                      params.DelayEnabled > 0.5
+                        ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_8px_#10b981]'
+                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                    }`}
+                    title="Ativar/Desativar Efeito de Delay / Eco Estéreo"
+                  >
+                    {params.DelayEnabled > 0.5 ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+                <div className="flex items-center justify-center gap-1 my-1">
+                  <Slider
+                    label="Time"
+                    value={params.DelayTime}
+                    onChange={(v) => handleParamChange('DelayTime', v)}
+                    defaultValue={0.35}
+                    color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'DelayTime'}
+                    mappedCC={getMappedCC('DelayTime')}
+                    onSelectForLearn={() => handleSelectForLearn('DelayTime')}
+                    onUnmap={() => handleUnmapParam('DelayTime')}
+                  />
+                  <Slider
+                    label="F-Back"
+                    value={params.DelayFeedback}
+                    onChange={(v) => handleParamChange('DelayFeedback', v)}
+                    defaultValue={0.4}
+                    color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'DelayFeedback'}
+                    mappedCC={getMappedCC('DelayFeedback')}
+                    onSelectForLearn={() => handleSelectForLearn('DelayFeedback')}
+                    onUnmap={() => handleUnmapParam('DelayFeedback')}
+                  />
+                  <Slider
+                    label="Mix"
+                    value={params.DelayMix}
+                    onChange={(v) => handleParamChange('DelayMix', v)}
+                    defaultValue={0.35}
+                    color="amber"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'DelayMix'}
+                    mappedCC={getMappedCC('DelayMix')}
+                    onSelectForLearn={() => handleSelectForLearn('DelayMix')}
+                    onUnmap={() => handleUnmapParam('DelayMix')}
+                  />
+                </div>
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                  {params.DelayEnabled > 0.5 ? 'STEREO TAPE ECHO' : 'BYPASS'}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -856,11 +918,19 @@ export const HeraApp: React.FC = () => {
               </div>
 
               <div>
+                <h4 className="font-bold text-zinc-100 mb-1">Entendendo os Delays: LFO Delay vs Echo Delay</h4>
+                <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-1.5 border border-zinc-800 text-zinc-300">
+                  <p><strong className="text-yellow-400">1. LFO Vib Del (Atraso do Vibrato):</strong> No painel original do Roland Juno-60, o fader "Delay" do LFO não é eco de áudio. Ele define o tempo (em segundos) que o sintetizador espera antes de iniciar o vibrato. <em>Importante:</em> ele só afeta o som se o slider <strong className="text-red-400">LFO</strong> na seção DCO ou VCF estiver levantado!</p>
+                  <p><strong className="text-emerald-400">2. Echo Delay (Eco Estéreo Espacial):</strong> Agora adicionado ao lado do Chorus! Possui botão <strong className="text-emerald-400">ON/OFF</strong>, tempo de repetição (Time), realimentação (Feedback) e Mix para criar ecos profundos, espaciais e cinematográficos.</p>
+                </div>
+              </div>
+
+              <div>
                 <h4 className="font-bold text-zinc-100 mb-1">Roland Juno Chorus BBD</h4>
                 <p className="text-zinc-400 leading-relaxed">
                   Pressione <strong>Chorus I</strong> para ambiência suave (0.513 Hz),{' '}
-                  <strong>Chorus II</strong> para modulação mais profunda (0.863 Hz), ou{' '}
-                  <strong>ambos I & II</strong> para o lendário efeito rotary/vibrato rápido (9.75 Hz)!
+                  <strong>Chorus II</strong> para modulação mais profunda e cremosa (0.863 Hz), ou{' '}
+                  <strong>ambos I & II</strong> para o lendário efeito rotary/vibrato (1.02 Hz)!
                 </p>
               </div>
 

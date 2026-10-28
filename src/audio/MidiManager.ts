@@ -35,6 +35,10 @@ export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
   29: 'LFODelay',        // LFO Delay
   80: 'ChorusI',         // Chorus I
   81: 'ChorusII',        // Chorus II
+  85: 'DelayEnabled',    // Echo Delay On/Off
+  86: 'DelayTime',       // Echo Delay Time
+  87: 'DelayFeedback',   // Echo Delay Feedback
+  88: 'DelayMix',        // Echo Delay Mix
 };
 
 export class MidiManager {

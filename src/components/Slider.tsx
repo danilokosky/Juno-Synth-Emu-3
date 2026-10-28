@@ -218,7 +218,7 @@ export const Slider: React.FC<SliderProps> = ({
       )}
 
       {/* Parameter Title / Label - Strictly separated from fader travel */}
-      <div className="h-4.5 flex items-center justify-center mb-0.5 z-10">
+      <div className="h-5 flex items-center justify-center mb-1 z-10">
         <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider truncate max-w-[48px] leading-tight">
           {label}
         </span>
@@ -228,17 +228,19 @@ export const Slider: React.FC<SliderProps> = ({
       <div
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        className="relative flex items-center justify-center w-8 sm:w-9 h-26 sm:h-28 pt-3 pb-3 cursor-pointer touch-none select-none active:brightness-110"
+        className={`relative flex items-center justify-center w-8 sm:w-9 h-26 sm:h-28 px-0.5 py-2 cursor-pointer select-none active:brightness-110 ${
+          isDragging ? 'touch-none' : 'touch-pan-y'
+        }`}
       >
         {/* Tick scale marks left side - strictly z-0 behind the fader cap */}
-        <div className="absolute left-0.5 top-3 bottom-3 flex flex-col justify-between items-end pr-1 text-[7px] font-mono text-zinc-500 pointer-events-none z-0">
+        <div className="absolute left-0 top-2.5 bottom-2.5 flex flex-col justify-between items-end pr-0.5 text-[7px] font-mono text-zinc-500 pointer-events-none z-0">
           <span>10</span>
           <span>5</span>
           <span>0</span>
         </div>
 
         {/* Tick scale marks right side - strictly z-0 behind the fader cap */}
-        <div className="absolute right-0.5 top-3 bottom-3 flex flex-col justify-between items-start pl-1 text-[7px] font-mono text-zinc-500 pointer-events-none z-0">
+        <div className="absolute right-0 top-2.5 bottom-2.5 flex flex-col justify-between items-start pl-0.5 text-[7px] font-mono text-zinc-500 pointer-events-none z-0">
           <div className="w-1.5 h-[1px] bg-zinc-600" />
           <div className="w-2 h-[1px] bg-zinc-500" />
           <div className="w-1.5 h-[1px] bg-zinc-600" />
@@ -255,19 +257,19 @@ export const Slider: React.FC<SliderProps> = ({
         >
           {/* Center line for bipolar */}
           {bipolar && (
-            <div className="absolute top-1/2 left-0 right-0 h-[1px] bg-zinc-600 -translate-y-1/2 pointer-events-none" />
+            <div className="absolute top-1/2 left-0 right-0 h-[1px] bg-zinc-600 -translate-y-1/2 pointer-events-none z-10" />
           )}
 
-          {/* Slider Cap - layered on top of ticks (z-20) */}
+          {/* Slider Cap - layered strictly on top of ticks (z-30) */}
           <div
-            className={`absolute left-1/2 -translate-x-1/2 w-6.5 sm:w-7 h-5 sm:h-5.5 -translate-y-1/2 pointer-events-none transition-transform duration-75 z-20 ${
+            className={`absolute left-1/2 -translate-x-1/2 w-6.5 sm:w-7 h-5 sm:h-5.5 pointer-events-none transition-transform duration-75 z-30 ${
               isDragging ? 'scale-105 drop-shadow-[0_2px_10px_rgba(245,158,11,0.6)]' : 'drop-shadow-md'
             }`}
             style={{
-              bottom: `calc(${normalizedValue * 100}% - 10px)`,
+              bottom: `calc(3px + ${normalizedValue} * (100% - 24px))`,
             }}
           >
-            {/* Ribbed Juno Fader Knob */}
+            {/* Ribbed Juno Fader Knob with opaque styling so ticks never show over or through */}
             <div
               className={`w-full h-full rounded-sm shadow-md border bg-gradient-to-b ${capColorClass} flex items-center justify-center ${
                 isDragging ? 'border-amber-300 ring-2 ring-amber-400/50' : ''

@@ -147,7 +147,7 @@ class HeraVoiceInstance {
     this.sawOsc.type = 'sawtooth';
     this.sawOsc.frequency.setValueAtTime(this.baseFreq, t);
     this.sawOsc.detune.setValueAtTime(basePitchDetune, t);
-    this.sawGain.gain.setValueAtTime(params.DCOSawLevel * 0.45, t);
+    this.sawGain.gain.setValueAtTime(params.DCOSawLevel * 0.24, t);
     this.sawOsc.connect(this.sawGain);
     this.sawGain.connect(this.vcfFilter1);
     this.sawOsc.start(t);
@@ -180,7 +180,7 @@ class HeraVoiceInstance {
     this.pulseInvertGain.connect(this.pulseDelay);
     this.pulseDelay.connect(this.pulseGain);
 
-    this.pulseGain.gain.setValueAtTime(params.DCOPulseLevel * 0.45, t);
+    this.pulseGain.gain.setValueAtTime(params.DCOPulseLevel * 0.24, t);
     this.pulseGain.connect(this.vcfFilter1);
     this.pulseOsc1.start(t);
     this.pulseOsc2.start(t);
@@ -190,7 +190,7 @@ class HeraVoiceInstance {
     this.subOsc.type = 'square';
     this.subOsc.frequency.setValueAtTime(this.baseFreq * 0.5, t);
     this.subOsc.detune.setValueAtTime(basePitchDetune, t);
-    this.subGain.gain.setValueAtTime(params.DCOSubLevel * 0.4, t);
+    this.subGain.gain.setValueAtTime(params.DCOSubLevel * 0.18, t);
     this.subOsc.connect(this.subGain);
     this.subGain.connect(this.vcfFilter1);
     this.subOsc.start(t);
@@ -205,7 +205,7 @@ class HeraVoiceInstance {
     this.noiseSource = this.ctx.createBufferSource();
     this.noiseSource.buffer = this.noiseBuffer;
     this.noiseSource.loop = true;
-    this.noiseGain.gain.setValueAtTime(params.DCONoiseLevel * 0.35, t);
+    this.noiseGain.gain.setValueAtTime(params.DCONoiseLevel * 0.12, t);
     this.noiseSource.connect(this.noiseGain);
     this.noiseGain.connect(this.vcfFilter1);
     this.noiseSource.start(t);
@@ -249,12 +249,9 @@ class HeraVoiceInstance {
     this.voiceLfoFilterGain.gain.cancelScheduledValues(t);
 
     if (delaySec < 0.02) {
-      // Immediate LFO modulation with smooth 15ms target to prevent pops
-      this.voiceLfoPitchGain.gain.setValueAtTime(this.voiceLfoPitchGain.gain.value, t);
-      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.015);
-
-      this.voiceLfoFilterGain.gain.setValueAtTime(this.voiceLfoFilterGain.gain.value, t);
-      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.015);
+      // Immediate LFO modulation
+      this.voiceLfoPitchGain.gain.setValueAtTime(targetPitchCents, t);
+      this.voiceLfoFilterGain.gain.setValueAtTime(targetFilterCents, t);
     } else {
       // Authentic Roland Juno-60 analog RC Delay:
       // 1. Immediately silence modulation at note strike
@@ -266,8 +263,8 @@ class HeraVoiceInstance {
       this.voiceLfoFilterGain.gain.setValueAtTime(0, t + delaySec);
 
       // 3. Smooth exponential bloom modeling the analog RC capacitor charging curve
-      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t + delaySec, 0.14);
-      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t + delaySec, 0.14);
+      this.voiceLfoPitchGain.gain.linearRampToValueAtTime(targetPitchCents, t + delaySec + 0.35);
+      this.voiceLfoFilterGain.gain.linearRampToValueAtTime(targetFilterCents, t + delaySec + 0.35);
     }
   }
 
@@ -280,24 +277,25 @@ class HeraVoiceInstance {
     const delaySec = getLfoDelaySec(params.LFODelay);
     const elapsed = t - this.startTime;
 
+    this.voiceLfoPitchGain.gain.cancelScheduledValues(t);
+    this.voiceLfoFilterGain.gain.cancelScheduledValues(t);
+
     // If voice is currently waiting inside its initial delay window, maintain delay onset:
     if (delaySec >= 0.02 && elapsed < delaySec) {
       const remainingDelay = delaySec - elapsed;
-      this.voiceLfoPitchGain.gain.cancelScheduledValues(t);
       this.voiceLfoPitchGain.gain.setValueAtTime(0, t);
       this.voiceLfoPitchGain.gain.setValueAtTime(0, t + remainingDelay);
-      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t + remainingDelay, 0.14);
+      this.voiceLfoPitchGain.gain.linearRampToValueAtTime(targetPitchCents, t + remainingDelay + 0.35);
 
-      this.voiceLfoFilterGain.gain.cancelScheduledValues(t);
       this.voiceLfoFilterGain.gain.setValueAtTime(0, t);
       this.voiceLfoFilterGain.gain.setValueAtTime(0, t + remainingDelay);
-      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t + remainingDelay, 0.14);
+      this.voiceLfoFilterGain.gain.linearRampToValueAtTime(targetFilterCents, t + remainingDelay + 0.35);
       return;
     }
 
-    // Past delay window or zero delay: apply target depth smoothly
-    this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.02);
-    this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.02);
+    // Past delay window or zero delay: apply target depth directly
+    this.voiceLfoPitchGain.gain.setValueAtTime(targetPitchCents, t);
+    this.voiceLfoFilterGain.gain.setValueAtTime(targetFilterCents, t);
   }
 
   updateFilter(
@@ -472,11 +470,13 @@ export class HeraSynthesizerEngine {
   private hpfFilter: BiquadFilterNode | null = null;
   private softClipper: WaveShaperNode | null = null;
   private analyser: AnalyserNode | null = null;
+  private masterLimiter: DynamicsCompressorNode | null = null;
 
   // Chorus section
   private chorusInputGain: GainNode | null = null;
   private chorusDryGain: GainNode | null = null;
   private chorusWetGain: GainNode | null = null;
+  private chorusSumGain: GainNode | null = null;
   private chorusDelayL: DelayNode | null = null;
   private chorusDelayR: DelayNode | null = null;
   private chorusFilterL: BiquadFilterNode | null = null;
@@ -484,6 +484,17 @@ export class HeraSynthesizerEngine {
   private chorusLFO: OscillatorNode | null = null;
   private chorusLFOGainL: GainNode | null = null;
   private chorusLFOGainR: GainNode | null = null;
+
+  // Stereo Echo / Delay Effect
+  private delayInputGain: GainNode | null = null;
+  private delayDryGain: GainNode | null = null;
+  private delayWetGain: GainNode | null = null;
+  private delayNodeL: DelayNode | null = null;
+  private delayNodeR: DelayNode | null = null;
+  private delayFeedbackL: GainNode | null = null;
+  private delayFeedbackR: GainNode | null = null;
+  private delayFilterL: BiquadFilterNode | null = null;
+  private delayFilterR: BiquadFilterNode | null = null;
 
   // Global Audio-Rate LFO for voice pitch/filter mod
   private globalLfoOsc: OscillatorNode | null = null;
@@ -525,7 +536,7 @@ export class HeraSynthesizerEngine {
   setMasterVolume(vol: number) {
     this.masterVolume = Math.max(0, Math.min(1, vol));
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(this.masterVolume * 0.9, this.ctx.currentTime, 0.02);
+      this.masterGain.gain.setTargetAtTime(this.masterVolume * 0.85, this.ctx.currentTime, 0.02);
     }
   }
 
@@ -586,7 +597,7 @@ export class HeraSynthesizerEngine {
     this.globalLfoOsc.start();
 
     // 3. Main Signal Chain:
-    // Voices -> HPF -> SoftClipper -> MasterGain -> Chorus -> Analyser -> Destination
+    // Voices -> HPF -> SoftClipper -> MasterGain -> Chorus -> StereoDelay -> MasterLimiter -> Analyser -> Destination
     this.hpfFilter = this.ctx.createBiquadFilter();
     this.hpfFilter.type = 'highpass';
     this.hpfFilter.frequency.value = getHpfFrequency(this.params.HPF);
@@ -596,7 +607,7 @@ export class HeraSynthesizerEngine {
     this.softClipper.oversample = '2x';
 
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = this.masterVolume * 0.9;
+    this.masterGain.gain.value = this.masterVolume * 0.85;
 
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 1024;
@@ -608,6 +619,9 @@ export class HeraSynthesizerEngine {
 
     // Setup authentic Roland BBD Stereo Chorus
     this.setupChorus(this.masterGain);
+
+    // Setup Stereo Echo / Delay Effect & Master Limiter
+    this.setupDelayAndLimiter();
 
     // Setup recorder destination
     this.mediaDest = this.ctx.createMediaStreamDestination();
@@ -621,24 +635,26 @@ export class HeraSynthesizerEngine {
 
     this.isInitialized = true;
     this.updateChorusMode();
+    this.updateDelayMode();
   }
 
   private createSoftClipCurve(samples: number): Float32Array {
     const curve = new Float32Array(samples);
     for (let i = 0; i < samples; ++i) {
       const x = (i * 2) / samples - 1;
-      // Soft saturation matching Hera curveSoftClipTanh3
-      curve[i] = Math.tanh(2.5 * x) / Math.tanh(2.5);
+      // Musical tape-like soft saturation without harsh clipping
+      curve[i] = Math.tanh(1.2 * x) / Math.tanh(1.2);
     }
     return curve;
   }
 
   private setupChorus(input: AudioNode) {
-    if (!this.ctx || !this.analyser) return;
+    if (!this.ctx) return;
 
     this.chorusInputGain = this.ctx.createGain();
     this.chorusDryGain = this.ctx.createGain();
     this.chorusWetGain = this.ctx.createGain();
+    this.chorusSumGain = this.ctx.createGain();
 
     input.connect(this.chorusDryGain);
     input.connect(this.chorusInputGain);
@@ -649,16 +665,15 @@ export class HeraSynthesizerEngine {
     this.chorusDelayL = this.ctx.createDelay(0.1);
     this.chorusDelayR = this.ctx.createDelay(0.1);
 
-    // Roland Juno-60 BBD analog reconstruction lowpass filter (7.8 kHz)
-    // Cuts off harsh comb-filtering harmonics to produce the lush, creamy analog character
+    // Roland Juno-60 BBD analog reconstruction lowpass filter (7.5 kHz)
     this.chorusFilterL = this.ctx.createBiquadFilter();
     this.chorusFilterL.type = 'lowpass';
-    this.chorusFilterL.frequency.value = 7800;
+    this.chorusFilterL.frequency.value = 7500;
     this.chorusFilterL.Q.value = 0.707;
 
     this.chorusFilterR = this.ctx.createBiquadFilter();
     this.chorusFilterR.type = 'lowpass';
-    this.chorusFilterR.frequency.value = 7800;
+    this.chorusFilterR.frequency.value = 7500;
     this.chorusFilterR.Q.value = 0.707;
 
     this.chorusInputGain.connect(this.chorusDelayL);
@@ -667,27 +682,21 @@ export class HeraSynthesizerEngine {
     this.chorusDelayL.connect(this.chorusFilterL);
     this.chorusDelayR.connect(this.chorusFilterR);
 
-    // Roland Juno-60 analog stereo architecture:
-    // Left Channel = Dry + Wet_L
-    // Right Channel = Dry - Wet_R (180° inverted polarity!)
-    // This phase inversion between the stereo channels is the core acoustic secret of the Juno's enormous dimensional spatial field.
+    // 180° inverted polarity on right channel for authentic Roland spatial dimension
     const chorusInvertGainR = this.ctx.createGain();
     chorusInvertGainR.gain.value = -1.0;
 
     this.chorusFilterL.connect(merger, 0, 0); // Left channel: in-phase
     this.chorusFilterR.connect(chorusInvertGainR);
-    chorusInvertGainR.connect(merger, 0, 1); // Right channel: 180° inverted
+    chorusInvertGainR.connect(merger, 0, 1); // Right channel: inverted
 
     merger.connect(this.chorusWetGain);
 
-    // Output sum
-    this.chorusDryGain.connect(this.analyser);
-    this.chorusWetGain.connect(this.analyser);
-    this.analyser.connect(this.ctx.destination);
+    // Sum chorus dry & wet into chorusSumGain
+    this.chorusDryGain.connect(this.chorusSumGain);
+    this.chorusWetGain.connect(this.chorusSumGain);
 
-    // Setup LFO for Chorus delay modulation.
-    // SINE wave provides smooth, continuous derivative (d tau / dt), completely
-    // eliminating the harsh triangular pitch-jump clicks / "serrilhado" buzz.
+    // Setup LFO for Chorus delay modulation
     this.chorusLFO = this.ctx.createOscillator();
     this.chorusLFO.type = 'sine';
 
@@ -703,6 +712,71 @@ export class HeraSynthesizerEngine {
     this.chorusLFO.start();
   }
 
+  private setupDelayAndLimiter() {
+    if (!this.ctx || !this.chorusSumGain || !this.analyser) return;
+
+    // 1. Stereo Delay nodes
+    this.delayInputGain = this.ctx.createGain();
+    this.delayDryGain = this.ctx.createGain();
+    this.delayWetGain = this.ctx.createGain();
+
+    this.chorusSumGain.connect(this.delayDryGain);
+    this.chorusSumGain.connect(this.delayInputGain);
+
+    this.delayNodeL = this.ctx.createDelay(2.0);
+    this.delayNodeR = this.ctx.createDelay(2.0);
+
+    // Warm analog lowpass filters for delay repeats (4500Hz tape absorption)
+    this.delayFilterL = this.ctx.createBiquadFilter();
+    this.delayFilterL.type = 'lowpass';
+    this.delayFilterL.frequency.value = 4500;
+
+    this.delayFilterR = this.ctx.createBiquadFilter();
+    this.delayFilterR.type = 'lowpass';
+    this.delayFilterR.frequency.value = 4500;
+
+    this.delayFeedbackL = this.ctx.createGain();
+    this.delayFeedbackL.gain.value = 0;
+
+    this.delayFeedbackR = this.ctx.createGain();
+    this.delayFeedbackR.gain.value = 0;
+
+    // Connect delay input
+    this.delayInputGain.connect(this.delayNodeL);
+    this.delayInputGain.connect(this.delayNodeR);
+
+    // Damped feedback loop with cross-feed
+    this.delayNodeL.connect(this.delayFilterL);
+    this.delayFilterL.connect(this.delayFeedbackL);
+    this.delayFeedbackL.connect(this.delayNodeL);
+    this.delayFeedbackL.connect(this.delayNodeR);
+
+    this.delayNodeR.connect(this.delayFilterR);
+    this.delayFilterR.connect(this.delayFeedbackR);
+    this.delayFeedbackR.connect(this.delayNodeR);
+    this.delayFeedbackR.connect(this.delayNodeL);
+
+    // Delay stereo merge
+    const delayMerger = this.ctx.createChannelMerger(2);
+    this.delayNodeL.connect(delayMerger, 0, 0);
+    this.delayNodeR.connect(delayMerger, 0, 1);
+    delayMerger.connect(this.delayWetGain);
+
+    // Master Dynamics Limiter (Peak Protection - eliminates any clipping / "estouro")
+    this.masterLimiter = this.ctx.createDynamicsCompressor();
+    this.masterLimiter.threshold.setValueAtTime(-2.0, this.ctx.currentTime);
+    this.masterLimiter.knee.setValueAtTime(6.0, this.ctx.currentTime);
+    this.masterLimiter.ratio.setValueAtTime(10.0, this.ctx.currentTime);
+    this.masterLimiter.attack.setValueAtTime(0.003, this.ctx.currentTime);
+    this.masterLimiter.release.setValueAtTime(0.12, this.ctx.currentTime);
+
+    this.delayDryGain.connect(this.masterLimiter);
+    this.delayWetGain.connect(this.masterLimiter);
+
+    this.masterLimiter.connect(this.analyser);
+    this.analyser.connect(this.ctx.destination);
+  }
+
   private updateChorusMode() {
     if (!this.chorusDelayL || !this.chorusDelayR || !this.chorusLFO || !this.chorusLFOGainL || !this.chorusLFOGainR || !this.chorusDryGain || !this.chorusWetGain || !this.ctx) {
       return;
@@ -714,7 +788,6 @@ export class HeraSynthesizerEngine {
 
     const t = this.ctx.currentTime;
 
-    // Smoothly cancel past scheduled values to prevent Web Audio thread underflows
     this.chorusDelayL.delayTime.cancelScheduledValues(t);
     this.chorusDelayR.delayTime.cancelScheduledValues(t);
     this.chorusLFOGainL.gain.cancelScheduledValues(t);
@@ -725,50 +798,91 @@ export class HeraSynthesizerEngine {
 
     if (mode === 0) {
       // Off: 100% dry, 0% wet
-      this.chorusDryGain.gain.setTargetAtTime(1.0, t, 0.03);
-      this.chorusWetGain.gain.setTargetAtTime(0.0, t, 0.03);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0, t, 0.03);
-      this.chorusLFOGainR.gain.setTargetAtTime(0.0, t, 0.03);
+      this.chorusDryGain.gain.setTargetAtTime(1.0, t, 0.02);
+      this.chorusWetGain.gain.setTargetAtTime(0.0, t, 0.02);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0, t, 0.02);
+      this.chorusLFOGainR.gain.setTargetAtTime(0.0, t, 0.02);
       return;
     }
 
     if (mode === 1) {
       // Chorus I (Authentic Roland Juno-60 Mode I):
       // Rate = 0.513 Hz (slow, lush, dimensional stereo shimmer)
-      // Delay = ~4.0ms Left, ~4.4ms Right, modulation depth = +/- 1.3ms (180° inverted phase)
-      this.chorusDryGain.gain.setTargetAtTime(0.68, t, 0.03);
-      this.chorusWetGain.gain.setTargetAtTime(0.72, t, 0.03);
+      this.chorusDryGain.gain.setTargetAtTime(0.65, t, 0.02);
+      this.chorusWetGain.gain.setTargetAtTime(0.52, t, 0.02);
 
-      this.chorusLFO.frequency.setTargetAtTime(0.513, t, 0.03);
-      this.chorusDelayL.delayTime.setTargetAtTime(0.0040, t, 0.03);
-      this.chorusDelayR.delayTime.setTargetAtTime(0.0044, t, 0.03);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0013, t, 0.03);
-      this.chorusLFOGainR.gain.setTargetAtTime(-0.0013, t, 0.03);
+      this.chorusLFO.frequency.setTargetAtTime(0.513, t, 0.02);
+      this.chorusDelayL.delayTime.setTargetAtTime(0.0040, t, 0.02);
+      this.chorusDelayR.delayTime.setTargetAtTime(0.0044, t, 0.02);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0013, t, 0.02);
+      this.chorusLFOGainR.gain.setTargetAtTime(-0.0013, t, 0.02);
     } else if (mode === 2) {
       // Chorus II (Authentic Roland Juno-60 Mode II):
-      // Rate = 0.863 Hz, Delay = ~5.2ms Left, ~5.8ms Right, modulation depth = +/- 2.3ms
-      // Warm, thick, creamy organic wobble - dense and enveloping ("dentro bastante")
-      this.chorusDryGain.gain.setTargetAtTime(0.58, t, 0.03);
-      this.chorusWetGain.gain.setTargetAtTime(0.85, t, 0.03);
+      // Rate = 0.863 Hz, Delay = ~5.2ms Left, ~5.8ms Right, modulation depth = +/- 2.4ms
+      // Thick, rich, warm organic wobble
+      this.chorusDryGain.gain.setTargetAtTime(0.48, t, 0.02);
+      this.chorusWetGain.gain.setTargetAtTime(0.68, t, 0.02);
 
-      this.chorusLFO.frequency.setTargetAtTime(0.863, t, 0.03);
-      this.chorusDelayL.delayTime.setTargetAtTime(0.0052, t, 0.03);
-      this.chorusDelayR.delayTime.setTargetAtTime(0.0058, t, 0.03);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0023, t, 0.03);
-      this.chorusLFOGainR.gain.setTargetAtTime(-0.0023, t, 0.03);
+      this.chorusLFO.frequency.setTargetAtTime(0.863, t, 0.02);
+      this.chorusDelayL.delayTime.setTargetAtTime(0.0052, t, 0.02);
+      this.chorusDelayR.delayTime.setTargetAtTime(0.0058, t, 0.02);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0024, t, 0.02);
+      this.chorusLFOGainR.gain.setTargetAtTime(-0.0024, t, 0.02);
     } else if (mode === 3) {
       // Chorus I + II (Authentic Roland Juno-60 Mode I+II - Dual Press):
-      // Swirling Leslie rotary chorus (Rate = ~1.02 Hz, smooth sinusoidal modulation without harsh buzz or flutter)
-      // Replaces the rapid 8.8Hz flutter with authentic creamy rotary modulation
-      this.chorusDryGain.gain.setTargetAtTime(0.60, t, 0.03);
-      this.chorusWetGain.gain.setTargetAtTime(0.80, t, 0.03);
+      // Swirling Leslie rotary chorus
+      this.chorusDryGain.gain.setTargetAtTime(0.50, t, 0.02);
+      this.chorusWetGain.gain.setTargetAtTime(0.60, t, 0.02);
 
-      this.chorusLFO.frequency.setTargetAtTime(1.02, t, 0.03);
-      this.chorusDelayL.delayTime.setTargetAtTime(0.0046, t, 0.03);
-      this.chorusDelayR.delayTime.setTargetAtTime(0.0050, t, 0.03);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0016, t, 0.03);
-      this.chorusLFOGainR.gain.setTargetAtTime(-0.0016, t, 0.03);
+      this.chorusLFO.frequency.setTargetAtTime(1.02, t, 0.02);
+      this.chorusDelayL.delayTime.setTargetAtTime(0.0046, t, 0.02);
+      this.chorusDelayR.delayTime.setTargetAtTime(0.0050, t, 0.02);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0016, t, 0.02);
+      this.chorusLFOGainR.gain.setTargetAtTime(-0.0016, t, 0.02);
     }
+  }
+
+  private updateDelayMode() {
+    if (
+      !this.delayDryGain ||
+      !this.delayWetGain ||
+      !this.delayNodeL ||
+      !this.delayNodeR ||
+      !this.delayFeedbackL ||
+      !this.delayFeedbackR ||
+      !this.ctx
+    ) {
+      return;
+    }
+
+    const t = this.ctx.currentTime;
+    const isEnabled = this.params.DelayEnabled > 0.5;
+
+    if (!isEnabled) {
+      this.delayDryGain.gain.setTargetAtTime(1.0, t, 0.02);
+      this.delayWetGain.gain.setTargetAtTime(0.0, t, 0.02);
+      this.delayFeedbackL.gain.setTargetAtTime(0.0, t, 0.02);
+      this.delayFeedbackR.gain.setTargetAtTime(0.0, t, 0.02);
+      return;
+    }
+
+    // Delay time: 0.0 = 60ms, 1.0 = 750ms
+    const baseTimeSec = 0.06 + Math.max(0, Math.min(1, this.params.DelayTime)) * 0.69;
+    const timeL = baseTimeSec;
+    const timeR = baseTimeSec * 1.333; // Ping-pong stereo offset
+
+    const fb = Math.max(0, Math.min(1, this.params.DelayFeedback)) * 0.72;
+    const wet = Math.max(0, Math.min(1, this.params.DelayMix)) * 0.65;
+    const dry = 1.0 - (wet * 0.35);
+
+    this.delayNodeL.delayTime.setTargetAtTime(timeL, t, 0.03);
+    this.delayNodeR.delayTime.setTargetAtTime(timeR, t, 0.03);
+
+    this.delayFeedbackL.gain.setTargetAtTime(fb * 0.45, t, 0.02);
+    this.delayFeedbackR.gain.setTargetAtTime(fb * 0.45, t, 0.02);
+
+    this.delayDryGain.gain.setTargetAtTime(dry, t, 0.02);
+    this.delayWetGain.gain.setTargetAtTime(wet, t, 0.02);
   }
 
   // Note On
@@ -885,6 +999,8 @@ export class HeraSynthesizerEngine {
           v.updateVolume(value as number);
         }
       });
+    } else if (param.startsWith('Delay')) {
+      this.updateDelayMode();
     } else if (
       param.startsWith('VCF') ||
       param.startsWith('ENV') ||
@@ -910,6 +1026,7 @@ export class HeraSynthesizerEngine {
       this.globalLfoOsc.frequency.setTargetAtTime(getLfoRateHz(params.LFORate), this.ctx.currentTime, 0.015);
     }
     this.updateChorusMode();
+    this.updateDelayMode();
     this.voices.forEach(v => {
       if (v.active) {
         v.updateLfoDepth(this.params, this.modWheelAmount);
