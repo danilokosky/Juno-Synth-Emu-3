@@ -14375,7 +14375,7 @@ function getHpfFrequency(value) {
   return 68.53 * Math.exp(4.065 * normalized) + 72.63;
 }
 class HeraVoiceInstance {
-  constructor(id, ctx, destination, noiseBuffer) {
+  constructor(id, ctx, destination, noiseBuffer, lfoSource) {
     __publicField(this, "id");
     __publicField(this, "note", -1);
     __publicField(this, "baseFreq", 440);
@@ -14399,8 +14399,12 @@ class HeraVoiceInstance {
     __publicField(this, "vcfFilter1");
     __publicField(this, "vcfFilter2");
     __publicField(this, "envGain");
+    // Audio-rate LFO modulation gains
+    __publicField(this, "voiceLfoPitchGain");
+    __publicField(this, "voiceLfoFilterGain");
     __publicField(this, "noiseBuffer");
     __publicField(this, "releaseTimer", null);
+    __publicField(this, "currentVelocityFactor", 1);
     this.id = id;
     this.ctx = ctx;
     this.noiseBuffer = noiseBuffer;
@@ -14420,8 +14424,16 @@ class HeraVoiceInstance {
     this.vcfFilter2.connect(this.envGain);
     this.envGain.connect(this.voiceGain);
     this.voiceGain.connect(destination);
+    this.voiceLfoPitchGain = ctx.createGain();
+    this.voiceLfoPitchGain.gain.value = 0;
+    lfoSource.connect(this.voiceLfoPitchGain);
+    this.voiceLfoFilterGain = ctx.createGain();
+    this.voiceLfoFilterGain.gain.value = 0;
+    lfoSource.connect(this.voiceLfoFilterGain);
+    this.voiceLfoFilterGain.connect(this.vcfFilter1.detune);
+    this.voiceLfoFilterGain.connect(this.vcfFilter2.detune);
   }
-  start(note, velocity, params, pitchBendSemitones, lfoValue) {
+  start(note, velocity, params, pitchBendSemitones, modWheelAmount = 0) {
     if (this.releaseTimer !== null) {
       clearTimeout(this.releaseTimer);
       this.releaseTimer = null;
@@ -14435,12 +14447,12 @@ class HeraVoiceInstance {
     const rangeFactor = rangeFactors[Math.max(0, Math.min(2, Math.floor(params.DCORange)))];
     const midiFreq = 440 * Math.pow(2, (note - 69) / 12);
     this.baseFreq = midiFreq * rangeFactor;
-    const pitchDetune = pitchBendSemitones * 100 + lfoValue * params.DCOPitchModDepth * 200;
+    const basePitchDetune = pitchBendSemitones * 100;
     const t = this.ctx.currentTime;
     this.sawOsc = this.ctx.createOscillator();
     this.sawOsc.type = "sawtooth";
     this.sawOsc.frequency.setValueAtTime(this.baseFreq, t);
-    this.sawOsc.detune.setValueAtTime(pitchDetune, t);
+    this.sawOsc.detune.setValueAtTime(basePitchDetune, t);
     this.sawGain.gain.setValueAtTime(params.DCOSawLevel * 0.45, t);
     this.sawOsc.connect(this.sawGain);
     this.sawGain.connect(this.vcfFilter1);
@@ -14448,18 +14460,15 @@ class HeraVoiceInstance {
     this.pulseOsc1 = this.ctx.createOscillator();
     this.pulseOsc1.type = "sawtooth";
     this.pulseOsc1.frequency.setValueAtTime(this.baseFreq, t);
-    this.pulseOsc1.detune.setValueAtTime(pitchDetune, t);
+    this.pulseOsc1.detune.setValueAtTime(basePitchDetune, t);
     this.pulseOsc2 = this.ctx.createOscillator();
     this.pulseOsc2.type = "sawtooth";
     this.pulseOsc2.frequency.setValueAtTime(this.baseFreq, t);
-    this.pulseOsc2.detune.setValueAtTime(pitchDetune, t);
+    this.pulseOsc2.detune.setValueAtTime(basePitchDetune, t);
     this.pulseInvertGain = this.ctx.createGain();
     this.pulseInvertGain.gain.value = -1;
     this.pulseDelay = this.ctx.createDelay(0.05);
     let pwm = params.DCOPWMDepth;
-    if (params.DCOPWMMod === 1) {
-      pwm *= lfoValue * 0.5 + 0.5;
-    }
     const pulseWidthRatio = 0.5 - 0.45 * Math.max(-0.95, Math.min(0.95, pwm));
     const period = 1 / Math.max(10, this.baseFreq);
     const delayTime = Math.max(5e-5, Math.min(0.04, period * pulseWidthRatio));
@@ -14475,11 +14484,15 @@ class HeraVoiceInstance {
     this.subOsc = this.ctx.createOscillator();
     this.subOsc.type = "square";
     this.subOsc.frequency.setValueAtTime(this.baseFreq * 0.5, t);
-    this.subOsc.detune.setValueAtTime(pitchDetune, t);
+    this.subOsc.detune.setValueAtTime(basePitchDetune, t);
     this.subGain.gain.setValueAtTime(params.DCOSubLevel * 0.4, t);
     this.subOsc.connect(this.subGain);
     this.subGain.connect(this.vcfFilter1);
     this.subOsc.start(t);
+    this.voiceLfoPitchGain.connect(this.sawOsc.detune);
+    this.voiceLfoPitchGain.connect(this.pulseOsc1.detune);
+    this.voiceLfoPitchGain.connect(this.pulseOsc2.detune);
+    this.voiceLfoPitchGain.connect(this.subOsc.detune);
     this.noiseSource = this.ctx.createBufferSource();
     this.noiseSource.buffer = this.noiseBuffer;
     this.noiseSource.loop = true;
@@ -14487,53 +14500,86 @@ class HeraVoiceInstance {
     this.noiseSource.connect(this.noiseGain);
     this.noiseGain.connect(this.vcfFilter1);
     this.noiseSource.start(t);
-    this.updateFilter(params, pitchBendSemitones, lfoValue, 1, true);
-    const velFactor = Math.max(0.2, velocity / 127 * (velocity / 127) * 1.5);
-    const masterGain = params.VCADepth * velFactor;
+    this.scheduleLfo(params, modWheelAmount, t);
+    this.updateFilter(params, pitchBendSemitones, 1, true);
+    this.currentVelocityFactor = 0.45 + 0.55 * Math.min(1, Math.max(0.1, velocity / 127));
+    const voiceVolume = Math.max(0.01, params.VCADepth * this.currentVelocityFactor);
     this.envGain.gain.cancelScheduledValues(t);
     this.envGain.gain.setValueAtTime(0, t);
     if (params.VCAType === 1) {
-      this.envGain.gain.linearRampToValueAtTime(masterGain, t + 4e-3);
+      this.envGain.gain.linearRampToValueAtTime(voiceVolume, t + 4e-3);
     } else {
       const attackSec = Math.max(2e-3, getAttackSec(params.ENVAttack));
       const decaySec = Math.max(4e-3, getDecaySec(params.ENVDecay));
-      const sustainVal = params.ENVSustain * masterGain;
-      this.envGain.gain.linearRampToValueAtTime(masterGain, t + attackSec);
+      const sustainVal = params.ENVSustain * voiceVolume;
+      this.envGain.gain.linearRampToValueAtTime(voiceVolume, t + attackSec);
       this.envGain.gain.exponentialRampToValueAtTime(Math.max(1e-4, sustainVal), t + attackSec + decaySec);
     }
   }
-  updateFilter(params, pitchBendSemitones, lfoValue, envAmountMultiplier = 1, isNoteOn = false) {
+  scheduleLfo(params, modWheelAmount, t) {
+    const targetPitchCents = params.DCOPitchModDepth * 280 + modWheelAmount * 280;
+    const targetFilterCents = params.VCFLFO * 2400;
+    const delaySec = getLfoDelaySec(params.LFODelay);
+    this.voiceLfoPitchGain.gain.cancelScheduledValues(t);
+    this.voiceLfoFilterGain.gain.cancelScheduledValues(t);
+    if (delaySec < 0.02) {
+      this.voiceLfoPitchGain.gain.setValueAtTime(targetPitchCents, t);
+      this.voiceLfoFilterGain.gain.setValueAtTime(targetFilterCents, t);
+    } else {
+      this.voiceLfoPitchGain.gain.setValueAtTime(0, t);
+      this.voiceLfoPitchGain.gain.setValueAtTime(0, t + delaySec);
+      this.voiceLfoPitchGain.gain.linearRampToValueAtTime(targetPitchCents, t + delaySec + 0.45);
+      this.voiceLfoFilterGain.gain.setValueAtTime(0, t);
+      this.voiceLfoFilterGain.gain.setValueAtTime(0, t + delaySec);
+      this.voiceLfoFilterGain.gain.linearRampToValueAtTime(targetFilterCents, t + delaySec + 0.45);
+    }
+  }
+  updateLfoDepth(params, modWheelAmount) {
+    if (!this.active) return;
     const t = this.ctx.currentTime;
-    const cutoffOctaves = params.VCFCutoff * (200 / 12) + params.VCFResonance * 0.5;
-    const keyboardDetuneOctaves = params.VCFKey * ((this.note - 60) / 12);
-    const filterBendOctaves = params.VCFBendDepth * (pitchBendSemitones / 12);
-    const lfoDetuneOctaves = params.VCFLFO * lfoValue * 3;
-    const baseOctaves = cutoffOctaves + keyboardDetuneOctaves + filterBendOctaves + lfoDetuneOctaves;
-    let baseCutoffHz = 7.8 * Math.pow(2, baseOctaves);
-    const resonanceQ = Math.max(0.5, params.VCFResonance * 18 + 0.707);
-    this.vcfFilter1.Q.setValueAtTime(resonanceQ, t);
-    this.vcfFilter2.Q.setValueAtTime(resonanceQ, t);
-    const envOctaves = params.VCFEnv * 12 * envAmountMultiplier;
-    const peakOctaves = baseOctaves + envOctaves;
-    const peakCutoffHz = Math.min(2e4, Math.max(20, 7.8 * Math.pow(2, peakOctaves)));
-    const sustainOctaves = baseOctaves + envOctaves * params.ENVSustain;
-    const sustainCutoffHz = Math.min(2e4, Math.max(20, 7.8 * Math.pow(2, sustainOctaves)));
-    baseCutoffHz = Math.min(2e4, Math.max(20, baseCutoffHz));
+    const targetPitchCents = params.DCOPitchModDepth * 280 + modWheelAmount * 280;
+    const targetFilterCents = params.VCFLFO * 2400;
+    this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.02);
+    this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.02);
+  }
+  updateFilter(params, pitchBendSemitones, envAmountMultiplier = 1, isNoteOn = false) {
+    const t = this.ctx.currentTime;
+    const minFreq = 16;
+    const maxFreq = 2e4;
+    const baseCutoffHz = minFreq * Math.pow(maxFreq / minFreq, Math.max(0, Math.min(1, params.VCFCutoff)));
+    const keyTrackingRatio = Math.pow(2, params.VCFKey * ((this.note - 60) / 12));
+    let noteCutoffHz = baseCutoffHz * keyTrackingRatio;
+    if (pitchBendSemitones !== 0) {
+      noteCutoffHz *= Math.pow(2, params.VCFBendDepth * (pitchBendSemitones / 12));
+    }
+    const resonanceQ = 0.707 + params.VCFResonance * 3.6;
+    this.vcfFilter1.Q.setTargetAtTime(resonanceQ, t, 0.02);
+    this.vcfFilter2.Q.setTargetAtTime(resonanceQ, t, 0.02);
+    const envOctaves = params.VCFEnv * 6.5 * envAmountMultiplier;
+    const peakCutoffHz = Math.min(2e4, Math.max(16, noteCutoffHz * Math.pow(2, envOctaves)));
+    const sustainCutoffHz = Math.min(2e4, Math.max(16, noteCutoffHz * Math.pow(2, envOctaves * params.ENVSustain)));
+    noteCutoffHz = Math.min(2e4, Math.max(16, noteCutoffHz));
     this.vcfFilter1.frequency.cancelScheduledValues(t);
     this.vcfFilter2.frequency.cancelScheduledValues(t);
     if (isNoteOn && Math.abs(params.VCFEnv) > 0.01) {
       const attackSec = Math.max(2e-3, getAttackSec(params.ENVAttack));
       const decaySec = Math.max(4e-3, getDecaySec(params.ENVDecay));
-      this.vcfFilter1.frequency.setValueAtTime(baseCutoffHz, t);
-      this.vcfFilter2.frequency.setValueAtTime(baseCutoffHz, t);
+      this.vcfFilter1.frequency.setValueAtTime(noteCutoffHz, t);
+      this.vcfFilter2.frequency.setValueAtTime(noteCutoffHz, t);
       this.vcfFilter1.frequency.exponentialRampToValueAtTime(peakCutoffHz, t + attackSec);
       this.vcfFilter2.frequency.exponentialRampToValueAtTime(peakCutoffHz, t + attackSec);
       this.vcfFilter1.frequency.exponentialRampToValueAtTime(sustainCutoffHz, t + attackSec + decaySec);
       this.vcfFilter2.frequency.exponentialRampToValueAtTime(sustainCutoffHz, t + attackSec + decaySec);
     } else {
-      this.vcfFilter1.frequency.setValueAtTime(sustainCutoffHz, t);
-      this.vcfFilter2.frequency.setValueAtTime(sustainCutoffHz, t);
+      this.vcfFilter1.frequency.setTargetAtTime(sustainCutoffHz, t, 0.02);
+      this.vcfFilter2.frequency.setTargetAtTime(sustainCutoffHz, t, 0.02);
     }
+  }
+  updateVolume(vcaDepth) {
+    if (!this.active) return;
+    const t = this.ctx.currentTime;
+    const voiceVolume = Math.max(0.01, vcaDepth * this.currentVelocityFactor);
+    this.envGain.gain.setTargetAtTime(voiceVolume, t, 0.02);
   }
   stop(params) {
     var _a, _b, _c, _d, _e;
@@ -14556,12 +14602,13 @@ class HeraVoiceInstance {
       const currentGain = Math.max(1e-4, this.envGain.gain.value);
       this.envGain.gain.setValueAtTime(currentGain, t);
       this.envGain.gain.exponentialRampToValueAtTime(1e-5, t + releaseSec);
-      const baseOctaves = params.VCFCutoff * (200 / 12) + params.VCFKey * ((this.note - 60) / 12);
-      const restCutoffHz = Math.min(2e4, Math.max(20, 7.8 * Math.pow(2, baseOctaves)));
+      const minFreq = 16;
+      const maxFreq = 2e4;
+      const restCutoffHz = Math.min(2e4, Math.max(16, minFreq * Math.pow(maxFreq / minFreq, params.VCFCutoff)));
       this.vcfFilter1.frequency.cancelScheduledValues(t);
       this.vcfFilter2.frequency.cancelScheduledValues(t);
-      this.vcfFilter1.frequency.setValueAtTime(Math.max(20, this.vcfFilter1.frequency.value), t);
-      this.vcfFilter2.frequency.setValueAtTime(Math.max(20, this.vcfFilter2.frequency.value), t);
+      this.vcfFilter1.frequency.setValueAtTime(Math.max(16, this.vcfFilter1.frequency.value), t);
+      this.vcfFilter2.frequency.setValueAtTime(Math.max(16, this.vcfFilter2.frequency.value), t);
       this.vcfFilter1.frequency.exponentialRampToValueAtTime(restCutoffHz, t + releaseSec);
       this.vcfFilter2.frequency.exponentialRampToValueAtTime(restCutoffHz, t + releaseSec);
       const stopTime = t + releaseSec + 0.05;
@@ -14588,6 +14635,10 @@ class HeraVoiceInstance {
     this.active = false;
     this.released = true;
     this.note = -1;
+    try {
+      this.voiceLfoPitchGain.disconnect();
+    } catch {
+    }
     try {
       (_a = this.sawOsc) == null ? void 0 : _a.stop();
       (_b = this.pulseOsc1) == null ? void 0 : _b.stop();
@@ -14632,11 +14683,10 @@ class HeraSynthesizerEngine {
     __publicField(this, "chorusLFO", null);
     __publicField(this, "chorusLFOGainL", null);
     __publicField(this, "chorusLFOGainR", null);
-    // Global LFO for voice pitch/filter mod
-    __publicField(this, "globalLfoPhase", 0);
-    __publicField(this, "globalLfoTimer", null);
-    __publicField(this, "globalLfoValue", 0);
-    __publicField(this, "lfoTriggerTime", 0);
+    // Global Audio-Rate LFO for voice pitch/filter mod
+    __publicField(this, "globalLfoOsc", null);
+    __publicField(this, "globalLfoBus", null);
+    __publicField(this, "masterVolume", 0.8);
     // Voice allocation (6-voice polyphony)
     __publicField(this, "voices", []);
     __publicField(this, "MAX_VOICES", 6);
@@ -14659,6 +14709,12 @@ class HeraSynthesizerEngine {
   }
   setRecordingListener(callback) {
     this.onRecordingChange = callback;
+  }
+  setMasterVolume(vol) {
+    this.masterVolume = Math.max(0, Math.min(1, vol));
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setTargetAtTime(this.masterVolume * 0.9, this.ctx.currentTime, 0.02);
+    }
   }
   async initAudio() {
     if (this.isInitialized && this.ctx) {
@@ -14701,6 +14757,13 @@ class HeraSynthesizerEngine {
       data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
       b6 = white * 0.115926;
     }
+    this.globalLfoOsc = this.ctx.createOscillator();
+    this.globalLfoOsc.type = "sine";
+    this.globalLfoOsc.frequency.value = getLfoRateHz(this.params.LFORate);
+    this.globalLfoBus = this.ctx.createGain();
+    this.globalLfoBus.gain.value = 1;
+    this.globalLfoOsc.connect(this.globalLfoBus);
+    this.globalLfoOsc.start();
     this.hpfFilter = this.ctx.createBiquadFilter();
     this.hpfFilter.type = "highpass";
     this.hpfFilter.frequency.value = getHpfFrequency(this.params.HPF);
@@ -14708,7 +14771,7 @@ class HeraSynthesizerEngine {
     this.softClipper.curve = this.createSoftClipCurve(512);
     this.softClipper.oversample = "2x";
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = 0.8;
+    this.masterGain.gain.value = this.masterVolume * 0.9;
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 1024;
     this.analyser.smoothingTimeConstant = 0.6;
@@ -14719,9 +14782,8 @@ class HeraSynthesizerEngine {
     this.analyser.connect(this.mediaDest);
     this.voices = [];
     for (let i = 0; i < this.MAX_VOICES; i++) {
-      this.voices.push(new HeraVoiceInstance(i, this.ctx, this.hpfFilter, this.noiseBuffer));
+      this.voices.push(new HeraVoiceInstance(i, this.ctx, this.hpfFilter, this.noiseBuffer, this.globalLfoBus));
     }
-    this.startGlobalLfo();
     this.isInitialized = true;
     this.updateChorusMode();
   }
@@ -14745,18 +14807,21 @@ class HeraSynthesizerEngine {
     this.chorusDelayR = this.ctx.createDelay(0.1);
     this.chorusFilterL = this.ctx.createBiquadFilter();
     this.chorusFilterL.type = "lowpass";
-    this.chorusFilterL.frequency.value = 8500;
+    this.chorusFilterL.frequency.value = 7800;
     this.chorusFilterL.Q.value = 0.707;
     this.chorusFilterR = this.ctx.createBiquadFilter();
     this.chorusFilterR.type = "lowpass";
-    this.chorusFilterR.frequency.value = 8500;
+    this.chorusFilterR.frequency.value = 7800;
     this.chorusFilterR.Q.value = 0.707;
     this.chorusInputGain.connect(this.chorusDelayL);
     this.chorusInputGain.connect(this.chorusDelayR);
     this.chorusDelayL.connect(this.chorusFilterL);
     this.chorusDelayR.connect(this.chorusFilterR);
+    const chorusInvertGainR = this.ctx.createGain();
+    chorusInvertGainR.gain.value = -1;
     this.chorusFilterL.connect(merger, 0, 0);
-    this.chorusFilterR.connect(merger, 0, 1);
+    this.chorusFilterR.connect(chorusInvertGainR);
+    chorusInvertGainR.connect(merger, 0, 1);
     merger.connect(this.chorusWetGain);
     this.chorusDryGain.connect(this.analyser);
     this.chorusWetGain.connect(this.analyser);
@@ -14794,55 +14859,30 @@ class HeraSynthesizerEngine {
       return;
     }
     if (mode === 1) {
-      this.chorusDryGain.gain.setTargetAtTime(0.7, t, 0.03);
-      this.chorusWetGain.gain.setTargetAtTime(0.7, t, 0.03);
+      this.chorusDryGain.gain.setTargetAtTime(0.68, t, 0.03);
+      this.chorusWetGain.gain.setTargetAtTime(0.72, t, 0.03);
       this.chorusLFO.frequency.setTargetAtTime(0.513, t, 0.03);
-      this.chorusDelayL.delayTime.setTargetAtTime(38e-4, t, 0.03);
-      this.chorusDelayR.delayTime.setTargetAtTime(42e-4, t, 0.03);
-      this.chorusLFOGainL.gain.setTargetAtTime(12e-4, t, 0.03);
-      this.chorusLFOGainR.gain.setTargetAtTime(-12e-4, t, 0.03);
+      this.chorusDelayL.delayTime.setTargetAtTime(4e-3, t, 0.03);
+      this.chorusDelayR.delayTime.setTargetAtTime(44e-4, t, 0.03);
+      this.chorusLFOGainL.gain.setTargetAtTime(13e-4, t, 0.03);
+      this.chorusLFOGainR.gain.setTargetAtTime(-13e-4, t, 0.03);
     } else if (mode === 2) {
-      this.chorusDryGain.gain.setTargetAtTime(0.65, t, 0.03);
-      this.chorusWetGain.gain.setTargetAtTime(0.75, t, 0.03);
+      this.chorusDryGain.gain.setTargetAtTime(0.58, t, 0.03);
+      this.chorusWetGain.gain.setTargetAtTime(0.85, t, 0.03);
       this.chorusLFO.frequency.setTargetAtTime(0.863, t, 0.03);
-      this.chorusDelayL.delayTime.setTargetAtTime(48e-4, t, 0.03);
-      this.chorusDelayR.delayTime.setTargetAtTime(52e-4, t, 0.03);
-      this.chorusLFOGainL.gain.setTargetAtTime(18e-4, t, 0.03);
-      this.chorusLFOGainR.gain.setTargetAtTime(-18e-4, t, 0.03);
+      this.chorusDelayL.delayTime.setTargetAtTime(52e-4, t, 0.03);
+      this.chorusDelayR.delayTime.setTargetAtTime(58e-4, t, 0.03);
+      this.chorusLFOGainL.gain.setTargetAtTime(23e-4, t, 0.03);
+      this.chorusLFOGainR.gain.setTargetAtTime(-23e-4, t, 0.03);
     } else if (mode === 3) {
       this.chorusDryGain.gain.setTargetAtTime(0.6, t, 0.03);
-      this.chorusWetGain.gain.setTargetAtTime(0.78, t, 0.03);
-      this.chorusLFO.frequency.setTargetAtTime(8.8, t, 0.03);
-      this.chorusDelayL.delayTime.setTargetAtTime(4e-3, t, 0.03);
-      this.chorusDelayR.delayTime.setTargetAtTime(43e-4, t, 0.03);
-      this.chorusLFOGainL.gain.setTargetAtTime(35e-5, t, 0.03);
-      this.chorusLFOGainR.gain.setTargetAtTime(-35e-5, t, 0.03);
+      this.chorusWetGain.gain.setTargetAtTime(0.8, t, 0.03);
+      this.chorusLFO.frequency.setTargetAtTime(1.02, t, 0.03);
+      this.chorusDelayL.delayTime.setTargetAtTime(46e-4, t, 0.03);
+      this.chorusDelayR.delayTime.setTargetAtTime(5e-3, t, 0.03);
+      this.chorusLFOGainL.gain.setTargetAtTime(16e-4, t, 0.03);
+      this.chorusLFOGainR.gain.setTargetAtTime(-16e-4, t, 0.03);
     }
-  }
-  startGlobalLfo() {
-    if (this.globalLfoTimer !== null) return;
-    let lastTime = performance.now();
-    const tick = () => {
-      const now = performance.now();
-      const dt = Math.min(0.1, Math.max(0, (now - lastTime) / 1e3));
-      lastTime = now;
-      const rateHz = getLfoRateHz(this.params.LFORate);
-      this.globalLfoPhase = (this.globalLfoPhase + rateHz * dt) % 1;
-      const rawSine = Math.sin(2 * Math.PI * this.globalLfoPhase);
-      const delaySec = getLfoDelaySec(this.params.LFODelay);
-      const timeSinceTrig = (now - this.lfoTriggerTime) / 1e3;
-      let delayEnv = 1;
-      if (this.params.LFOTrigMode === 1 && delaySec > 0.01) {
-        if (timeSinceTrig < delaySec) {
-          delayEnv = 0;
-        } else {
-          delayEnv = Math.min(1, (timeSinceTrig - delaySec) / 0.3);
-        }
-      }
-      this.globalLfoValue = rawSine * delayEnv;
-      this.globalLfoTimer = requestAnimationFrame(tick);
-    };
-    this.globalLfoTimer = requestAnimationFrame(tick);
   }
   // Note On
   async noteOn(note, velocity = 100) {
@@ -14856,16 +14896,9 @@ class HeraSynthesizerEngine {
     }
     const existing = this.voices.find((v) => v.active && v.note === note);
     if (existing) {
-      existing.start(note, velocity, this.params, this.pitchBendSemitones, this.globalLfoValue);
+      existing.start(note, velocity, this.params, this.pitchBendSemitones, this.modWheelAmount);
       this.broadcastVoiceStatus();
       return;
-    }
-    const hasHeld = this.voices.some((v) => v.active && !v.released);
-    if (!hasHeld) {
-      this.lfoTriggerTime = performance.now();
-      if (this.params.LFOTrigMode === 1) {
-        this.globalLfoPhase = 0;
-      }
     }
     let voice = this.voices.find((v) => !v.active);
     if (!voice) {
@@ -14875,7 +14908,7 @@ class HeraSynthesizerEngine {
       voice = this.voices.sort((a, b) => a.startTime - b.startTime)[0];
     }
     if (voice) {
-      voice.start(note, velocity, this.params, this.pitchBendSemitones, this.globalLfoValue);
+      voice.start(note, velocity, this.params, this.pitchBendSemitones, this.modWheelAmount);
     }
     this.broadcastVoiceStatus();
   }
@@ -14892,8 +14925,13 @@ class HeraSynthesizerEngine {
   }
   // Manual LFO trigger button (iconic Juno feature)
   triggerManualLfo() {
-    this.lfoTriggerTime = performance.now();
-    this.globalLfoPhase = 0;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.voices.forEach((v) => {
+      if (v.active) {
+        v.scheduleLfo(this.params, this.modWheelAmount, t);
+      }
+    });
   }
   // Pitch bend: -1.0 to +1.0 (defaults to +/- 2 semitones)
   setPitchBend(value) {
@@ -14901,7 +14939,7 @@ class HeraSynthesizerEngine {
     if (this.ctx) {
       this.voices.forEach((v) => {
         if (v.active) {
-          v.updateFilter(this.params, this.pitchBendSemitones, this.globalLfoValue);
+          v.updateFilter(this.params, this.pitchBendSemitones);
         }
       });
     }
@@ -14909,21 +14947,40 @@ class HeraSynthesizerEngine {
   // Mod wheel: 0.0 to 1.0 (adds to LFO modulation)
   setModWheel(value) {
     this.modWheelAmount = value;
+    if (this.ctx) {
+      this.voices.forEach((v) => {
+        if (v.active) {
+          v.updateLfoDepth(this.params, this.modWheelAmount);
+        }
+      });
+    }
   }
   // Parameter update
   setParameter(param, value) {
     this.params[param] = value;
     if (!this.ctx) return;
     if (param === "HPF" && this.hpfFilter) {
-      this.hpfFilter.frequency.setTargetAtTime(getHpfFrequency(value), this.ctx.currentTime, 0.01);
+      this.hpfFilter.frequency.setTargetAtTime(getHpfFrequency(value), this.ctx.currentTime, 0.02);
     } else if (param === "ChorusI" || param === "ChorusII") {
       this.updateChorusMode();
-    } else if (param === "VCADepth" && this.masterGain) {
-      this.masterGain.gain.setTargetAtTime(Math.max(0.01, value * 1.2), this.ctx.currentTime, 0.02);
+    } else if (param === "LFORate" && this.globalLfoOsc) {
+      this.globalLfoOsc.frequency.setTargetAtTime(getLfoRateHz(value), this.ctx.currentTime, 0.015);
+    } else if (param === "LFODelay" || param === "DCOPitchModDepth" || param === "VCFLFO") {
+      this.voices.forEach((v) => {
+        if (v.active) {
+          v.updateLfoDepth(this.params, this.modWheelAmount);
+        }
+      });
+    } else if (param === "VCADepth") {
+      this.voices.forEach((v) => {
+        if (v.active) {
+          v.updateVolume(value);
+        }
+      });
     } else if (param.startsWith("VCF") || param.startsWith("ENV") || param.startsWith("DCO")) {
       this.voices.forEach((v) => {
         if (v.active) {
-          v.updateFilter(this.params, this.pitchBendSemitones, this.globalLfoValue);
+          v.updateFilter(this.params, this.pitchBendSemitones);
         }
       });
     }
@@ -14932,12 +14989,19 @@ class HeraSynthesizerEngine {
     this.params = { ...params };
     if (!this.ctx) return;
     if (this.hpfFilter) {
-      this.hpfFilter.frequency.setTargetAtTime(getHpfFrequency(params.HPF), this.ctx.currentTime, 0.01);
+      this.hpfFilter.frequency.setTargetAtTime(getHpfFrequency(params.HPF), this.ctx.currentTime, 0.02);
     }
-    if (this.masterGain) {
-      this.masterGain.gain.setTargetAtTime(Math.max(0.01, params.VCADepth * 1.2), this.ctx.currentTime, 0.02);
+    if (this.globalLfoOsc) {
+      this.globalLfoOsc.frequency.setTargetAtTime(getLfoRateHz(params.LFORate), this.ctx.currentTime, 0.015);
     }
     this.updateChorusMode();
+    this.voices.forEach((v) => {
+      if (v.active) {
+        v.updateLfoDepth(this.params, this.modWheelAmount);
+        v.updateFilter(this.params, this.pitchBendSemitones);
+        v.updateVolume(params.VCADepth);
+      }
+    });
   }
   getParameters() {
     return { ...this.params };
@@ -14989,13 +15053,14 @@ class HeraSynthesizerEngine {
     return this.isRecording;
   }
   dispose() {
-    var _a;
-    if (this.globalLfoTimer !== null) {
-      cancelAnimationFrame(this.globalLfoTimer);
-      this.globalLfoTimer = null;
-    }
+    var _a, _b, _c;
     this.allNotesOff();
-    (_a = this.ctx) == null ? void 0 : _a.close();
+    try {
+      (_a = this.globalLfoOsc) == null ? void 0 : _a.stop();
+      (_b = this.globalLfoOsc) == null ? void 0 : _b.disconnect();
+    } catch {
+    }
+    (_c = this.ctx) == null ? void 0 : _c.close();
   }
 }
 const synthEngine = new HeraSynthesizerEngine();
@@ -17119,7 +17184,7 @@ const Slider = ({
     "div",
     {
       ref: containerRef,
-      className: `relative flex flex-col items-center select-none text-center p-0.5 sm:p-1 rounded transition-all duration-150 touch-none ${isSelectedForLearn ? "ring-4 ring-amber-400 ring-offset-2 ring-offset-zinc-950 shadow-[0_0_24px_rgba(251,191,36,0.9)] animate-pulse bg-amber-500/10" : isMidiLearnActive ? "hover:bg-zinc-800/40 cursor-pointer" : ""} ${className}`,
+      className: `relative flex flex-col items-center select-none text-center p-0.5 rounded transition-all duration-150 ${isSelectedForLearn ? "ring-4 ring-amber-400 ring-offset-2 ring-offset-zinc-950 shadow-[0_0_24px_rgba(251,191,36,0.9)] animate-pulse bg-amber-500/10" : isMidiLearnActive ? "hover:bg-zinc-800/40 cursor-pointer" : ""} ${className}`,
       onMouseEnter: () => setShowTooltip(true),
       onMouseLeave: () => !isDragging && setShowTooltip(false),
       onWheel: handleWheel,
@@ -17131,7 +17196,7 @@ const Slider = ({
       },
       title: `${label}: ${displayString} (Double-click to reset)`,
       children: [
-        isMidiLearnActive && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mb-0.5 flex items-center justify-center min-h-[16px]", children: mappedCC !== null && mappedCC !== void 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[8.5px] font-mono font-black px-1 py-0.5 rounded shadow border border-amber-300 animate-in fade-in zoom-in-95", children: [
+        isMidiLearnActive && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mb-0.5 flex items-center justify-center min-h-[16px] z-10", children: mappedCC !== null && mappedCC !== void 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[8.5px] font-mono font-black px-1 py-0.5 rounded shadow border border-amber-300 animate-in fade-in zoom-in-95", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
             "CC ",
             mappedCC
@@ -17161,57 +17226,57 @@ const Slider = ({
             children: isSelectedForLearn ? "AURA" : "+ LEARN"
           }
         ) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-bold text-zinc-300 uppercase tracking-wider mb-0.5 truncate max-w-[46px]", children: label }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-4.5 flex items-center justify-center mb-0.5 z-10", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-bold text-zinc-300 uppercase tracking-wider truncate max-w-[48px] leading-tight", children: label }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "div",
           {
             onPointerDown: handlePointerDown,
             onPointerUp: handlePointerUp,
-            className: "relative flex items-center justify-center w-8.5 sm:w-9.5 h-24 sm:h-26 my-0.5 cursor-pointer touch-none active:brightness-110",
+            className: "relative flex items-center justify-center w-8 sm:w-9 h-26 sm:h-28 pt-3 pb-3 cursor-pointer touch-none select-none active:brightness-110",
             children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute left-0.5 top-1 bottom-1 flex flex-col justify-between items-end pr-1 text-[7px] font-mono text-zinc-500 pointer-events-none", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute left-0.5 top-3 bottom-3 flex flex-col justify-between items-end pr-1 text-[7px] font-mono text-zinc-500 pointer-events-none z-0", children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "10" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "5" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "0" })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute right-0.5 top-3 bottom-3 flex flex-col justify-between items-start pl-1 text-[7px] font-mono text-zinc-500 pointer-events-none z-0", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-1.5 h-[1px] bg-zinc-600" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-2 h-[1px] bg-zinc-500" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-1.5 h-[1px] bg-zinc-600" })
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs(
                 "div",
                 {
                   ref: trackRef,
-                  className: `relative w-2.5 h-full rounded-full border shadow-inner transition-colors ${isDragging ? "bg-zinc-900 border-amber-500/70 shadow-[0_0_8px_rgba(245,158,11,0.4)]" : "bg-zinc-950 border-zinc-800"}`,
+                  className: `relative w-2.5 h-full rounded-full border shadow-inner transition-colors z-10 ${isDragging ? "bg-zinc-900 border-amber-500/70 shadow-[0_0_8px_rgba(245,158,11,0.4)]" : "bg-zinc-950 border-zinc-800"}`,
                   children: [
                     bipolar && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute top-1/2 left-0 right-0 h-[1px] bg-zinc-600 -translate-y-1/2 pointer-events-none" }),
                     /* @__PURE__ */ jsxRuntimeExports.jsx(
                       "div",
                       {
-                        className: `absolute left-1/2 -translate-x-1/2 w-7 h-7 -translate-y-1/2 pointer-events-none transition-transform duration-75 ${isDragging ? "scale-105 drop-shadow-[0_2px_8px_rgba(245,158,11,0.5)]" : ""}`,
+                        className: `absolute left-1/2 -translate-x-1/2 w-6.5 sm:w-7 h-5 sm:h-5.5 -translate-y-1/2 pointer-events-none transition-transform duration-75 z-20 ${isDragging ? "scale-105 drop-shadow-[0_2px_10px_rgba(245,158,11,0.6)]" : "drop-shadow-md"}`,
                         style: {
-                          bottom: `calc(${normalizedValue * 100}% - 14px)`
+                          bottom: `calc(${normalizedValue * 100}% - 10px)`
                         },
                         children: /* @__PURE__ */ jsxRuntimeExports.jsx(
                           "div",
                           {
-                            className: `w-full h-full rounded-md shadow-lg border bg-gradient-to-b ${capColorClass} flex items-center justify-center ${isDragging ? "border-amber-300 ring-2 ring-amber-400/50" : ""}`,
-                            children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-5 h-[2.5px] bg-zinc-950 shadow-sm rounded-full" })
+                            className: `w-full h-full rounded-sm shadow-md border bg-gradient-to-b ${capColorClass} flex items-center justify-center ${isDragging ? "border-amber-300 ring-2 ring-amber-400/50" : ""}`,
+                            children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-4.5 h-[2px] bg-zinc-950 shadow-sm rounded-full" })
                           }
                         )
                       }
                     )
                   ]
                 }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute right-0.5 top-1 bottom-1 flex flex-col justify-between items-start pl-1 text-[7px] font-mono text-zinc-500 pointer-events-none", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-1.5 h-[1px] bg-zinc-600" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-2 h-[1px] bg-zinc-500" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-1.5 h-[1px] bg-zinc-600" })
-              ] })
+              )
             ]
           }
         ),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "div",
           {
-            className: `mt-0.5 text-[9px] font-mono font-medium rounded px-1 min-w-[28px] shadow-inner transition-colors ${isDragging ? "text-amber-300 bg-zinc-950 border border-amber-500" : "text-amber-400 bg-zinc-900/90 border border-zinc-800/80"}`,
+            className: `mt-1 text-[9px] font-mono font-medium rounded px-1 min-w-[28px] shadow-inner transition-colors z-10 ${isDragging ? "text-amber-300 bg-zinc-950 border border-amber-500" : "text-amber-400 bg-zinc-900/90 border border-zinc-800/80"}`,
             children: displayString
           }
         )
@@ -19271,10 +19336,10 @@ const HeraApp = () => {
                       onClick: () => {
                         const next = !isMuted;
                         setIsMuted(next);
-                        handleParamChange("VCADepth", next ? 0 : masterVolume);
+                        synthEngine.setMasterVolume(next ? 0 : masterVolume);
                       },
                       className: "text-zinc-400 hover:text-zinc-200 cursor-pointer",
-                      children: isMuted || params.VCADepth === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(VolumeX, { size: 15 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Volume2, { size: 15 })
+                      children: isMuted || masterVolume === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(VolumeX, { size: 15 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Volume2, { size: 15 })
                     }
                   ),
                   /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -19284,15 +19349,15 @@ const HeraApp = () => {
                       min: "0",
                       max: "1",
                       step: "0.01",
-                      value: isMuted ? 0 : params.VCADepth,
+                      value: isMuted ? 0 : masterVolume,
                       onChange: (e) => {
                         const val = parseFloat(e.target.value);
                         setIsMuted(false);
                         setMasterVolume(val);
-                        handleParamChange("VCADepth", val);
+                        synthEngine.setMasterVolume(val);
                       },
                       className: "w-16 accent-amber-500 cursor-pointer",
-                      title: "Master VCA Volume"
+                      title: "Volume Master Geral"
                     }
                   )
                 ] }),
@@ -19370,7 +19435,7 @@ const HeraApp = () => {
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 bg-cyan-500" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 bg-blue-600" })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "bg-zinc-900 p-1.5 sm:p-2.5 border-b border-zinc-800", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-row items-stretch justify-start sm:justify-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 scrollbar-thin", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "bg-zinc-900 px-1 py-1 sm:py-2 border-b border-zinc-800 w-full overflow-hidden", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-full overflow-x-auto pb-1.5 scrollbar-thin overscroll-x-contain touch-pan-x", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "min-w-max w-fit flex flex-row items-stretch justify-start gap-1 sm:gap-1.5 px-2 mx-auto", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] font-black font-mono tracking-widest text-yellow-400 uppercase text-center pb-0.5 border-b border-zinc-800/80", children: "LFO" }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-center gap-1 my-1", children: [
@@ -19801,9 +19866,9 @@ const HeraApp = () => {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80", children: params.ChorusI && params.ChorusII ? "I+II (FAST)" : params.ChorusI ? "I (LUSH)" : params.ChorusII ? "II (CREAMY)" : "OFF" })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80", children: params.ChorusI && params.ChorusII ? "I+II (ROTARY)" : params.ChorusI ? "I (LUSH)" : params.ChorusII ? "II (CREAMY)" : "OFF" })
             ] })
-          ] }) }),
+          ] }) }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-1.5 sm:p-2 bg-zinc-950 border-b border-zinc-800 flex flex-col gap-1.5", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               PresetManager,

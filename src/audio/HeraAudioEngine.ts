@@ -57,10 +57,21 @@ class HeraVoiceInstance {
   private vcfFilter2: BiquadFilterNode;
   private envGain: GainNode;
 
+  // Audio-rate LFO modulation gains
+  private voiceLfoPitchGain: GainNode;
+  private voiceLfoFilterGain: GainNode;
+
   private noiseBuffer: AudioBuffer;
   private releaseTimer: number | null = null;
+  private currentVelocityFactor: number = 1.0;
 
-  constructor(id: number, ctx: AudioContext, destination: AudioNode, noiseBuffer: AudioBuffer) {
+  constructor(
+    id: number,
+    ctx: AudioContext,
+    destination: AudioNode,
+    noiseBuffer: AudioBuffer,
+    lfoSource: AudioNode
+  ) {
     this.id = id;
     this.ctx = ctx;
     this.noiseBuffer = noiseBuffer;
@@ -87,6 +98,19 @@ class HeraVoiceInstance {
     this.vcfFilter2.connect(this.envGain);
     this.envGain.connect(this.voiceGain);
     this.voiceGain.connect(destination);
+
+    // Audio-rate LFO routing for this voice
+    this.voiceLfoPitchGain = ctx.createGain();
+    this.voiceLfoPitchGain.gain.value = 0;
+    lfoSource.connect(this.voiceLfoPitchGain);
+
+    this.voiceLfoFilterGain = ctx.createGain();
+    this.voiceLfoFilterGain.gain.value = 0;
+    lfoSource.connect(this.voiceLfoFilterGain);
+
+    // Connect LFO filter gain directly to filter detune params (cents)
+    this.voiceLfoFilterGain.connect(this.vcfFilter1.detune);
+    this.voiceLfoFilterGain.connect(this.vcfFilter2.detune);
   }
 
   start(
@@ -94,7 +118,7 @@ class HeraVoiceInstance {
     velocity: number,
     params: HeraParameters,
     pitchBendSemitones: number,
-    lfoValue: number
+    modWheelAmount: number = 0
   ) {
     if (this.releaseTimer !== null) {
       clearTimeout(this.releaseTimer);
@@ -115,32 +139,29 @@ class HeraVoiceInstance {
     const midiFreq = 440 * Math.pow(2, (note - 69) / 12);
     this.baseFreq = midiFreq * rangeFactor;
 
-    // Pitch modulation: LFO depth + Pitch bend
-    const pitchDetune = pitchBendSemitones * 100 + lfoValue * params.DCOPitchModDepth * 200;
-
+    const basePitchDetune = pitchBendSemitones * 100;
     const t = this.ctx.currentTime;
 
     // 1. Saw Oscillator
     this.sawOsc = this.ctx.createOscillator();
     this.sawOsc.type = 'sawtooth';
     this.sawOsc.frequency.setValueAtTime(this.baseFreq, t);
-    this.sawOsc.detune.setValueAtTime(pitchDetune, t);
+    this.sawOsc.detune.setValueAtTime(basePitchDetune, t);
     this.sawGain.gain.setValueAtTime(params.DCOSawLevel * 0.45, t);
     this.sawOsc.connect(this.sawGain);
     this.sawGain.connect(this.vcfFilter1);
     this.sawOsc.start(t);
 
     // 2. Pulse Oscillator with PWM:
-    // Implemented via phase-cancellation of two sawtooth waves through delay line
     this.pulseOsc1 = this.ctx.createOscillator();
     this.pulseOsc1.type = 'sawtooth';
     this.pulseOsc1.frequency.setValueAtTime(this.baseFreq, t);
-    this.pulseOsc1.detune.setValueAtTime(pitchDetune, t);
+    this.pulseOsc1.detune.setValueAtTime(basePitchDetune, t);
 
     this.pulseOsc2 = this.ctx.createOscillator();
     this.pulseOsc2.type = 'sawtooth';
     this.pulseOsc2.frequency.setValueAtTime(this.baseFreq, t);
-    this.pulseOsc2.detune.setValueAtTime(pitchDetune, t);
+    this.pulseOsc2.detune.setValueAtTime(basePitchDetune, t);
 
     this.pulseInvertGain = this.ctx.createGain();
     this.pulseInvertGain.gain.value = -1.0;
@@ -149,10 +170,6 @@ class HeraVoiceInstance {
 
     // Calculate pulse width (0.05 to 0.95)
     let pwm = params.DCOPWMDepth;
-    if (params.DCOPWMMod === 1) {
-      // LFO modulation
-      pwm *= (lfoValue * 0.5 + 0.5);
-    }
     const pulseWidthRatio = 0.5 - 0.45 * Math.max(-0.95, Math.min(0.95, pwm));
     const period = 1 / Math.max(10, this.baseFreq);
     const delayTime = Math.max(0.00005, Math.min(0.04, period * pulseWidthRatio));
@@ -172,11 +189,17 @@ class HeraVoiceInstance {
     this.subOsc = this.ctx.createOscillator();
     this.subOsc.type = 'square';
     this.subOsc.frequency.setValueAtTime(this.baseFreq * 0.5, t);
-    this.subOsc.detune.setValueAtTime(pitchDetune, t);
+    this.subOsc.detune.setValueAtTime(basePitchDetune, t);
     this.subGain.gain.setValueAtTime(params.DCOSubLevel * 0.4, t);
     this.subOsc.connect(this.subGain);
     this.subGain.connect(this.vcfFilter1);
     this.subOsc.start(t);
+
+    // Connect voice LFO pitch gain to detune of all oscillators for continuous, silky vibrato
+    this.voiceLfoPitchGain.connect(this.sawOsc.detune);
+    this.voiceLfoPitchGain.connect(this.pulseOsc1.detune);
+    this.voiceLfoPitchGain.connect(this.pulseOsc2.detune);
+    this.voiceLfoPitchGain.connect(this.subOsc.detune);
 
     // 4. Noise generator
     this.noiseSource = this.ctx.createBufferSource();
@@ -187,64 +210,104 @@ class HeraVoiceInstance {
     this.noiseGain.connect(this.vcfFilter1);
     this.noiseSource.start(t);
 
-    // Filter cutoff calculation & envelope modulation
-    this.updateFilter(params, pitchBendSemitones, lfoValue, 1.0, true);
+    // Schedule LFO delay envelope for this voice
+    this.scheduleLfo(params, modWheelAmount, t);
 
-    // Amplitude Envelope
-    const velFactor = Math.max(0.2, (velocity / 127) * (velocity / 127) * 1.5);
-    const masterGain = params.VCADepth * velFactor;
+    // Filter cutoff calculation & envelope modulation
+    this.updateFilter(params, pitchBendSemitones, 1.0, true);
+
+    // Amplitude Envelope (Linear & musical velocity scaling)
+    this.currentVelocityFactor = 0.45 + 0.55 * Math.min(1.0, Math.max(0.1, velocity / 127));
+    const voiceVolume = Math.max(0.01, params.VCADepth * this.currentVelocityFactor);
 
     this.envGain.gain.cancelScheduledValues(t);
     this.envGain.gain.setValueAtTime(0, t);
 
     if (params.VCAType === 1) {
-      // Gate mode: rapid attack and instant release
-      this.envGain.gain.linearRampToValueAtTime(masterGain, t + 0.004);
+      // Gate mode: instant attack (4ms anti-click)
+      this.envGain.gain.linearRampToValueAtTime(voiceVolume, t + 0.004);
     } else {
       // ADSR Envelope mode
       const attackSec = Math.max(0.002, getAttackSec(params.ENVAttack));
       const decaySec = Math.max(0.004, getDecaySec(params.ENVDecay));
-      const sustainVal = params.ENVSustain * masterGain;
+      const sustainVal = params.ENVSustain * voiceVolume;
 
-      this.envGain.gain.linearRampToValueAtTime(masterGain, t + attackSec);
+      this.envGain.gain.linearRampToValueAtTime(voiceVolume, t + attackSec);
       this.envGain.gain.exponentialRampToValueAtTime(Math.max(0.0001, sustainVal), t + attackSec + decaySec);
     }
+  }
+
+  scheduleLfo(params: HeraParameters, modWheelAmount: number, t: number) {
+    // Pitch modulation in cents: DCO LFO slider modulates pitch (vibrato)
+    const targetPitchCents = (params.DCOPitchModDepth * 280) + (modWheelAmount * 280);
+    // VCF modulation in cents: up to 2400 cents (2 octaves of sweep)
+    const targetFilterCents = params.VCFLFO * 2400;
+
+    const delaySec = getLfoDelaySec(params.LFODelay);
+
+    this.voiceLfoPitchGain.gain.cancelScheduledValues(t);
+    this.voiceLfoFilterGain.gain.cancelScheduledValues(t);
+
+    if (delaySec < 0.02) {
+      // Immediate LFO modulation
+      this.voiceLfoPitchGain.gain.setValueAtTime(targetPitchCents, t);
+      this.voiceLfoFilterGain.gain.setValueAtTime(targetFilterCents, t);
+    } else {
+      // Authentic Juno-60 Delay: 0 depth during delay period, then smoothly blossoms into vibrato
+      this.voiceLfoPitchGain.gain.setValueAtTime(0, t);
+      this.voiceLfoPitchGain.gain.setValueAtTime(0, t + delaySec);
+      this.voiceLfoPitchGain.gain.linearRampToValueAtTime(targetPitchCents, t + delaySec + 0.45);
+
+      this.voiceLfoFilterGain.gain.setValueAtTime(0, t);
+      this.voiceLfoFilterGain.gain.setValueAtTime(0, t + delaySec);
+      this.voiceLfoFilterGain.gain.linearRampToValueAtTime(targetFilterCents, t + delaySec + 0.45);
+    }
+  }
+
+  updateLfoDepth(params: HeraParameters, modWheelAmount: number) {
+    if (!this.active) return;
+    const t = this.ctx.currentTime;
+    const targetPitchCents = (params.DCOPitchModDepth * 280) + (modWheelAmount * 280);
+    const targetFilterCents = params.VCFLFO * 2400;
+    this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.02);
+    this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.02);
   }
 
   updateFilter(
     params: HeraParameters,
     pitchBendSemitones: number,
-    lfoValue: number,
     envAmountMultiplier: number = 1.0,
     isNoteOn: boolean = false
   ) {
     const t = this.ctx.currentTime;
 
-    // Authentic Hera cutoff equation:
-    // cutoff = 7.8 * 2^(cutoffOctaves + envDetuneOctaves + lfoDetuneOctaves + keyboardDetuneOctaves + filterBendOctaves)
-    const cutoffOctaves = params.VCFCutoff * (200 / 12) + params.VCFResonance * 0.5;
-    const keyboardDetuneOctaves = params.VCFKey * ((this.note - 60) / 12);
-    const filterBendOctaves = params.VCFBendDepth * (pitchBendSemitones / 12);
-    const lfoDetuneOctaves = params.VCFLFO * lfoValue * 3.0;
+    // Authentic 10.5 octave exponential scale (16 Hz to 20,000 Hz)
+    // Smooth and silky across the entire slider travel
+    const minFreq = 16;
+    const maxFreq = 20000;
+    const baseCutoffHz = minFreq * Math.pow(maxFreq / minFreq, Math.max(0, Math.min(1, params.VCFCutoff)));
 
-    // Base cutoff frequency
-    const baseOctaves = cutoffOctaves + keyboardDetuneOctaves + filterBendOctaves + lfoDetuneOctaves;
-    let baseCutoffHz = 7.8 * Math.pow(2, baseOctaves);
+    // Keyboard tracking: 0: flat across keyboard, 1: 100% 1V/octave tracking
+    const keyTrackingRatio = Math.pow(2, params.VCFKey * ((this.note - 60) / 12));
+    let noteCutoffHz = baseCutoffHz * keyTrackingRatio;
 
-    // Q calculation for 2 cascaded filters:
-    // Juno self-oscillates at max resonance
-    const resonanceQ = Math.max(0.5, params.VCFResonance * 18 + 0.707);
-    this.vcfFilter1.Q.setValueAtTime(resonanceQ, t);
-    this.vcfFilter2.Q.setValueAtTime(resonanceQ, t);
+    // Filter pitch bend modulation
+    if (pitchBendSemitones !== 0) {
+      noteCutoffHz *= Math.pow(2, params.VCFBendDepth * (pitchBendSemitones / 12));
+    }
 
-    // Envelope modulation of cutoff
-    const envOctaves = params.VCFEnv * 12.0 * envAmountMultiplier;
-    const peakOctaves = baseOctaves + envOctaves;
-    const peakCutoffHz = Math.min(20000, Math.max(20, 7.8 * Math.pow(2, peakOctaves)));
-    const sustainOctaves = baseOctaves + envOctaves * params.ENVSustain;
-    const sustainCutoffHz = Math.min(20000, Math.max(20, 7.8 * Math.pow(2, sustainOctaves)));
+    // Cascaded 2-pole Biquad Q (Roland IR3109 response):
+    // 0.707 (transparent Butterworth) up to 4.2 (warm self-oscillating whistle)
+    const resonanceQ = 0.707 + params.VCFResonance * 3.6;
+    this.vcfFilter1.Q.setTargetAtTime(resonanceQ, t, 0.02);
+    this.vcfFilter2.Q.setTargetAtTime(resonanceQ, t, 0.02);
 
-    baseCutoffHz = Math.min(20000, Math.max(20, baseCutoffHz));
+    // Envelope modulation of cutoff:
+    const envOctaves = params.VCFEnv * 6.5 * envAmountMultiplier;
+    const peakCutoffHz = Math.min(20000, Math.max(16, noteCutoffHz * Math.pow(2, envOctaves)));
+    const sustainCutoffHz = Math.min(20000, Math.max(16, noteCutoffHz * Math.pow(2, envOctaves * params.ENVSustain)));
+
+    noteCutoffHz = Math.min(20000, Math.max(16, noteCutoffHz));
 
     this.vcfFilter1.frequency.cancelScheduledValues(t);
     this.vcfFilter2.frequency.cancelScheduledValues(t);
@@ -253,8 +316,8 @@ class HeraVoiceInstance {
       const attackSec = Math.max(0.002, getAttackSec(params.ENVAttack));
       const decaySec = Math.max(0.004, getDecaySec(params.ENVDecay));
 
-      this.vcfFilter1.frequency.setValueAtTime(baseCutoffHz, t);
-      this.vcfFilter2.frequency.setValueAtTime(baseCutoffHz, t);
+      this.vcfFilter1.frequency.setValueAtTime(noteCutoffHz, t);
+      this.vcfFilter2.frequency.setValueAtTime(noteCutoffHz, t);
 
       this.vcfFilter1.frequency.exponentialRampToValueAtTime(peakCutoffHz, t + attackSec);
       this.vcfFilter2.frequency.exponentialRampToValueAtTime(peakCutoffHz, t + attackSec);
@@ -262,9 +325,16 @@ class HeraVoiceInstance {
       this.vcfFilter1.frequency.exponentialRampToValueAtTime(sustainCutoffHz, t + attackSec + decaySec);
       this.vcfFilter2.frequency.exponentialRampToValueAtTime(sustainCutoffHz, t + attackSec + decaySec);
     } else {
-      this.vcfFilter1.frequency.setValueAtTime(sustainCutoffHz, t);
-      this.vcfFilter2.frequency.setValueAtTime(sustainCutoffHz, t);
+      this.vcfFilter1.frequency.setTargetAtTime(sustainCutoffHz, t, 0.02);
+      this.vcfFilter2.frequency.setTargetAtTime(sustainCutoffHz, t, 0.02);
     }
+  }
+
+  updateVolume(vcaDepth: number) {
+    if (!this.active) return;
+    const t = this.ctx.currentTime;
+    const voiceVolume = Math.max(0.01, vcaDepth * this.currentVelocityFactor);
+    this.envGain.gain.setTargetAtTime(voiceVolume, t, 0.02);
   }
 
   stop(params: HeraParameters) {
@@ -280,7 +350,7 @@ class HeraVoiceInstance {
     this.envGain.gain.cancelScheduledValues(t);
 
     if (params.VCAType === 1) {
-      // Gate release: rapid 5ms
+      // Gate release: rapid 6ms anti-click
       this.envGain.gain.linearRampToValueAtTime(0.0001, t + 0.006);
       this.releaseTimer = window.setTimeout(() => {
         this.stopImmediate();
@@ -294,12 +364,13 @@ class HeraVoiceInstance {
       this.envGain.gain.exponentialRampToValueAtTime(0.00001, t + releaseSec);
 
       // Filter release ramp
-      const baseOctaves = params.VCFCutoff * (200 / 12) + params.VCFKey * ((this.note - 60) / 12);
-      const restCutoffHz = Math.min(20000, Math.max(20, 7.8 * Math.pow(2, baseOctaves)));
+      const minFreq = 16;
+      const maxFreq = 20000;
+      const restCutoffHz = Math.min(20000, Math.max(16, minFreq * Math.pow(maxFreq / minFreq, params.VCFCutoff)));
       this.vcfFilter1.frequency.cancelScheduledValues(t);
       this.vcfFilter2.frequency.cancelScheduledValues(t);
-      this.vcfFilter1.frequency.setValueAtTime(Math.max(20, this.vcfFilter1.frequency.value), t);
-      this.vcfFilter2.frequency.setValueAtTime(Math.max(20, this.vcfFilter2.frequency.value), t);
+      this.vcfFilter1.frequency.setValueAtTime(Math.max(16, this.vcfFilter1.frequency.value), t);
+      this.vcfFilter2.frequency.setValueAtTime(Math.max(16, this.vcfFilter2.frequency.value), t);
       this.vcfFilter1.frequency.exponentialRampToValueAtTime(restCutoffHz, t + releaseSec);
       this.vcfFilter2.frequency.exponentialRampToValueAtTime(restCutoffHz, t + releaseSec);
 
@@ -330,6 +401,12 @@ class HeraVoiceInstance {
     this.active = false;
     this.released = true;
     this.note = -1;
+
+    try {
+      this.voiceLfoPitchGain.disconnect();
+    } catch {
+      // ignored
+    }
 
     try {
       this.sawOsc?.stop();
@@ -381,11 +458,10 @@ export class HeraSynthesizerEngine {
   private chorusLFOGainL: GainNode | null = null;
   private chorusLFOGainR: GainNode | null = null;
 
-  // Global LFO for voice pitch/filter mod
-  private globalLfoPhase: number = 0;
-  private globalLfoTimer: number | null = null;
-  private globalLfoValue: number = 0;
-  private lfoTriggerTime: number = 0;
+  // Global Audio-Rate LFO for voice pitch/filter mod
+  private globalLfoOsc: OscillatorNode | null = null;
+  private globalLfoBus: GainNode | null = null;
+  private masterVolume: number = 0.8;
 
   // Voice allocation (6-voice polyphony)
   private voices: HeraVoiceInstance[] = [];
@@ -417,6 +493,13 @@ export class HeraSynthesizerEngine {
 
   setRecordingListener(callback: (isRecording: boolean, blob?: Blob) => void) {
     this.onRecordingChange = callback;
+  }
+
+  setMasterVolume(vol: number) {
+    this.masterVolume = Math.max(0, Math.min(1, vol));
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setTargetAtTime(this.masterVolume * 0.9, this.ctx.currentTime, 0.02);
+    }
   }
 
   async initAudio() {
@@ -465,7 +548,17 @@ export class HeraSynthesizerEngine {
       b6 = white * 0.115926;
     }
 
-    // 2. Main Signal Chain:
+    // 2. Global Audio-Rate LFO Generator (Sine wave)
+    this.globalLfoOsc = this.ctx.createOscillator();
+    this.globalLfoOsc.type = 'sine';
+    this.globalLfoOsc.frequency.value = getLfoRateHz(this.params.LFORate);
+
+    this.globalLfoBus = this.ctx.createGain();
+    this.globalLfoBus.gain.value = 1.0;
+    this.globalLfoOsc.connect(this.globalLfoBus);
+    this.globalLfoOsc.start();
+
+    // 3. Main Signal Chain:
     // Voices -> HPF -> SoftClipper -> MasterGain -> Chorus -> Analyser -> Destination
     this.hpfFilter = this.ctx.createBiquadFilter();
     this.hpfFilter.type = 'highpass';
@@ -476,7 +569,7 @@ export class HeraSynthesizerEngine {
     this.softClipper.oversample = '2x';
 
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = 0.8;
+    this.masterGain.gain.value = this.masterVolume * 0.9;
 
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 1024;
@@ -493,14 +586,11 @@ export class HeraSynthesizerEngine {
     this.mediaDest = this.ctx.createMediaStreamDestination();
     this.analyser.connect(this.mediaDest);
 
-    // Instantiate 6 voices
+    // Instantiate 6 voices with audio-rate LFO bus
     this.voices = [];
     for (let i = 0; i < this.MAX_VOICES; i++) {
-      this.voices.push(new HeraVoiceInstance(i, this.ctx, this.hpfFilter, this.noiseBuffer));
+      this.voices.push(new HeraVoiceInstance(i, this.ctx, this.hpfFilter, this.noiseBuffer, this.globalLfoBus));
     }
-
-    // Start global LFO tick loop
-    this.startGlobalLfo();
 
     this.isInitialized = true;
     this.updateChorusMode();
@@ -654,42 +744,6 @@ export class HeraSynthesizerEngine {
     }
   }
 
-  private startGlobalLfo() {
-    if (this.globalLfoTimer !== null) return;
-
-    let lastTime = performance.now();
-    const tick = () => {
-      const now = performance.now();
-      const dt = Math.min(0.1, Math.max(0, (now - lastTime) / 1000));
-      lastTime = now;
-
-      const rateHz = getLfoRateHz(this.params.LFORate);
-      this.globalLfoPhase = (this.globalLfoPhase + rateHz * dt) % 1.0;
-
-      // Sine LFO
-      const rawSine = Math.sin(2 * Math.PI * this.globalLfoPhase);
-
-      // Delay envelope calculation
-      const delaySec = getLfoDelaySec(this.params.LFODelay);
-      const timeSinceTrig = (now - this.lfoTriggerTime) / 1000;
-      let delayEnv = 1.0;
-      if (this.params.LFOTrigMode === 1 && delaySec > 0.01) {
-        if (timeSinceTrig < delaySec) {
-          delayEnv = 0.0;
-        } else {
-          // ramp up in ~0.3s
-          delayEnv = Math.min(1.0, (timeSinceTrig - delaySec) / 0.3);
-        }
-      }
-
-      this.globalLfoValue = rawSine * delayEnv;
-
-      this.globalLfoTimer = requestAnimationFrame(tick);
-    };
-
-    this.globalLfoTimer = requestAnimationFrame(tick);
-  }
-
   // Note On
   async noteOn(note: number, velocity: number = 100) {
     await this.initAudio();
@@ -706,18 +760,9 @@ export class HeraSynthesizerEngine {
     // Check if note is already playing
     const existing = this.voices.find(v => v.active && v.note === note);
     if (existing) {
-      existing.start(note, velocity, this.params, this.pitchBendSemitones, this.globalLfoValue);
+      existing.start(note, velocity, this.params, this.pitchBendSemitones, this.modWheelAmount);
       this.broadcastVoiceStatus();
       return;
-    }
-
-    // Auto LFO trigger if no unreleased voices
-    const hasHeld = this.voices.some(v => v.active && !v.released);
-    if (!hasHeld) {
-      this.lfoTriggerTime = performance.now();
-      if (this.params.LFOTrigMode === 1) {
-        this.globalLfoPhase = 0;
-      }
     }
 
     // Voice allocation:
@@ -735,7 +780,7 @@ export class HeraSynthesizerEngine {
     }
 
     if (voice) {
-      voice.start(note, velocity, this.params, this.pitchBendSemitones, this.globalLfoValue);
+      voice.start(note, velocity, this.params, this.pitchBendSemitones, this.modWheelAmount);
     }
 
     this.broadcastVoiceStatus();
@@ -756,8 +801,13 @@ export class HeraSynthesizerEngine {
 
   // Manual LFO trigger button (iconic Juno feature)
   triggerManualLfo() {
-    this.lfoTriggerTime = performance.now();
-    this.globalLfoPhase = 0;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.voices.forEach(v => {
+      if (v.active) {
+        v.scheduleLfo(this.params, this.modWheelAmount, t);
+      }
+    });
   }
 
   // Pitch bend: -1.0 to +1.0 (defaults to +/- 2 semitones)
@@ -766,7 +816,7 @@ export class HeraSynthesizerEngine {
     if (this.ctx) {
       this.voices.forEach(v => {
         if (v.active) {
-          v.updateFilter(this.params, this.pitchBendSemitones, this.globalLfoValue);
+          v.updateFilter(this.params, this.pitchBendSemitones);
         }
       });
     }
@@ -775,6 +825,13 @@ export class HeraSynthesizerEngine {
   // Mod wheel: 0.0 to 1.0 (adds to LFO modulation)
   setModWheel(value: number) {
     this.modWheelAmount = value;
+    if (this.ctx) {
+      this.voices.forEach(v => {
+        if (v.active) {
+          v.updateLfoDepth(this.params, this.modWheelAmount);
+        }
+      });
+    }
   }
 
   // Parameter update
@@ -784,11 +841,23 @@ export class HeraSynthesizerEngine {
     if (!this.ctx) return;
 
     if (param === 'HPF' && this.hpfFilter) {
-      this.hpfFilter.frequency.setTargetAtTime(getHpfFrequency(value as number), this.ctx.currentTime, 0.01);
+      this.hpfFilter.frequency.setTargetAtTime(getHpfFrequency(value as number), this.ctx.currentTime, 0.02);
     } else if (param === 'ChorusI' || param === 'ChorusII') {
       this.updateChorusMode();
-    } else if (param === 'VCADepth' && this.masterGain) {
-      this.masterGain.gain.setTargetAtTime(Math.max(0.01, (value as number) * 1.2), this.ctx.currentTime, 0.02);
+    } else if (param === 'LFORate' && this.globalLfoOsc) {
+      this.globalLfoOsc.frequency.setTargetAtTime(getLfoRateHz(value as number), this.ctx.currentTime, 0.015);
+    } else if (param === 'LFODelay' || param === 'DCOPitchModDepth' || param === 'VCFLFO') {
+      this.voices.forEach(v => {
+        if (v.active) {
+          v.updateLfoDepth(this.params, this.modWheelAmount);
+        }
+      });
+    } else if (param === 'VCADepth') {
+      this.voices.forEach(v => {
+        if (v.active) {
+          v.updateVolume(value as number);
+        }
+      });
     } else if (
       param.startsWith('VCF') ||
       param.startsWith('ENV') ||
@@ -797,7 +866,7 @@ export class HeraSynthesizerEngine {
       // Dynamic update to active voices
       this.voices.forEach(v => {
         if (v.active) {
-          v.updateFilter(this.params, this.pitchBendSemitones, this.globalLfoValue);
+          v.updateFilter(this.params, this.pitchBendSemitones);
         }
       });
     }
@@ -808,12 +877,19 @@ export class HeraSynthesizerEngine {
     if (!this.ctx) return;
 
     if (this.hpfFilter) {
-      this.hpfFilter.frequency.setTargetAtTime(getHpfFrequency(params.HPF), this.ctx.currentTime, 0.01);
+      this.hpfFilter.frequency.setTargetAtTime(getHpfFrequency(params.HPF), this.ctx.currentTime, 0.02);
     }
-    if (this.masterGain) {
-      this.masterGain.gain.setTargetAtTime(Math.max(0.01, params.VCADepth * 1.2), this.ctx.currentTime, 0.02);
+    if (this.globalLfoOsc) {
+      this.globalLfoOsc.frequency.setTargetAtTime(getLfoRateHz(params.LFORate), this.ctx.currentTime, 0.015);
     }
     this.updateChorusMode();
+    this.voices.forEach(v => {
+      if (v.active) {
+        v.updateLfoDepth(this.params, this.modWheelAmount);
+        v.updateFilter(this.params, this.pitchBendSemitones);
+        v.updateVolume(params.VCADepth);
+      }
+    });
   }
 
   getParameters(): HeraParameters {
@@ -873,11 +949,13 @@ export class HeraSynthesizerEngine {
   }
 
   dispose() {
-    if (this.globalLfoTimer !== null) {
-      cancelAnimationFrame(this.globalLfoTimer);
-      this.globalLfoTimer = null;
-    }
     this.allNotesOff();
+    try {
+      this.globalLfoOsc?.stop();
+      this.globalLfoOsc?.disconnect();
+    } catch {
+      // already stopped
+    }
     this.ctx?.close();
   }
 }

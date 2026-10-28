@@ -154,7 +154,7 @@ export const Slider: React.FC<SliderProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col items-center select-none text-center p-0.5 sm:p-1 rounded transition-all duration-150 touch-none ${
+      className={`relative flex flex-col items-center select-none text-center p-0.5 rounded transition-all duration-150 ${
         isSelectedForLearn
           ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-zinc-950 shadow-[0_0_24px_rgba(251,191,36,0.9)] animate-pulse bg-amber-500/10'
           : isMidiLearnActive
@@ -174,7 +174,7 @@ export const Slider: React.FC<SliderProps> = ({
     >
       {/* MIDI Learn Badge / Etiqueta */}
       {isMidiLearnActive && (
-        <div className="mb-0.5 flex items-center justify-center min-h-[16px]">
+        <div className="mb-0.5 flex items-center justify-center min-h-[16px] z-10">
           {mappedCC !== null && mappedCC !== undefined ? (
             <div className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[8.5px] font-mono font-black px-1 py-0.5 rounded shadow border border-amber-300 animate-in fade-in zoom-in-95">
               <span>CC {mappedCC}</span>
@@ -209,28 +209,37 @@ export const Slider: React.FC<SliderProps> = ({
         </div>
       )}
 
-      {/* Label */}
-      <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider mb-0.5 truncate max-w-[46px]">
-        {label}
-      </span>
+      {/* Parameter Title / Label - Strictly separated from fader travel */}
+      <div className="h-4.5 flex items-center justify-center mb-0.5 z-10">
+        <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider truncate max-w-[48px] leading-tight">
+          {label}
+        </span>
+      </div>
 
-      {/* Fader Touch Target Container (Optimized width and height for compact landscape play) */}
+      {/* Fader Touch Target Container with vertical clearances so cap never encroaches on title */}
       <div
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        className="relative flex items-center justify-center w-8.5 sm:w-9.5 h-24 sm:h-26 my-0.5 cursor-pointer touch-none active:brightness-110"
+        className="relative flex items-center justify-center w-8 sm:w-9 h-26 sm:h-28 pt-3 pb-3 cursor-pointer touch-none select-none active:brightness-110"
       >
-        {/* Tick scale marks left side */}
-        <div className="absolute left-0.5 top-1 bottom-1 flex flex-col justify-between items-end pr-1 text-[7px] font-mono text-zinc-500 pointer-events-none">
+        {/* Tick scale marks left side - strictly z-0 behind the fader cap */}
+        <div className="absolute left-0.5 top-3 bottom-3 flex flex-col justify-between items-end pr-1 text-[7px] font-mono text-zinc-500 pointer-events-none z-0">
           <span>10</span>
           <span>5</span>
           <span>0</span>
         </div>
 
+        {/* Tick scale marks right side - strictly z-0 behind the fader cap */}
+        <div className="absolute right-0.5 top-3 bottom-3 flex flex-col justify-between items-start pl-1 text-[7px] font-mono text-zinc-500 pointer-events-none z-0">
+          <div className="w-1.5 h-[1px] bg-zinc-600" />
+          <div className="w-2 h-[1px] bg-zinc-500" />
+          <div className="w-1.5 h-[1px] bg-zinc-600" />
+        </div>
+
         {/* Vertical Groove Slot */}
         <div
           ref={trackRef}
-          className={`relative w-2.5 h-full rounded-full border shadow-inner transition-colors ${
+          className={`relative w-2.5 h-full rounded-full border shadow-inner transition-colors z-10 ${
             isDragging
               ? 'bg-zinc-900 border-amber-500/70 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
               : 'bg-zinc-950 border-zinc-800'
@@ -241,38 +250,31 @@ export const Slider: React.FC<SliderProps> = ({
             <div className="absolute top-1/2 left-0 right-0 h-[1px] bg-zinc-600 -translate-y-1/2 pointer-events-none" />
           )}
 
-          {/* Slider Cap */}
+          {/* Slider Cap - layered on top of ticks (z-20) */}
           <div
-            className={`absolute left-1/2 -translate-x-1/2 w-7 h-7 -translate-y-1/2 pointer-events-none transition-transform duration-75 ${
-              isDragging ? 'scale-105 drop-shadow-[0_2px_8px_rgba(245,158,11,0.5)]' : ''
+            className={`absolute left-1/2 -translate-x-1/2 w-6.5 sm:w-7 h-5 sm:h-5.5 -translate-y-1/2 pointer-events-none transition-transform duration-75 z-20 ${
+              isDragging ? 'scale-105 drop-shadow-[0_2px_10px_rgba(245,158,11,0.6)]' : 'drop-shadow-md'
             }`}
             style={{
-              bottom: `calc(${normalizedValue * 100}% - 14px)`,
+              bottom: `calc(${normalizedValue * 100}% - 10px)`,
             }}
           >
             {/* Ribbed Juno Fader Knob */}
             <div
-              className={`w-full h-full rounded-md shadow-lg border bg-gradient-to-b ${capColorClass} flex items-center justify-center ${
+              className={`w-full h-full rounded-sm shadow-md border bg-gradient-to-b ${capColorClass} flex items-center justify-center ${
                 isDragging ? 'border-amber-300 ring-2 ring-amber-400/50' : ''
               }`}
             >
               {/* White Center Line on knob cap */}
-              <div className="w-5 h-[2.5px] bg-zinc-950 shadow-sm rounded-full" />
+              <div className="w-4.5 h-[2px] bg-zinc-950 shadow-sm rounded-full" />
             </div>
           </div>
-        </div>
-
-        {/* Tick scale marks right side */}
-        <div className="absolute right-0.5 top-1 bottom-1 flex flex-col justify-between items-start pl-1 text-[7px] font-mono text-zinc-500 pointer-events-none">
-          <div className="w-1.5 h-[1px] bg-zinc-600" />
-          <div className="w-2 h-[1px] bg-zinc-500" />
-          <div className="w-1.5 h-[1px] bg-zinc-600" />
         </div>
       </div>
 
       {/* Numerical Readout */}
       <div
-        className={`mt-0.5 text-[9px] font-mono font-medium rounded px-1 min-w-[28px] shadow-inner transition-colors ${
+        className={`mt-1 text-[9px] font-mono font-medium rounded px-1 min-w-[28px] shadow-inner transition-colors z-10 ${
           isDragging
             ? 'text-amber-300 bg-zinc-950 border border-amber-500'
             : 'text-amber-400 bg-zinc-900/90 border border-zinc-800/80'

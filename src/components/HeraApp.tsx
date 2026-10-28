@@ -288,26 +288,26 @@ export const HeraApp: React.FC = () => {
                     onClick={() => {
                       const next = !isMuted;
                       setIsMuted(next);
-                      handleParamChange('VCADepth', next ? 0 : masterVolume);
+                      synthEngine.setMasterVolume(next ? 0 : masterVolume);
                     }}
                     className="text-zinc-400 hover:text-zinc-200 cursor-pointer"
                   >
-                    {isMuted || params.VCADepth === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                    {isMuted || masterVolume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
                   </button>
                   <input
                     type="range"
                     min="0"
                     max="1"
                     step="0.01"
-                    value={isMuted ? 0 : params.VCADepth}
+                    value={isMuted ? 0 : masterVolume}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value);
                       setIsMuted(false);
                       setMasterVolume(val);
-                      handleParamChange('VCADepth', val);
+                      synthEngine.setMasterVolume(val);
                     }}
                     className="w-16 accent-amber-500 cursor-pointer"
-                    title="Master VCA Volume"
+                    title="Volume Master Geral"
                   />
                 </div>
 
