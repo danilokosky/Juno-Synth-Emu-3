@@ -375,6 +375,8 @@ export class HeraSynthesizerEngine {
   private chorusWetGain: GainNode | null = null;
   private chorusDelayL: DelayNode | null = null;
   private chorusDelayR: DelayNode | null = null;
+  private chorusFilterL: BiquadFilterNode | null = null;
+  private chorusFilterR: BiquadFilterNode | null = null;
   private chorusLFO: OscillatorNode | null = null;
   private chorusLFOGainL: GainNode | null = null;
   private chorusLFOGainR: GainNode | null = null;
@@ -530,11 +532,26 @@ export class HeraSynthesizerEngine {
     this.chorusDelayL = this.ctx.createDelay(0.1);
     this.chorusDelayR = this.ctx.createDelay(0.1);
 
+    // Roland Juno-60 BBD analog reconstruction lowpass filter (8.5 kHz)
+    // Cuts off harsh comb-filtering harmonics to produce the lush, creamy analog character
+    this.chorusFilterL = this.ctx.createBiquadFilter();
+    this.chorusFilterL.type = 'lowpass';
+    this.chorusFilterL.frequency.value = 8500;
+    this.chorusFilterL.Q.value = 0.707;
+
+    this.chorusFilterR = this.ctx.createBiquadFilter();
+    this.chorusFilterR.type = 'lowpass';
+    this.chorusFilterR.frequency.value = 8500;
+    this.chorusFilterR.Q.value = 0.707;
+
     this.chorusInputGain.connect(this.chorusDelayL);
     this.chorusInputGain.connect(this.chorusDelayR);
 
-    this.chorusDelayL.connect(merger, 0, 0); // Left channel
-    this.chorusDelayR.connect(merger, 0, 1); // Right channel
+    this.chorusDelayL.connect(this.chorusFilterL);
+    this.chorusDelayR.connect(this.chorusFilterR);
+
+    this.chorusFilterL.connect(merger, 0, 0); // Left channel
+    this.chorusFilterR.connect(merger, 0, 1); // Right channel
 
     merger.connect(this.chorusWetGain);
 
@@ -543,9 +560,11 @@ export class HeraSynthesizerEngine {
     this.chorusWetGain.connect(this.analyser);
     this.analyser.connect(this.ctx.destination);
 
-    // Setup LFO for Chorus delay modulation
+    // Setup LFO for Chorus delay modulation.
+    // SINE wave provides smooth, continuous derivative (d tau / dt), completely
+    // eliminating the harsh triangular pitch-jump clicks / "serrilhado" buzz.
     this.chorusLFO = this.ctx.createOscillator();
-    this.chorusLFO.type = 'triangle';
+    this.chorusLFO.type = 'sine';
 
     this.chorusLFOGainL = this.ctx.createGain();
     this.chorusLFOGainR = this.ctx.createGain();
@@ -577,55 +596,53 @@ export class HeraSynthesizerEngine {
     this.chorusLFOGainR.gain.cancelScheduledValues(t);
     this.chorusDryGain.gain.cancelScheduledValues(t);
     this.chorusWetGain.gain.cancelScheduledValues(t);
+    this.chorusLFO.frequency.cancelScheduledValues(t);
 
     if (mode === 0) {
       // Off: 100% dry, 0% wet
-      this.chorusDryGain.gain.setTargetAtTime(1.0, t, 0.02);
-      this.chorusWetGain.gain.setTargetAtTime(0.0, t, 0.02);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0, t, 0.02);
-      this.chorusLFOGainR.gain.setTargetAtTime(0.0, t, 0.02);
+      this.chorusDryGain.gain.setTargetAtTime(1.0, t, 0.03);
+      this.chorusWetGain.gain.setTargetAtTime(0.0, t, 0.03);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0, t, 0.03);
+      this.chorusLFOGainR.gain.setTargetAtTime(0.0, t, 0.03);
       return;
     }
 
     if (mode === 1) {
       // Chorus I (Authentic Roland Juno-60 Mode I):
       // Rate = 0.513 Hz (slow, lush, dimensional stereo shimmer)
-      // Delay = 5.5ms nominal, modulation depth = +/- 2.0ms (antiphase)
-      this.chorusDryGain.gain.setTargetAtTime(0.70, t, 0.02);
-      this.chorusWetGain.gain.setTargetAtTime(0.70, t, 0.02);
+      // Delay = ~3.8ms Left, ~4.2ms Right, modulation depth = +/- 1.2ms (180° inverted phase)
+      this.chorusDryGain.gain.setTargetAtTime(0.70, t, 0.03);
+      this.chorusWetGain.gain.setTargetAtTime(0.70, t, 0.03);
 
-      this.chorusLFO.type = 'triangle';
-      this.chorusLFO.frequency.setTargetAtTime(0.513, t, 0.02);
-      this.chorusDelayL.delayTime.setTargetAtTime(0.0055, t, 0.02);
-      this.chorusDelayR.delayTime.setTargetAtTime(0.0058, t, 0.02);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0020, t, 0.02);
-      this.chorusLFOGainR.gain.setTargetAtTime(-0.0020, t, 0.02); // 180° inverted phase for lush stereo width
+      this.chorusLFO.frequency.setTargetAtTime(0.513, t, 0.03);
+      this.chorusDelayL.delayTime.setTargetAtTime(0.0038, t, 0.03);
+      this.chorusDelayR.delayTime.setTargetAtTime(0.0042, t, 0.03);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0012, t, 0.03);
+      this.chorusLFOGainR.gain.setTargetAtTime(-0.0012, t, 0.03);
     } else if (mode === 2) {
       // Chorus II (Authentic Roland Juno-60 Mode II):
-      // Rate = 0.863 Hz (faster, noticeably deeper and thicker bucket-brigade sweep)
-      // Delay = 7.5ms nominal, modulation depth = +/- 3.4ms (true warm wobble!)
-      this.chorusDryGain.gain.setTargetAtTime(0.65, t, 0.02);
-      this.chorusWetGain.gain.setTargetAtTime(0.80, t, 0.02); // Richer wet presence
+      // Rate = 0.863 Hz, Delay = ~4.8ms Left, ~5.2ms Right, modulation depth = +/- 1.8ms
+      // Warm, thick, creamy organic wobble without excessive pitch dissonance
+      this.chorusDryGain.gain.setTargetAtTime(0.65, t, 0.03);
+      this.chorusWetGain.gain.setTargetAtTime(0.75, t, 0.03);
 
-      this.chorusLFO.type = 'triangle';
-      this.chorusLFO.frequency.setTargetAtTime(0.863, t, 0.02);
-      this.chorusDelayL.delayTime.setTargetAtTime(0.0075, t, 0.02);
-      this.chorusDelayR.delayTime.setTargetAtTime(0.0078, t, 0.02);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0034, t, 0.02);
-      this.chorusLFOGainR.gain.setTargetAtTime(-0.0034, t, 0.02); // 180° antiphase stereo
+      this.chorusLFO.frequency.setTargetAtTime(0.863, t, 0.03);
+      this.chorusDelayL.delayTime.setTargetAtTime(0.0048, t, 0.03);
+      this.chorusDelayR.delayTime.setTargetAtTime(0.0052, t, 0.03);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0018, t, 0.03);
+      this.chorusLFOGainR.gain.setTargetAtTime(-0.0018, t, 0.03);
     } else if (mode === 3) {
-      // Chorus I + II (Authentic Roland Juno-60 Mode I+II):
-      // Rate = 9.75 Hz (fast rotary Leslie swirl / vibrato)
-      // Delay = 4.8ms nominal, modulation depth = +/- 0.6ms
-      this.chorusDryGain.gain.setTargetAtTime(0.65, t, 0.02);
-      this.chorusWetGain.gain.setTargetAtTime(0.75, t, 0.02);
+      // Chorus I + II (Authentic Roland Juno-60 Mode I+II - Dual Press):
+      // Rate = 8.8 Hz (fast rotary Leslie swirl / shimmer)
+      // Delay = ~4.0ms Left, ~4.3ms Right, subtle depth = +/- 0.35ms
+      this.chorusDryGain.gain.setTargetAtTime(0.60, t, 0.03);
+      this.chorusWetGain.gain.setTargetAtTime(0.78, t, 0.03);
 
-      this.chorusLFO.type = 'triangle';
-      this.chorusLFO.frequency.setTargetAtTime(9.75, t, 0.02);
-      this.chorusDelayL.delayTime.setTargetAtTime(0.0048, t, 0.02);
-      this.chorusDelayR.delayTime.setTargetAtTime(0.0050, t, 0.02);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0006, t, 0.02);
-      this.chorusLFOGainR.gain.setTargetAtTime(-0.0006, t, 0.02);
+      this.chorusLFO.frequency.setTargetAtTime(8.80, t, 0.03);
+      this.chorusDelayL.delayTime.setTargetAtTime(0.0040, t, 0.03);
+      this.chorusDelayR.delayTime.setTargetAtTime(0.0043, t, 0.03);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.00035, t, 0.03);
+      this.chorusLFOGainR.gain.setTargetAtTime(-0.00035, t, 0.03);
     }
   }
 

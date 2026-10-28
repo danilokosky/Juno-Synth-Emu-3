@@ -24,7 +24,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
 }) => {
   return (
     <div className={`flex flex-col items-center select-none text-center ${className}`}>
-      <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider mb-1 truncate max-w-[56px]">
+      <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider mb-0.5 truncate max-w-[50px]">
         {label}
       </span>
 

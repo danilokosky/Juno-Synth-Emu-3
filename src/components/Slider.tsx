@@ -154,7 +154,7 @@ export const Slider: React.FC<SliderProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col items-center select-none text-center p-1 rounded-lg transition-all duration-150 touch-none ${
+      className={`relative flex flex-col items-center select-none text-center p-0.5 sm:p-1 rounded transition-all duration-150 touch-none ${
         isSelectedForLearn
           ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-zinc-950 shadow-[0_0_24px_rgba(251,191,36,0.9)] animate-pulse bg-amber-500/10'
           : isMidiLearnActive
@@ -174,9 +174,9 @@ export const Slider: React.FC<SliderProps> = ({
     >
       {/* MIDI Learn Badge / Etiqueta */}
       {isMidiLearnActive && (
-        <div className="mb-1 flex items-center justify-center min-h-[18px]">
+        <div className="mb-0.5 flex items-center justify-center min-h-[16px]">
           {mappedCC !== null && mappedCC !== undefined ? (
-            <div className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[9px] font-mono font-black px-1.5 py-0.5 rounded shadow-md border border-amber-300 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[8.5px] font-mono font-black px-1 py-0.5 rounded shadow border border-amber-300 animate-in fade-in zoom-in-95">
               <span>CC {mappedCC}</span>
               <button
                 type="button"
@@ -184,7 +184,7 @@ export const Slider: React.FC<SliderProps> = ({
                   e.stopPropagation();
                   onUnmap?.();
                 }}
-                className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-red-700 hover:bg-red-800 text-white text-[9px] font-black cursor-pointer leading-none transition-transform active:scale-90"
+                className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-red-700 hover:bg-red-800 text-white text-[8.5px] font-black cursor-pointer leading-none transition-transform active:scale-90"
                 title={`Desmapear CC ${mappedCC}`}
               >
                 ✕
@@ -197,28 +197,28 @@ export const Slider: React.FC<SliderProps> = ({
                 e.stopPropagation();
                 onSelectForLearn?.();
               }}
-              className={`text-[8px] font-mono px-1.5 py-0.5 rounded border border-dashed cursor-pointer transition-all ${
+              className={`text-[7.5px] font-mono px-1 py-0.5 rounded border border-dashed cursor-pointer transition-all ${
                 isSelectedForLearn
                   ? 'bg-amber-500 text-zinc-950 font-bold border-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
                   : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border-zinc-600'
               }`}
             >
-              {isSelectedForLearn ? 'AURA ON' : '+ LEARN'}
+              {isSelectedForLearn ? 'AURA' : '+ LEARN'}
             </button>
           )}
         </div>
       )}
 
       {/* Label */}
-      <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider mb-1 truncate max-w-[52px]">
+      <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider mb-0.5 truncate max-w-[46px]">
         {label}
       </span>
 
-      {/* Fader Touch Target Container (Generous width for finger tap & drag) */}
+      {/* Fader Touch Target Container (Optimized width and height for compact landscape play) */}
       <div
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        className="relative flex items-center justify-center w-10 sm:w-11 h-28 my-1 cursor-pointer touch-none active:brightness-110"
+        className="relative flex items-center justify-center w-8.5 sm:w-9.5 h-24 sm:h-26 my-0.5 cursor-pointer touch-none active:brightness-110"
       >
         {/* Tick scale marks left side */}
         <div className="absolute left-0.5 top-1 bottom-1 flex flex-col justify-between items-end pr-1 text-[7px] font-mono text-zinc-500 pointer-events-none">

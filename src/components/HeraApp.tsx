@@ -179,14 +179,14 @@ export const HeraApp: React.FC = () => {
       className="min-h-screen bg-stone-950 text-zinc-100 flex flex-col justify-between"
     >
       {/* Outer Synthetic Chassis with Walnut Wood Cheeks */}
-      <div className="flex-1 max-w-[1440px] w-full mx-auto my-0 sm:my-3 px-1 sm:px-3">
-        <div className="relative rounded-lg shadow-2xl border-4 border-stone-800 bg-zinc-900 flex flex-col overflow-hidden">
+      <div className="flex-1 max-w-[1440px] w-full mx-auto my-0 sm:my-1.5 px-0.5 sm:px-2">
+        <div className="relative rounded-lg shadow-2xl border-2 sm:border-4 border-stone-800 bg-zinc-900 flex flex-col overflow-hidden">
           {/* Wood Cheeks Simulation (Left & Right Borders) */}
           <div className="hidden lg:block absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r from-amber-950 via-amber-900 to-amber-950 border-r border-amber-900/60 z-30 pointer-events-none" />
           <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-3 bg-gradient-to-l from-amber-950 via-amber-900 to-amber-950 border-l border-amber-900/60 z-30 pointer-events-none" />
 
           {/* Top Roland Header Bar */}
-          <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 px-4 py-2 border-b-2 border-zinc-700 flex flex-wrap items-center justify-between gap-3">
+          <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 px-2 sm:px-4 py-1 sm:py-1.5 border-b-2 border-zinc-700 flex flex-wrap items-center justify-between gap-2">
             {/* Branding / Badge */}
             <div className="flex items-center gap-3">
               <div className="flex flex-col">
@@ -384,14 +384,14 @@ export const HeraApp: React.FC = () => {
           </div>
 
           {/* Main Juno-60 Synth Control Panel */}
-          <div className="bg-zinc-900 p-2 sm:p-4 border-b border-zinc-800">
-            <div className="flex flex-col lg:flex-row gap-2 sm:gap-3 overflow-x-auto pb-2">
+          <div className="bg-zinc-900 p-1.5 sm:p-2.5 border-b border-zinc-800">
+            <div className="flex flex-row items-stretch justify-start sm:justify-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 scrollbar-thin">
               {/* SECTION: LFO */}
-              <div className="flex-1 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md min-w-[130px]">
-                <div className="text-[11px] font-black font-mono tracking-widest text-yellow-400 uppercase text-center pb-1 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-yellow-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
                   LFO
                 </div>
-                <div className="flex items-center justify-around gap-2 my-2">
+                <div className="flex items-center justify-center gap-1 my-1">
                   <Slider
                     label="Rate"
                     value={params.LFORate}
@@ -418,11 +418,11 @@ export const HeraApp: React.FC = () => {
                   />
                 </div>
                 {/* Manual LFO Trigger button (iconic Juno button!) */}
-                <div className="pt-1 border-t border-zinc-800/80 flex flex-col items-center">
+                <div className="pt-0.5 border-t border-zinc-800/80 flex flex-col items-center">
                   <button
                     type="button"
                     onClick={() => synthEngine.triggerManualLfo()}
-                    className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 active:bg-amber-600 active:text-black rounded text-[9px] font-mono font-bold text-zinc-300 border border-zinc-700 cursor-pointer transition-colors"
+                    className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 active:bg-amber-600 active:text-black rounded text-[8.5px] font-mono font-bold text-zinc-300 border border-zinc-700 cursor-pointer transition-colors"
                   >
                     MAN TRIG
                   </button>
@@ -430,13 +430,13 @@ export const HeraApp: React.FC = () => {
               </div>
 
               {/* SECTION: DCO */}
-              <div className="flex-[3.5] bg-zinc-950/70 border-t-4 border-t-red-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
-                <div className="text-[11px] font-black font-mono tracking-widest text-red-400 uppercase text-center pb-1 border-b border-zinc-800/80">
-                  DCO (Digitally Controlled Oscillator)
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-red-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-red-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+                  DCO (Oscillator)
                 </div>
-                <div className="flex items-center justify-between gap-1 sm:gap-2 my-2">
+                <div className="flex items-center justify-center gap-1 my-1">
                   {/* Selectors Column */}
-                  <div className="flex flex-col gap-1.5 pr-1 border-r border-zinc-800/80">
+                  <div className="flex flex-col gap-1 pr-1 border-r border-zinc-800/80">
                     <ToggleSwitch
                       label="Range"
                       options={[
@@ -542,17 +542,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('DCONoiseLevel')}
                   />
                 </div>
-                <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
-                  POLYBLEP ANALOG OSCILLATOR WAVEFORMS
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                  POLYBLEP ANALOG WAVEFORMS
                 </div>
               </div>
 
               {/* SECTION: HPF */}
-              <div className="flex-[0.8] bg-zinc-950/70 border-t-4 border-t-cyan-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
-                <div className="text-[11px] font-black font-mono tracking-widest text-cyan-400 uppercase text-center pb-1 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-cyan-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-cyan-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
                   HPF
                 </div>
-                <div className="flex items-center justify-center my-2">
+                <div className="flex items-center justify-center my-1">
                   <Slider
                     label="Freq"
                     value={params.HPF}
@@ -567,17 +567,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('HPF')}
                   />
                 </div>
-                <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
-                  4-WAY SWITCH
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                  4-WAY
                 </div>
               </div>
 
               {/* SECTION: VCF */}
-              <div className="flex-[3] bg-zinc-950/70 border-t-4 border-t-cyan-400 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
-                <div className="text-[11px] font-black font-mono tracking-widest text-cyan-300 uppercase text-center pb-1 border-b border-zinc-800/80">
-                  VCF (Voltage Controlled Filter)
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-cyan-400 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-cyan-300 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+                  VCF (Filter)
                 </div>
-                <div className="flex items-center justify-around gap-1 sm:gap-2 my-2">
+                <div className="flex items-center justify-center gap-1 my-1">
                   <Slider
                     label="Freq"
                     value={params.VCFCutoff}
@@ -656,17 +656,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('VCFBendDepth')}
                   />
                 </div>
-                <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
-                  24dB/OCT CASCADED RESONANT OTA
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                  24dB/OCT RESONANT OTA
                 </div>
               </div>
 
               {/* SECTION: VCA */}
-              <div className="flex-1 bg-zinc-950/70 border-t-4 border-t-amber-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
-                <div className="text-[11px] font-black font-mono tracking-widest text-amber-400 uppercase text-center pb-1 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-amber-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-amber-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
                   VCA
                 </div>
-                <div className="flex items-center justify-around gap-2 my-2">
+                <div className="flex items-center justify-center gap-1.5 my-1">
                   <ToggleSwitch
                     label="Type"
                     options={[
@@ -689,17 +689,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('VCADepth')}
                   />
                 </div>
-                <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
-                  AMP CONTROL
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                  AMP
                 </div>
               </div>
 
               {/* SECTION: ENV */}
-              <div className="flex-[2] bg-zinc-950/70 border-t-4 border-t-amber-400 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
-                <div className="text-[11px] font-black font-mono tracking-widest text-amber-300 uppercase text-center pb-1 border-b border-zinc-800/80">
-                  ENV (Envelope Generator)
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-amber-400 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-amber-300 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+                  ENV (ADSR)
                 </div>
-                <div className="flex items-center justify-around gap-1 sm:gap-2 my-2">
+                <div className="flex items-center justify-center gap-1 my-1">
                   <Slider
                     label="A"
                     value={params.ENVAttack}
@@ -749,17 +749,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('ENVRelease')}
                   />
                 </div>
-                <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
-                  ANALOG EXPONENTIAL ADSR
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                  EXPONENTIAL ADSR
                 </div>
               </div>
 
               {/* SECTION: CHORUS */}
-              <div className="flex-1 bg-zinc-950/70 border-t-4 border-t-rose-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
-                <div className="text-[11px] font-black font-mono tracking-widest text-rose-400 uppercase text-center pb-1 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-rose-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-rose-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
                   CHORUS
                 </div>
-                <div className="flex items-center justify-center gap-2 my-2">
+                <div className="flex items-center justify-center gap-1.5 my-1">
                   <ChorusButton
                     label="I"
                     active={params.ChorusI > 0.5}
@@ -781,13 +781,13 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('ChorusII')}
                   />
                 </div>
-                <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
                   {params.ChorusI && params.ChorusII
-                    ? 'MODE I+II (FAST)'
+                    ? 'I+II (FAST)'
                     : params.ChorusI
-                    ? 'MODE I (LUSH)'
+                    ? 'I (LUSH)'
                     : params.ChorusII
-                    ? 'MODE II (DEEP)'
+                    ? 'II (CREAMY)'
                     : 'OFF'}
                 </div>
               </div>
@@ -795,7 +795,7 @@ export const HeraApp: React.FC = () => {
           </div>
 
           {/* Middle Utility Section: Preset Manager + Arpeggiator */}
-          <div className="p-3 bg-zinc-950 border-b border-zinc-800 flex flex-col gap-2">
+          <div className="p-1.5 sm:p-2 bg-zinc-950 border-b border-zinc-800 flex flex-col gap-1.5">
             <PresetManager
               currentParams={params}
               onSelectPreset={handleSelectPreset}
