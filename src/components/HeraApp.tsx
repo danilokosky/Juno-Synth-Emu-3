@@ -384,9 +384,10 @@ export const HeraApp: React.FC = () => {
           </div>
 
           {/* Main Juno-60 Synth Control Panel */}
-          <div className="bg-zinc-900 p-1.5 sm:p-2.5 border-b border-zinc-800">
-            <div className="flex flex-row items-stretch justify-start sm:justify-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 scrollbar-thin">
-              {/* SECTION: LFO */}
+          <div className="bg-zinc-900 px-1 py-1 sm:py-2 border-b border-zinc-800 w-full overflow-hidden">
+            <div className="w-full overflow-x-auto pb-1.5 scrollbar-thin overscroll-x-contain touch-pan-x">
+              <div className="min-w-max w-fit flex flex-row items-stretch justify-start gap-1 sm:gap-1.5 px-2 mx-auto">
+                {/* SECTION: LFO */}
               <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
                 <div className="text-[10px] font-black font-mono tracking-widest text-yellow-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
                   LFO
@@ -783,7 +784,7 @@ export const HeraApp: React.FC = () => {
                 </div>
                 <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
                   {params.ChorusI && params.ChorusII
-                    ? 'I+II (FAST)'
+                    ? 'I+II (ROTARY)'
                     : params.ChorusI
                     ? 'I (LUSH)'
                     : params.ChorusII
@@ -793,6 +794,7 @@ export const HeraApp: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
 
           {/* Middle Utility Section: Preset Manager + Arpeggiator */}
           <div className="p-1.5 sm:p-2 bg-zinc-950 border-b border-zinc-800 flex flex-col gap-1.5">
