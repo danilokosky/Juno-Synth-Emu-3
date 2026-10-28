@@ -58,6 +58,7 @@ class HeraVoiceInstance {
   private envGain: GainNode;
 
   private noiseBuffer: AudioBuffer;
+  private releaseTimer: number | null = null;
 
   constructor(id: number, ctx: AudioContext, destination: AudioNode, noiseBuffer: AudioBuffer) {
     this.id = id;
@@ -95,6 +96,10 @@ class HeraVoiceInstance {
     pitchBendSemitones: number,
     lfoValue: number
   ) {
+    if (this.releaseTimer !== null) {
+      clearTimeout(this.releaseTimer);
+      this.releaseTimer = null;
+    }
     this.stopImmediate();
 
     this.note = note;
@@ -266,15 +271,21 @@ class HeraVoiceInstance {
     if (!this.active || this.released) return;
     this.released = true;
 
+    if (this.releaseTimer !== null) {
+      clearTimeout(this.releaseTimer);
+      this.releaseTimer = null;
+    }
+
     const t = this.ctx.currentTime;
     this.envGain.gain.cancelScheduledValues(t);
 
     if (params.VCAType === 1) {
       // Gate release: rapid 5ms
       this.envGain.gain.linearRampToValueAtTime(0.0001, t + 0.006);
-      setTimeout(() => {
-        if (this.released) this.stopImmediate();
-      }, 10);
+      this.releaseTimer = window.setTimeout(() => {
+        this.stopImmediate();
+        this.releaseTimer = null;
+      }, 15);
     } else {
       // ADSR release
       const releaseSec = Math.max(0.005, getReleaseSec(params.ENVRelease));
@@ -292,15 +303,30 @@ class HeraVoiceInstance {
       this.vcfFilter1.frequency.exponentialRampToValueAtTime(restCutoffHz, t + releaseSec);
       this.vcfFilter2.frequency.exponentialRampToValueAtTime(restCutoffHz, t + releaseSec);
 
-      setTimeout(() => {
-        if (this.released) {
-          this.stopImmediate();
-        }
-      }, releaseSec * 1000 + 50);
+      // Schedule Web Audio native stop directly on audio thread for clean cleanup
+      const stopTime = t + releaseSec + 0.05;
+      try {
+        this.sawOsc?.stop(stopTime);
+        this.pulseOsc1?.stop(stopTime);
+        this.pulseOsc2?.stop(stopTime);
+        this.subOsc?.stop(stopTime);
+        this.noiseSource?.stop(stopTime);
+      } catch {
+        // already stopped
+      }
+
+      this.releaseTimer = window.setTimeout(() => {
+        this.stopImmediate();
+        this.releaseTimer = null;
+      }, releaseSec * 1000 + 40);
     }
   }
 
   stopImmediate() {
+    if (this.releaseTimer !== null) {
+      clearTimeout(this.releaseTimer);
+      this.releaseTimer = null;
+    }
     this.active = false;
     this.released = true;
     this.note = -1;
@@ -326,6 +352,8 @@ class HeraVoiceInstance {
     this.sawOsc = null;
     this.pulseOsc1 = null;
     this.pulseOsc2 = null;
+    this.pulseInvertGain = null;
+    this.pulseDelay = null;
     this.subOsc = null;
     this.noiseSource = null;
   }
@@ -402,6 +430,20 @@ export class HeraSynthesizerEngine {
 
     if (this.ctx.state === 'suspended') {
       await this.ctx.resume();
+    }
+
+    this.ctx.onstatechange = () => {
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+      });
     }
 
     // 1. Create Noise buffer (pink-ish / warm white noise)
@@ -485,8 +527,8 @@ export class HeraSynthesizerEngine {
     // Split to stereo delays
     const merger = this.ctx.createChannelMerger(2);
 
-    this.chorusDelayL = this.ctx.createDelay(0.05);
-    this.chorusDelayR = this.ctx.createDelay(0.05);
+    this.chorusDelayL = this.ctx.createDelay(0.1);
+    this.chorusDelayR = this.ctx.createDelay(0.1);
 
     this.chorusInputGain.connect(this.chorusDelayL);
     this.chorusInputGain.connect(this.chorusDelayR);
@@ -528,44 +570,62 @@ export class HeraSynthesizerEngine {
 
     const t = this.ctx.currentTime;
 
+    // Smoothly cancel past scheduled values to prevent Web Audio thread underflows
+    this.chorusDelayL.delayTime.cancelScheduledValues(t);
+    this.chorusDelayR.delayTime.cancelScheduledValues(t);
+    this.chorusLFOGainL.gain.cancelScheduledValues(t);
+    this.chorusLFOGainR.gain.cancelScheduledValues(t);
+    this.chorusDryGain.gain.cancelScheduledValues(t);
+    this.chorusWetGain.gain.cancelScheduledValues(t);
+
     if (mode === 0) {
       // Off: 100% dry, 0% wet
       this.chorusDryGain.gain.setTargetAtTime(1.0, t, 0.02);
       this.chorusWetGain.gain.setTargetAtTime(0.0, t, 0.02);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0, t, 0.02);
+      this.chorusLFOGainR.gain.setTargetAtTime(0.0, t, 0.02);
       return;
     }
 
-    // Chorus engaged: 50% dry, 50% wet for maximum stereo dimensional effect
-    this.chorusDryGain.gain.setTargetAtTime(0.7, t, 0.02);
-    this.chorusWetGain.gain.setTargetAtTime(0.7, t, 0.02);
-
     if (mode === 1) {
-      // Chorus I (HeraChorus.dsp):
-      // Rate = 0.513 Hz, Delay avg ~ 3.35ms, swing ~ 1.8ms (antiphase)
+      // Chorus I (Authentic Roland Juno-60 Mode I):
+      // Rate = 0.513 Hz (slow, lush, dimensional stereo shimmer)
+      // Delay = 5.5ms nominal, modulation depth = +/- 2.0ms (antiphase)
+      this.chorusDryGain.gain.setTargetAtTime(0.70, t, 0.02);
+      this.chorusWetGain.gain.setTargetAtTime(0.70, t, 0.02);
+
       this.chorusLFO.type = 'triangle';
       this.chorusLFO.frequency.setTargetAtTime(0.513, t, 0.02);
-      this.chorusDelayL.delayTime.setTargetAtTime(0.00335, t, 0.02);
-      this.chorusDelayR.delayTime.setTargetAtTime(0.00345, t, 0.02);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0018, t, 0.02);
-      this.chorusLFOGainR.gain.setTargetAtTime(-0.0019, t, 0.02); // 180° inverted phase for lush stereo width!
+      this.chorusDelayL.delayTime.setTargetAtTime(0.0055, t, 0.02);
+      this.chorusDelayR.delayTime.setTargetAtTime(0.0058, t, 0.02);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0020, t, 0.02);
+      this.chorusLFOGainR.gain.setTargetAtTime(-0.0020, t, 0.02); // 180° inverted phase for lush stereo width
     } else if (mode === 2) {
-      // Chorus II (HeraChorus.dsp):
-      // Rate = 0.863 Hz, faster modulation
+      // Chorus II (Authentic Roland Juno-60 Mode II):
+      // Rate = 0.863 Hz (faster, noticeably deeper and thicker bucket-brigade sweep)
+      // Delay = 7.5ms nominal, modulation depth = +/- 3.4ms (true warm wobble!)
+      this.chorusDryGain.gain.setTargetAtTime(0.65, t, 0.02);
+      this.chorusWetGain.gain.setTargetAtTime(0.80, t, 0.02); // Richer wet presence
+
       this.chorusLFO.type = 'triangle';
       this.chorusLFO.frequency.setTargetAtTime(0.863, t, 0.02);
-      this.chorusDelayL.delayTime.setTargetAtTime(0.00335, t, 0.02);
-      this.chorusDelayR.delayTime.setTargetAtTime(0.00345, t, 0.02);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.0018, t, 0.02);
-      this.chorusLFOGainR.gain.setTargetAtTime(-0.0019, t, 0.02);
+      this.chorusDelayL.delayTime.setTargetAtTime(0.0075, t, 0.02);
+      this.chorusDelayR.delayTime.setTargetAtTime(0.0078, t, 0.02);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0034, t, 0.02);
+      this.chorusLFOGainR.gain.setTargetAtTime(-0.0034, t, 0.02); // 180° antiphase stereo
     } else if (mode === 3) {
-      // Chorus I + II (HeraChorus.dsp):
-      // Rate = 9.75 Hz, rotary/vibrato wobble!
-      this.chorusLFO.type = 'sine';
+      // Chorus I + II (Authentic Roland Juno-60 Mode I+II):
+      // Rate = 9.75 Hz (fast rotary Leslie swirl / vibrato)
+      // Delay = 4.8ms nominal, modulation depth = +/- 0.6ms
+      this.chorusDryGain.gain.setTargetAtTime(0.65, t, 0.02);
+      this.chorusWetGain.gain.setTargetAtTime(0.75, t, 0.02);
+
+      this.chorusLFO.type = 'triangle';
       this.chorusLFO.frequency.setTargetAtTime(9.75, t, 0.02);
-      this.chorusDelayL.delayTime.setTargetAtTime(0.00339, t, 0.02);
-      this.chorusDelayR.delayTime.setTargetAtTime(0.00346, t, 0.02);
-      this.chorusLFOGainL.gain.setTargetAtTime(0.00017, t, 0.02);
-      this.chorusLFOGainR.gain.setTargetAtTime(0.00018, t, 0.02);
+      this.chorusDelayL.delayTime.setTargetAtTime(0.0048, t, 0.02);
+      this.chorusDelayR.delayTime.setTargetAtTime(0.0050, t, 0.02);
+      this.chorusLFOGainL.gain.setTargetAtTime(0.0006, t, 0.02);
+      this.chorusLFOGainR.gain.setTargetAtTime(-0.0006, t, 0.02);
     }
   }
 
@@ -575,7 +635,7 @@ export class HeraSynthesizerEngine {
     let lastTime = performance.now();
     const tick = () => {
       const now = performance.now();
-      const dt = (now - lastTime) / 1000;
+      const dt = Math.min(0.1, Math.max(0, (now - lastTime) / 1000));
       lastTime = now;
 
       const rateHz = getLfoRateHz(this.params.LFORate);
@@ -609,6 +669,14 @@ export class HeraSynthesizerEngine {
   async noteOn(note: number, velocity: number = 100) {
     await this.initAudio();
     if (!this.ctx) return;
+
+    if (this.ctx.state !== 'running') {
+      try {
+        await this.ctx.resume();
+      } catch {
+        // audio context resume error ignored
+      }
+    }
 
     // Check if note is already playing
     const existing = this.voices.find(v => v.active && v.note === note);
