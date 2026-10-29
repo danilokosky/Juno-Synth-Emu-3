@@ -41,6 +41,7 @@ export const Slider: React.FC<SliderProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const faderAreaRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
@@ -69,7 +70,56 @@ export const Slider: React.FC<SliderProps> = ({
     [min, max, range, step, onChange]
   );
 
-  // Window-level pointer listeners while dragging for glitch-free touch response
+  // Native non-passive touch listeners on the fader area:
+  // Calling e.preventDefault() here unequivocally forbids the Android / Mobile browser
+  // from scrolling the page when the user touches and drags the fader!
+  useEffect(() => {
+    const el = faderAreaRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (isMidiLearnActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.touches[0];
+      if (touch) {
+        setIsDragging(true);
+        setShowTooltip(true);
+        updateFromPointer(touch.clientY);
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (isMidiLearnActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.touches[0];
+      if (touch) {
+        updateFromPointer(touch.clientY);
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (isMidiLearnActive) return;
+      e.preventDefault();
+      setIsDragging(false);
+      setShowTooltip(false);
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: false });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd, { passive: false });
+    el.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [isMidiLearnActive, updateFromPointer]);
+
+  // Window-level pointer listeners while dragging for desktop/mouse response
   useEffect(() => {
     if (!isDragging) return;
 
@@ -226,11 +276,11 @@ export const Slider: React.FC<SliderProps> = ({
 
       {/* Fader Touch Target Container with vertical clearances so cap never encroaches on title */}
       <div
+        ref={faderAreaRef}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        className={`relative flex items-center justify-center w-8 sm:w-9 h-26 sm:h-28 px-0.5 py-2 cursor-pointer select-none active:brightness-110 ${
-          isDragging ? 'touch-none' : 'touch-pan-y'
-        }`}
+        style={{ touchAction: 'none' }}
+        className="relative flex items-center justify-center w-8 sm:w-9 h-26 sm:h-28 px-0.5 py-2 cursor-pointer select-none active:brightness-110 touch-none"
       >
         {/* Tick scale marks left side - strictly z-0 behind the fader cap */}
         <div className="absolute left-0 top-2.5 bottom-2.5 flex flex-col justify-between items-end pr-0.5 text-[7px] font-mono text-zinc-500 pointer-events-none z-0">

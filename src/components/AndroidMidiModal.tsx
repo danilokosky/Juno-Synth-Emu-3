@@ -51,9 +51,11 @@ export const AndroidMidiModal: React.FC<AndroidMidiModalProps> = ({
         {/* Header */}
         <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 p-4 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400">
-              <Smartphone size={22} />
-            </div>
+            <img
+              src="/icon.svg"
+              alt="Hera Atari Cartridge Icon"
+              className="w-10 h-10 rounded-lg shadow border border-emerald-500/40 object-contain bg-zinc-950 p-0.5"
+            />
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-mono text-base font-bold text-zinc-100">

@@ -188,10 +188,16 @@ export const HeraApp: React.FC = () => {
           {/* Top Roland Header Bar */}
           <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 px-2 sm:px-4 py-1 sm:py-1.5 border-b-2 border-zinc-700 flex flex-wrap items-center justify-between gap-2">
             {/* Branding / Badge */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
+              <img
+                src="/icon.svg"
+                alt="Hera Atari Synthwave Cartridge Icon"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg shadow-md border border-zinc-700/80 bg-zinc-950 p-0.5 object-contain hover:scale-105 transition-transform"
+                title="Hera Juno-60 • 80s Synthwave Atari Cartridge Edition"
+              />
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-2xl font-black tracking-widest text-zinc-100 drop-shadow">
+                  <span className="font-mono text-xl sm:text-2xl font-black tracking-widest text-zinc-100 drop-shadow">
                     HERA
                   </span>
                   <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-red-600 text-white tracking-widest uppercase">
