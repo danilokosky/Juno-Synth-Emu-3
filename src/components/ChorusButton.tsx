@@ -31,7 +31,7 @@ export const ChorusButton: React.FC<ChorusButtonProps> = ({
       {isMidiLearnActive && (
         <div className="mb-1 flex items-center justify-center min-h-[18px]">
           {mappedCC !== null && mappedCC !== undefined ? (
-            <div className="flex items-center gap-1 bg-amber-500 text-zinc-950 text-[8px] font-mono font-black px-1 py-0.5 rounded shadow border border-amber-300">
+            <div className="flex items-center gap-1 bg-amber-400 text-black text-[8px] font-mono font-black px-1.5 py-0.5 rounded shadow-sm border border-amber-500/80">
               <span>CC {mappedCC}</span>
               <button
                 type="button"
@@ -39,7 +39,7 @@ export const ChorusButton: React.FC<ChorusButtonProps> = ({
                   e.stopPropagation();
                   onUnmap?.();
                 }}
-                className="w-3 h-3 flex items-center justify-center rounded-full bg-red-700 hover:bg-red-800 text-white text-[8px] font-black cursor-pointer leading-none"
+                className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-black hover:bg-zinc-800 text-amber-400 hover:text-amber-300 text-[8px] font-black cursor-pointer leading-none border border-black/40"
                 title={`Desmapear CC ${mappedCC}`}
               >
                 ✕
@@ -52,13 +52,13 @@ export const ChorusButton: React.FC<ChorusButtonProps> = ({
                 e.stopPropagation();
                 onSelectForLearn?.();
               }}
-              className={`text-[8px] font-mono px-1 py-0.5 rounded border border-dashed cursor-pointer ${
+              className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
                 isSelectedForLearn
-                  ? 'bg-amber-500 text-zinc-950 font-bold border-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
-                  : 'bg-zinc-800/80 text-zinc-400 border-zinc-600'
+                  ? 'bg-amber-400 text-black border-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.5)]'
+                  : 'bg-zinc-950/90 text-amber-400/90 hover:text-amber-300 border-amber-400/30 hover:bg-zinc-850'
               }`}
             >
-              {isSelectedForLearn ? 'AURA' : '+ LEARN'}
+              {isSelectedForLearn ? 'AURÉOLA' : '+ LEARN'}
             </button>
           )}
         </div>
@@ -75,7 +75,7 @@ export const ChorusButton: React.FC<ChorusButtonProps> = ({
         }}
         className={`relative group flex flex-col items-center justify-between w-10 h-16 p-1.5 rounded bg-gradient-to-b from-zinc-800 to-zinc-900 border shadow-md transition-all active:scale-95 cursor-pointer select-none ${
           isSelectedForLearn
-            ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-zinc-950 shadow-[0_0_24px_rgba(251,191,36,0.95)] animate-pulse border-amber-300'
+            ? 'ring-2 ring-amber-400/90 ring-offset-1 ring-offset-zinc-950 shadow-[0_0_12px_rgba(251,191,36,0.4)] border-amber-400 bg-amber-400/10'
             : active
             ? 'border-amber-500 shadow-amber-500/20'
             : 'border-zinc-700 hover:border-zinc-500'

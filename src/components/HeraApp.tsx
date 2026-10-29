@@ -245,15 +245,15 @@ export const HeraApp: React.FC = () => {
                   }}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono font-bold transition-all cursor-pointer shadow-sm ${
                     isMidiLearnActive
-                      ? 'bg-amber-500 text-zinc-950 border-2 border-amber-300 ring-2 ring-amber-400/80 animate-pulse'
+                      ? 'bg-amber-400 text-zinc-950 border border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.5)] ring-2 ring-amber-400/70'
                       : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700'
                   }`}
                   title="Ativar/Desativar modo MIDI Learn para mapear controles físicos do teclado"
                 >
                   <Sliders size={13} className={isMidiLearnActive ? 'text-zinc-950' : 'text-amber-400'} />
                   <span>{isMidiLearnActive ? 'LEARN [ATIVO]' : 'MIDI LEARN'}</span>
-                  <span className={`text-[10px] px-1 py-0.2 rounded font-mono ${
-                    isMidiLearnActive ? 'bg-zinc-950 text-amber-300' : 'bg-zinc-900 text-zinc-400'
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-black ${
+                    isMidiLearnActive ? 'bg-zinc-950 text-amber-300 border border-amber-400/40' : 'bg-zinc-900 text-zinc-400'
                   }`}>
                     {Object.keys(currentMidiMapping).length}
                   </span>
@@ -339,44 +339,6 @@ export const HeraApp: React.FC = () => {
             </div>
           </div>
 
-          {/* Interactive MIDI Learn Floating Status Banner */}
-          {isMidiLearnActive && (
-            <div className="bg-gradient-to-r from-amber-950 via-zinc-900 to-amber-950 border-b-2 border-amber-500 px-4 py-2 flex flex-wrap items-center justify-between gap-2 shadow-lg animate-in fade-in slide-in-from-top-1 duration-200">
-              <div className="flex items-center gap-2">
-                <span className="flex h-3 w-3 relative">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
-                </span>
-                {selectedLearnParam ? (
-                  <span className="text-xs sm:text-sm font-mono text-amber-300 font-bold">
-                    🎯 AURÉOLA ATIVA: <span className="text-white bg-amber-900/60 px-2 py-0.5 rounded border border-amber-400 uppercase tracking-wider">{selectedLearnParam}</span> — Mova agora qualquer knob, fader ou botão no seu teclado MIDI para vincular!
-                  </span>
-                ) : (
-                  <span className="text-xs sm:text-sm font-mono text-zinc-300">
-                    ⚡ <strong className="text-amber-400">MODO MIDI LEARN ATIVO</strong>: Toque em qualquer fader ou botão abaixo (com a auréola) para selecioná-lo e girar o botão no seu controlador. Para desmapear, clique no <strong className="text-red-400">✕</strong> da etiqueta.
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {lastLearnedInfo && (
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-emerald-600 text-white font-bold animate-in fade-in">
-                    ✓ CC {lastLearnedInfo.cc} mapeado para {lastLearnedInfo.param}!
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMidiLearnActive(false);
-                    setSelectedLearnParam(null);
-                    midiManagerInstance?.setLearnParam(null);
-                  }}
-                  className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-mono font-bold rounded border border-zinc-600 cursor-pointer"
-                >
-                  Concluir
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Roland Multi-Stripe Color Separator */}
           <div className="flex h-1.5 w-full">

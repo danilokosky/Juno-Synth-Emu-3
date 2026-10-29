@@ -78,7 +78,12 @@ export const Slider: React.FC<SliderProps> = ({
     if (!el) return;
 
     const onTouchStart = (e: TouchEvent) => {
-      if (isMidiLearnActive) return;
+      if (isMidiLearnActive) {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelectForLearn?.();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       const touch = e.touches[0];
@@ -117,7 +122,7 @@ export const Slider: React.FC<SliderProps> = ({
       el.removeEventListener('touchend', onTouchEnd);
       el.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [isMidiLearnActive, updateFromPointer]);
+  }, [isMidiLearnActive, updateFromPointer, onSelectForLearn]);
 
   // Window-level pointer listeners while dragging for desktop/mouse response
   useEffect(() => {
@@ -214,17 +219,18 @@ export const Slider: React.FC<SliderProps> = ({
       ref={containerRef}
       className={`relative flex flex-col items-center select-none text-center p-0.5 rounded transition-all duration-150 ${
         isSelectedForLearn
-          ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-zinc-950 shadow-[0_0_24px_rgba(251,191,36,0.9)] animate-pulse bg-amber-500/10'
+          ? 'ring-2 ring-amber-400/90 ring-offset-1 ring-offset-zinc-950 shadow-[0_0_12px_rgba(251,191,36,0.4)] bg-amber-400/10'
           : isMidiLearnActive
-          ? 'hover:bg-zinc-800/40 cursor-pointer'
+          ? 'hover:bg-amber-400/5 hover:ring-1 hover:ring-amber-400/30 cursor-pointer'
           : ''
       } ${className}`}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => !isDragging && setShowTooltip(false)}
       onWheel={handleWheel}
       onDoubleClick={handleDoubleClick}
-      onClick={() => {
+      onClick={(e) => {
         if (isMidiLearnActive) {
+          e.stopPropagation();
           onSelectForLearn?.();
         }
       }}
@@ -234,7 +240,7 @@ export const Slider: React.FC<SliderProps> = ({
       {isMidiLearnActive && (
         <div className="mb-0.5 flex items-center justify-center min-h-[16px] z-10">
           {mappedCC !== null && mappedCC !== undefined ? (
-            <div className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[8.5px] font-mono font-black px-1 py-0.5 rounded shadow border border-amber-300 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-1 bg-amber-400 text-black text-[8.5px] font-mono font-black px-1.5 py-0.5 rounded shadow-sm border border-amber-500/80 animate-in fade-in zoom-in-95">
               <span>CC {mappedCC}</span>
               <button
                 type="button"
@@ -242,7 +248,7 @@ export const Slider: React.FC<SliderProps> = ({
                   e.stopPropagation();
                   onUnmap?.();
                 }}
-                className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-red-700 hover:bg-red-800 text-white text-[8.5px] font-black cursor-pointer leading-none transition-transform active:scale-90"
+                className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-black hover:bg-zinc-800 text-amber-400 hover:text-amber-300 text-[8.5px] font-black cursor-pointer leading-none transition-transform active:scale-90 border border-black/40"
                 title={`Desmapear CC ${mappedCC}`}
               >
                 ✕
@@ -255,13 +261,13 @@ export const Slider: React.FC<SliderProps> = ({
                 e.stopPropagation();
                 onSelectForLearn?.();
               }}
-              className={`text-[7.5px] font-mono px-1 py-0.5 rounded border border-dashed cursor-pointer transition-all ${
+              className={`text-[7.5px] font-mono font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
                 isSelectedForLearn
-                  ? 'bg-amber-500 text-zinc-950 font-bold border-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
-                  : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border-zinc-600'
+                  ? 'bg-amber-400 text-black border-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.5)]'
+                  : 'bg-zinc-950/90 hover:bg-zinc-800 text-amber-400/90 hover:text-amber-300 border-amber-400/30'
               }`}
             >
-              {isSelectedForLearn ? 'AURA' : '+ LEARN'}
+              {isSelectedForLearn ? 'AURÉOLA' : '+ LEARN'}
             </button>
           )}
         </div>
