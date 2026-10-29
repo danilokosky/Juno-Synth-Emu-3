@@ -41,6 +41,8 @@ export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
   88: 'DelayMix',        // Echo Delay Mix
 };
 
+export type MidiMappableAction = 'prevPreset' | 'nextPreset';
+
 export class MidiManager {
   private midiAccess: MIDIAccess | null = null;
   private isSupported: boolean = false;
@@ -53,10 +55,15 @@ export class MidiManager {
     learnedParam?: keyof HeraParameters,
     learnedCC?: number
   ) => void;
+  private onProgramChange?: (programNumber: number) => void;
+  private onActionTriggered?: (action: MidiMappableAction) => void;
+  private onActionMappingChanged?: (actionMap: Record<number, MidiMappableAction>, learnedAction?: MidiMappableAction, learnedCC?: number) => void;
   private synth: HeraSynthesizerEngine;
 
   private ccMapping: Record<number, keyof HeraParameters> = { ...DEFAULT_MIDI_CC_MAP };
+  private actionMapping: Record<number, MidiMappableAction> = { 110: 'prevPreset', 111: 'nextPreset' };
   private activeLearnParam: keyof HeraParameters | null = null;
+  private activeLearnAction: MidiMappableAction | null = null;
 
   constructor(synth: HeraSynthesizerEngine) {
     this.synth = synth;
@@ -145,9 +152,59 @@ export class MidiManager {
     return { ...this.ccMapping };
   }
 
+  setOnProgramChange(cb: (programNumber: number) => void) {
+    this.onProgramChange = cb;
+  }
+
+  setOnActionTriggered(cb: (action: MidiMappableAction) => void) {
+    this.onActionTriggered = cb;
+  }
+
+  setOnActionMappingChanged(
+    cb: (actionMap: Record<number, MidiMappableAction>, learnedAction?: MidiMappableAction, learnedCC?: number) => void
+  ) {
+    this.onActionMappingChanged = cb;
+  }
+
+  setLearnAction(action: MidiMappableAction | null) {
+    this.activeLearnAction = action;
+  }
+
+  getLearnAction(): MidiMappableAction | null {
+    return this.activeLearnAction;
+  }
+
+  mapActionCC(cc: number, action: MidiMappableAction) {
+    for (const [k, v] of Object.entries(this.actionMapping)) {
+      if (v === action) delete this.actionMapping[Number(k)];
+    }
+    this.actionMapping[cc] = action;
+    this.onActionMappingChanged?.(this.getActionMapping(), action, cc);
+  }
+
+  unmapAction(action: MidiMappableAction) {
+    for (const [k, v] of Object.entries(this.actionMapping)) {
+      if (v === action) delete this.actionMapping[Number(k)];
+    }
+    this.onActionMappingChanged?.(this.getActionMapping());
+  }
+
+  getActionMapping(): Record<number, MidiMappableAction> {
+    return { ...this.actionMapping };
+  }
+
+  getCCForAction(action: MidiMappableAction): number | null {
+    for (const [ccStr, a] of Object.entries(this.actionMapping)) {
+      if (a === action) return Number(ccStr);
+    }
+    return null;
+  }
+
   resetToDefaultMapping() {
     this.ccMapping = { ...DEFAULT_MIDI_CC_MAP };
+    this.actionMapping = { 110: 'prevPreset', 111: 'nextPreset' };
     this.onMappingChanged?.(this.getMapping());
+    this.onActionMappingChanged?.(this.getActionMapping());
   }
 
   private updateInputs() {
@@ -205,6 +262,13 @@ export class MidiManager {
         this.synth.setPitchBend(normalized);
         break;
       }
+      case 0xc: {
+        // Program Change (0xCn program)
+        this.onMidiActivity?.();
+        const programNumber = data1;
+        this.onProgramChange?.(programNumber);
+        break;
+      }
       case 0xb: {
         // Control Change
         const cc = data1;
@@ -212,7 +276,7 @@ export class MidiManager {
         const normalized = value / 127;
         this.onMidiActivity?.(cc, value);
 
-        // MIDI Learn interception
+        // MIDI Learn interception for Parameters
         if (this.activeLearnParam) {
           const learned = this.activeLearnParam;
           // Remove existing mappings for this param
@@ -225,6 +289,26 @@ export class MidiManager {
           this.activeLearnParam = null;
           this.onMappingChanged?.(this.getMapping(), learned, cc);
           console.log(`MIDI Learn complete: CC ${cc} mapped to ${learned}`);
+        }
+
+        // MIDI Learn interception for Actions (e.g. prevPreset, nextPreset)
+        if (this.activeLearnAction) {
+          const learned = this.activeLearnAction;
+          for (const [k, v] of Object.entries(this.actionMapping)) {
+            if (v === learned) {
+              delete this.actionMapping[Number(k)];
+            }
+          }
+          this.actionMapping[cc] = learned;
+          this.activeLearnAction = null;
+          this.onActionMappingChanged?.(this.getActionMapping(), learned, cc);
+          console.log(`MIDI Learn action complete: CC ${cc} mapped to ${learned}`);
+        }
+
+        // Check if CC triggers an Action (only on button press / value > 63)
+        const targetAction = this.actionMapping[cc];
+        if (targetAction && value > 63) {
+          this.onActionTriggered?.(targetAction);
         }
 
         // Check if CC is mapped to a synth parameter

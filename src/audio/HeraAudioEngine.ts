@@ -1,5 +1,14 @@
 import { HeraParameters, DEFAULT_PARAMETERS, VoiceStatus } from '../types/synth';
 
+export interface ArpConfig {
+  enabled: boolean;
+  bpm: number;
+  mode: 'UP' | 'DOWN' | 'U/D' | 'RND';
+  range: number; // 1, 2, 3 octaves
+  rateDivision: '1/8' | '1/16' | '1/16T';
+  hold: boolean;
+}
+
 // Curve translation functions matching HeraTables.cpp
 export function getLfoRateHz(value: number): number {
   return 21.8 * Math.pow(Math.max(0, Math.min(1, value)), 2.863) + 0.4035;
@@ -517,6 +526,22 @@ export class HeraSynthesizerEngine {
   private recordedChunks: Blob[] = [];
   private isRecording: boolean = false;
 
+  // Arpeggiator Engine State
+  private arpConfig: ArpConfig = {
+    enabled: false,
+    bpm: 120,
+    mode: 'UP',
+    range: 1,
+    rateDivision: '1/16',
+    hold: false,
+  };
+  private arpHeldNotes: number[] = [];
+  private arpLatchedNotes: number[] = [];
+  private arpTimerId: number | null = null;
+  private arpCurrentStep: number = 0;
+  private arpLastPlayedNote: number | null = null;
+  private arpNoteOffTimerId: number | null = null;
+
   // Listeners
   private onVoicesChange?: (statuses: VoiceStatus[]) => void;
   private onRecordingChange?: (isRecording: boolean, blob?: Blob) => void;
@@ -885,19 +910,137 @@ export class HeraSynthesizerEngine {
     this.delayWetGain.gain.setTargetAtTime(wet, t, 0.02);
   }
 
-  // Note On
-  async noteOn(note: number, velocity: number = 100) {
-    await this.initAudio();
-    if (!this.ctx) return;
+  // Arpeggiator Configuration
+  setArpConfig(config: Partial<ArpConfig>) {
+    const wasEnabled = this.arpConfig.enabled;
+    this.arpConfig = { ...this.arpConfig, ...config };
 
-    if (this.ctx.state !== 'running') {
-      try {
-        await this.ctx.resume();
-      } catch {
-        // audio context resume error ignored
+    if (!this.arpConfig.enabled && wasEnabled) {
+      this.stopArpClock();
+      this.arpHeldNotes = [];
+      this.arpLatchedNotes = [];
+    } else if (this.arpConfig.enabled && !wasEnabled) {
+      if (this.arpHeldNotes.length > 0) {
+        this.startArpClock();
+      }
+    } else if (this.arpConfig.enabled && this.arpTimerId !== null) {
+      this.restartArpClock();
+    }
+  }
+
+  getArpConfig(): ArpConfig {
+    return { ...this.arpConfig };
+  }
+
+  private getStepDurationMs(): number {
+    const b = Math.max(40, Math.min(260, this.arpConfig.bpm));
+    const beatMs = 60000 / b;
+    if (this.arpConfig.rateDivision === '1/8') return beatMs / 2;
+    if (this.arpConfig.rateDivision === '1/16') return beatMs / 4;
+    return (beatMs / 4) * (2 / 3);
+  }
+
+  private startArpClock() {
+    this.stopArpClock();
+    this.arpCurrentStep = 0;
+    this.arpTick();
+    const interval = this.getStepDurationMs();
+    this.arpTimerId = window.setInterval(() => this.arpTick(), interval);
+  }
+
+  private restartArpClock() {
+    if (this.arpTimerId !== null) {
+      window.clearInterval(this.arpTimerId);
+      const interval = this.getStepDurationMs();
+      this.arpTimerId = window.setInterval(() => this.arpTick(), interval);
+    }
+  }
+
+  private stopArpClock() {
+    if (this.arpTimerId !== null) {
+      window.clearInterval(this.arpTimerId);
+      this.arpTimerId = null;
+    }
+    if (this.arpNoteOffTimerId !== null) {
+      window.clearTimeout(this.arpNoteOffTimerId);
+      this.arpNoteOffTimerId = null;
+    }
+    if (this.arpLastPlayedNote !== null) {
+      this.triggerVoiceOff(this.arpLastPlayedNote);
+      this.arpLastPlayedNote = null;
+    }
+  }
+
+  private arpTick() {
+    const sourceNotes = this.arpHeldNotes.length > 0
+      ? this.arpHeldNotes
+      : (this.arpConfig.hold ? this.arpLatchedNotes : []);
+
+    if (sourceNotes.length === 0) {
+      if (this.arpLastPlayedNote !== null) {
+        this.triggerVoiceOff(this.arpLastPlayedNote);
+        this.arpLastPlayedNote = null;
+      }
+      return;
+    }
+
+    const sorted = [...sourceNotes].sort((a, b) => a - b);
+    const expanded: number[] = [];
+    const octaves = Math.max(1, Math.min(3, this.arpConfig.range));
+
+    for (let oct = 0; oct < octaves; oct++) {
+      for (const n of sorted) {
+        expanded.push(n + oct * 12);
       }
     }
 
+    let sequence: number[] = [];
+    if (this.arpConfig.mode === 'UP') {
+      sequence = expanded;
+    } else if (this.arpConfig.mode === 'DOWN') {
+      sequence = [...expanded].reverse();
+    } else if (this.arpConfig.mode === 'U/D') {
+      if (expanded.length <= 2) {
+        sequence = expanded;
+      } else {
+        const middleReversed = expanded.slice(1, -1).reverse();
+        sequence = [...expanded, ...middleReversed];
+      }
+    } else {
+      sequence = expanded;
+    }
+
+    if (sequence.length === 0) return;
+
+    let noteToPlay: number;
+    if (this.arpConfig.mode === 'RND') {
+      noteToPlay = sequence[Math.floor(Math.random() * sequence.length)];
+    } else {
+      noteToPlay = sequence[this.arpCurrentStep % sequence.length];
+      this.arpCurrentStep = (this.arpCurrentStep + 1) % sequence.length;
+    }
+
+    if (this.arpLastPlayedNote !== null) {
+      this.triggerVoiceOff(this.arpLastPlayedNote);
+    }
+
+    this.triggerVoiceOn(noteToPlay, 95);
+    this.arpLastPlayedNote = noteToPlay;
+
+    const stepDuration = this.getStepDurationMs();
+    if (this.arpNoteOffTimerId !== null) {
+      window.clearTimeout(this.arpNoteOffTimerId);
+    }
+    this.arpNoteOffTimerId = window.setTimeout(() => {
+      if (this.arpLastPlayedNote === noteToPlay) {
+        this.triggerVoiceOff(noteToPlay);
+        this.arpLastPlayedNote = null;
+      }
+    }, stepDuration * 0.7);
+  }
+
+  // Voice allocation and trigger (Internal)
+  private triggerVoiceOn(note: number, velocity: number = 100) {
     // Check if note is already playing
     const existing = this.voices.find(v => v.active && v.note === note);
     if (existing) {
@@ -927,15 +1070,59 @@ export class HeraSynthesizerEngine {
     this.broadcastVoiceStatus();
   }
 
-  // Note Off
-  noteOff(note: number) {
+  private triggerVoiceOff(note: number) {
     const matching = this.voices.filter(v => v.active && v.note === note);
     matching.forEach(v => v.stop(this.params));
     this.broadcastVoiceStatus();
   }
 
+  // Note On
+  async noteOn(note: number, velocity: number = 100) {
+    await this.initAudio();
+    if (!this.ctx) return;
+
+    if (this.ctx.state !== 'running') {
+      try {
+        await this.ctx.resume();
+      } catch {
+        // audio context resume error ignored
+      }
+    }
+
+    // If Arpeggiator is active, route through arpeggiator clock
+    if (this.arpConfig.enabled) {
+      if (!this.arpHeldNotes.includes(note)) {
+        this.arpHeldNotes.push(note);
+      }
+      this.arpLatchedNotes = [...this.arpHeldNotes];
+      if (this.arpTimerId === null) {
+        this.startArpClock();
+      }
+      return;
+    }
+
+    this.triggerVoiceOn(note, velocity);
+  }
+
+  // Note Off
+  noteOff(note: number) {
+    // If Arpeggiator is active, update held notes
+    if (this.arpConfig.enabled) {
+      this.arpHeldNotes = this.arpHeldNotes.filter(n => n !== note);
+      if (!this.arpConfig.hold && this.arpHeldNotes.length === 0) {
+        this.stopArpClock();
+      }
+      return;
+    }
+
+    this.triggerVoiceOff(note);
+  }
+
   // All notes off
   allNotesOff() {
+    this.stopArpClock();
+    this.arpHeldNotes = [];
+    this.arpLatchedNotes = [];
     this.voices.forEach(v => v.stopImmediate());
     this.broadcastVoiceStatus();
   }

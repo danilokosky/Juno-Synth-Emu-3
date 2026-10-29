@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { HeraParameters, DEFAULT_PARAMETERS, VoiceStatus } from '../types/synth';
 import { synthEngine, getAttackSec, getDecaySec, getReleaseSec } from '../audio/HeraAudioEngine';
-import { MidiManager, MidiDevice } from '../audio/MidiManager';
+import { MidiManager, MidiDevice, MidiMappableAction } from '../audio/MidiManager';
 import { FACTORY_PRESETS } from '../presets/factoryPresets';
 import { Slider } from './Slider';
 import { ToggleSwitch } from './ToggleSwitch';
@@ -23,11 +23,9 @@ import {
   Layers,
   HelpCircle,
   Sliders,
-  Check,
-  Smartphone
+  Check
 } from 'lucide-react';
 
-import { AndroidMidiModal } from './AndroidMidiModal';
 import { AtariCartridgeIcon } from './AtariCartridgeIcon';
 
 export const HeraApp: React.FC = () => {
@@ -52,15 +50,17 @@ export const HeraApp: React.FC = () => {
   const [midiActive, setMidiActive] = useState<boolean>(false);
   const [midiManagerInstance, setMidiManagerInstance] = useState<MidiManager | null>(null);
   const [currentMidiMapping, setCurrentMidiMapping] = useState<Record<number, keyof HeraParameters>>({});
+  const [currentMidiActionMapping, setCurrentMidiActionMapping] = useState<Record<number, MidiMappableAction>>({ 110: 'prevPreset', 111: 'nextPreset' });
 
   // Interactive MIDI Learn Mode State
   const [isMidiLearnActive, setIsMidiLearnActive] = useState<boolean>(false);
   const [selectedLearnParam, setSelectedLearnParam] = useState<keyof HeraParameters | null>(null);
+  const [selectedLearnAction, setSelectedLearnAction] = useState<MidiMappableAction | null>(null);
   const [lastLearnedInfo, setLastLearnedInfo] = useState<{ param: string; cc: number } | null>(null);
+  const loadPresetByIndexRef = useRef<((index: number) => void) | null>(null);
 
-  // Help & Android modals
+  // Help modal
   const [showHelp, setShowHelp] = useState<boolean>(false);
-  const [showAndroidModal, setShowAndroidModal] = useState<boolean>(false);
 
   const midiTimeoutRef = useRef<number | null>(null);
 
@@ -82,6 +82,29 @@ export const HeraApp: React.FC = () => {
     const midiMgr = new MidiManager(synthEngine);
     setMidiManagerInstance(midiMgr);
     setCurrentMidiMapping(midiMgr.getMapping());
+    setCurrentMidiActionMapping(midiMgr.getActionMapping());
+
+    midiMgr.setOnProgramChange((programNumber: number) => {
+      loadPresetByIndexRef.current?.(programNumber);
+    });
+
+    midiMgr.setOnActionTriggered((action) => {
+      if (action === 'prevPreset') {
+        const btn = document.querySelector('[title*="Preset Anterior"]') as HTMLButtonElement | null;
+        btn?.click();
+      } else if (action === 'nextPreset') {
+        const btn = document.querySelector('[title*="Próximo Preset"]') as HTMLButtonElement | null;
+        btn?.click();
+      }
+    });
+
+    midiMgr.setOnActionMappingChanged((actionMap, learnedAction) => {
+      setCurrentMidiActionMapping({ ...actionMap });
+      if (learnedAction) {
+        setSelectedLearnAction(null);
+      }
+    });
+
     midiMgr.init(
       (devices) => setMidiDevices(devices),
       () => {
@@ -174,6 +197,34 @@ export const HeraApp: React.FC = () => {
     return null;
   };
 
+  const getMappedActionCC = (action: MidiMappableAction): number | null => {
+    for (const [ccStr, a] of Object.entries(currentMidiActionMapping)) {
+      if (a === action) return Number(ccStr);
+    }
+    return null;
+  };
+
+  const handleSelectActionForLearn = (action: MidiMappableAction) => {
+    if (selectedLearnAction === action) {
+      setSelectedLearnAction(null);
+      midiManagerInstance?.setLearnAction(null);
+    } else {
+      setSelectedLearnAction(action);
+      setSelectedLearnParam(null);
+      midiManagerInstance?.setLearnParam(null);
+      midiManagerInstance?.setLearnAction(action);
+    }
+  };
+
+  const handleUnmapAction = (action: MidiMappableAction) => {
+    midiManagerInstance?.unmapAction(action);
+    setCurrentMidiActionMapping(midiManagerInstance?.getActionMapping() || {});
+    if (selectedLearnAction === action) {
+      setSelectedLearnAction(null);
+      midiManagerInstance?.setLearnAction(null);
+    }
+  };
+
   return (
     <div
       onClick={startAudioOnInteraction}
@@ -240,22 +291,24 @@ export const HeraApp: React.FC = () => {
                     setIsMidiLearnActive(next);
                     if (!next) {
                       setSelectedLearnParam(null);
+                      setSelectedLearnAction(null);
                       midiManagerInstance?.setLearnParam(null);
+                      midiManagerInstance?.setLearnAction(null);
                     }
                   }}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono font-bold transition-all cursor-pointer shadow-sm ${
                     isMidiLearnActive
-                      ? 'bg-amber-400 text-zinc-950 border border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.5)] ring-2 ring-amber-400/70'
+                      ? 'bg-[#0284c7] text-white border-2 border-[#38bdf8] shadow-[0_0_12px_rgba(56,189,248,0.55)] ring-2 ring-sky-400/70'
                       : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700'
                   }`}
                   title="Ativar/Desativar modo MIDI Learn para mapear controles físicos do teclado"
                 >
-                  <Sliders size={13} className={isMidiLearnActive ? 'text-zinc-950' : 'text-amber-400'} />
+                  <Sliders size={13} className={isMidiLearnActive ? 'text-white' : 'text-sky-400'} />
                   <span>{isMidiLearnActive ? 'LEARN [ATIVO]' : 'MIDI LEARN'}</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-black ${
-                    isMidiLearnActive ? 'bg-zinc-950 text-amber-300 border border-amber-400/40' : 'bg-zinc-900 text-zinc-400'
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-black ${
+                    isMidiLearnActive ? 'bg-zinc-950 text-sky-300 border border-sky-400/40' : 'bg-zinc-900 text-zinc-400'
                   }`}>
-                    {Object.keys(currentMidiMapping).length}
+                    {Object.keys(currentMidiMapping).length + Object.keys(currentMidiActionMapping).length}
                   </span>
                 </button>
 
@@ -314,17 +367,6 @@ export const HeraApp: React.FC = () => {
                     title="Volume Master Geral"
                   />
                 </div>
-
-                {/* Android Native APK & MIDI Mapping Button */}
-                <button
-                  type="button"
-                  onClick={() => setShowAndroidModal(true)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 rounded text-xs font-mono font-bold cursor-pointer transition-colors shadow-sm"
-                  title="Abrir configurações de MIDI e download do APK Android"
-                >
-                  <Smartphone size={13} />
-                  <span>Android & MIDI</span>
-                </button>
 
                 {/* Help button */}
                 <button
@@ -829,6 +871,15 @@ export const HeraApp: React.FC = () => {
             <PresetManager
               currentParams={params}
               onSelectPreset={handleSelectPreset}
+              isMidiLearnActive={isMidiLearnActive}
+              selectedLearnAction={selectedLearnAction}
+              mappedCCPrev={getMappedActionCC('prevPreset')}
+              mappedCCNext={getMappedActionCC('nextPreset')}
+              onSelectActionForLearn={handleSelectActionForLearn}
+              onUnmapAction={handleUnmapAction}
+              onRegisterLoadByIndex={(fn) => {
+                loadPresetByIndexRef.current = fn;
+              }}
             />
             <Arpeggiator />
           </div>
@@ -920,18 +971,6 @@ export const HeraApp: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* Android & MIDI Controller Modal */}
-      <AndroidMidiModal
-        isOpen={showAndroidModal}
-        onClose={() => setShowAndroidModal(false)}
-        midiDevices={midiDevices}
-        currentMapping={currentMidiMapping}
-        onMapCC={(cc, param) => {
-          midiManagerInstance?.mapCC(cc, param);
-          setCurrentMidiMapping(midiManagerInstance?.getMapping() || {});
-        }}
-      />
     </div>
   );
 };
