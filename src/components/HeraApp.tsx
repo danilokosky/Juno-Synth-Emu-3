@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 
 import { AndroidMidiModal } from './AndroidMidiModal';
+import { AtariCartridgeIcon } from './AtariCartridgeIcon';
 
 export const HeraApp: React.FC = () => {
   const [params, setParams] = useState<HeraParameters>(() => {
@@ -189,12 +190,9 @@ export const HeraApp: React.FC = () => {
           <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 px-2 sm:px-4 py-1 sm:py-1.5 border-b-2 border-zinc-700 flex flex-wrap items-center justify-between gap-2">
             {/* Branding / Badge */}
             <div className="flex items-center gap-2.5">
-              <img
-                src="/icon.svg"
-                alt="Hera Atari Synthwave Cartridge Icon"
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg shadow-md border border-zinc-700/80 bg-zinc-950 p-0.5 object-contain hover:scale-105 transition-transform"
-                title="Hera Juno-60 • 80s Synthwave Atari Cartridge Edition"
-              />
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-lg shadow-md border border-zinc-700/80 bg-zinc-950 p-0.5 flex items-center justify-center hover:scale-105 transition-transform overflow-hidden">
+                <AtariCartridgeIcon className="w-full h-full object-contain" />
+              </div>
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xl sm:text-2xl font-black tracking-widest text-zinc-100 drop-shadow">

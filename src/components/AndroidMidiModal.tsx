@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Smartphone, Cpu, Radio, Sliders, CheckCircle, Copy, ExternalLink, HelpCircle, Download } from 'lucide-react';
 import { DEFAULT_MIDI_CC_MAP } from '../audio/MidiManager';
 import { HeraParameters } from '../types/synth';
+import { AtariCartridgeIcon } from './AtariCartridgeIcon';
 
 interface AndroidMidiModalProps {
   isOpen: boolean;
@@ -51,11 +52,9 @@ export const AndroidMidiModal: React.FC<AndroidMidiModalProps> = ({
         {/* Header */}
         <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 p-4 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img
-              src="/icon.svg"
-              alt="Hera Atari Cartridge Icon"
-              className="w-10 h-10 rounded-lg shadow border border-emerald-500/40 object-contain bg-zinc-950 p-0.5"
-            />
+            <div className="w-10 h-10 rounded-lg shadow border border-emerald-500/40 bg-zinc-950 p-0.5 flex items-center justify-center overflow-hidden">
+              <AtariCartridgeIcon className="w-full h-full object-contain" />
+            </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-mono text-base font-bold text-zinc-100">
