@@ -135,11 +135,15 @@ export const HeraApp: React.FC = () => {
 
   const handleParamChange = useCallback(
     <K extends keyof HeraParameters>(key: K, value: HeraParameters[K]) => {
-      setParams((prev) => {
-        const updated = { ...prev, [key]: value };
-        synthEngine.setParameter(key, value);
-        return updated;
-      });
+      try {
+        setParams((prev) => {
+          const updated = { ...prev, [key]: value };
+          synthEngine.setParameter(key, value);
+          return updated;
+        });
+      } catch (err) {
+        console.error('Failed to update parameter', key, value, err);
+      }
     },
     []
   );
@@ -893,29 +897,39 @@ export const HeraApp: React.FC = () => {
 
       {/* Help Modal */}
       {showHelp && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg max-w-lg w-full p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-              <h3 className="font-mono text-lg font-bold text-amber-400">
+        <div
+          className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150"
+          onClick={() => setShowHelp(false)}
+        >
+          <div
+            className="bg-zinc-900 border border-zinc-700 rounded-lg max-w-lg w-full max-h-[85vh] sm:max-h-[90vh] flex flex-col p-4 sm:p-5 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3 flex-shrink-0">
+              <h3 className="font-mono text-base sm:text-lg font-bold text-amber-400">
                 Guia do Hera Juno Synthesizer
               </h3>
               <button
                 type="button"
                 onClick={() => setShowHelp(false)}
-                className="text-zinc-400 hover:text-zinc-100 text-lg font-bold px-2 cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-amber-400 font-mono text-xs font-bold rounded border border-zinc-600 cursor-pointer shadow-sm transition-colors"
+                aria-label="Fechar Guia"
               >
-                ✕
+                <span>✕</span>
+                <span className="hidden sm:inline">FECHAR</span>
               </button>
             </div>
 
-            <div className="text-xs space-y-3 text-zinc-300 font-sans">
+            {/* Modal Body (Scrollable) */}
+            <div className="text-xs space-y-3.5 text-zinc-300 font-sans flex-1 overflow-y-auto pr-2 my-3 overscroll-contain">
               <div>
                 <h4 className="font-bold text-zinc-100 mb-1">Como usar o MIDI Learn</h4>
                 <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-1.5 border border-zinc-800 text-zinc-300">
                   <p>1. Clique no botão <strong className="text-amber-400">MIDI LEARN</strong> na barra superior.</p>
                   <p>2. Todos os controles mostrarão as etiquetas de CC atual ou botão <code className="text-amber-400">+ LEARN</code>.</p>
-                  <p>3. Toque no controle desejado: uma <strong className="text-amber-400">auréola luminosa pulsante</strong> indicará que ele está selecionado.</p>
-                  <p>4. Mova qualquer knob ou fader no seu teclado MIDI externo: o controle será vinculado imediatamente!</p>
+                  <p>3. Toque no controle desejado: uma <strong className="text-amber-400">auréola luminosa</strong> indicará que ele está selecionado.</p>
+                  <p>4. Mova qualquer knob ou fader no seu controlador MIDI: o controle será vinculado imediatamente!</p>
                   <p>5. Para desmapear, basta clicar no <strong className="text-red-400">✕</strong> na etiqueta do controle.</p>
                 </div>
               </div>
@@ -937,8 +951,8 @@ export const HeraApp: React.FC = () => {
               <div>
                 <h4 className="font-bold text-zinc-100 mb-1">Entendendo os Delays: LFO Delay vs Echo Delay</h4>
                 <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-1.5 border border-zinc-800 text-zinc-300">
-                  <p><strong className="text-yellow-400">1. LFO Vib Del (Atraso do Vibrato):</strong> No painel original do Roland Juno-60, o fader "Delay" do LFO não é eco de áudio. Ele define o tempo (em segundos) que o sintetizador espera antes de iniciar o vibrato. <em>Importante:</em> ele só afeta o som se o slider <strong className="text-red-400">LFO</strong> na seção DCO ou VCF estiver levantado!</p>
-                  <p><strong className="text-emerald-400">2. Echo Delay (Eco Estéreo Espacial):</strong> Agora adicionado ao lado do Chorus! Possui botão <strong className="text-emerald-400">ON/OFF</strong>, tempo de repetição (Time), realimentação (Feedback) e Mix para criar ecos profundos, espaciais e cinematográficos.</p>
+                  <p><strong className="text-yellow-400">1. LFO Vib Del (Atraso do Vibrato):</strong> No painel original do Roland Juno-60, o fader &quot;Delay&quot; do LFO define o tempo (em segundos) antes de iniciar o vibrato. <em>Importante:</em> só afeta o som se o slider <strong className="text-red-400">LFO</strong> na seção DCO ou VCF estiver levantado!</p>
+                  <p><strong className="text-emerald-400">2. Echo Delay (Eco Estéreo Espacial):</strong> Localizado ao lado do Chorus. Possui botão <strong className="text-emerald-400">ON/OFF</strong>, tempo de repetição (Time), realimentação (Feedback) e Mix para criar ecos espaciais e cinematográficos.</p>
                 </div>
               </div>
 
@@ -959,13 +973,14 @@ export const HeraApp: React.FC = () => {
               </div>
             </div>
 
-            <div className="pt-2 border-t border-zinc-800 flex justify-end">
+            {/* Modal Footer (Sticky) */}
+            <div className="pt-3 border-t border-zinc-800 flex justify-end flex-shrink-0">
               <button
                 type="button"
                 onClick={() => setShowHelp(false)}
-                className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-mono font-bold rounded cursor-pointer text-xs"
+                className="w-full sm:w-auto px-5 py-2 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-black font-mono font-bold rounded cursor-pointer text-xs uppercase tracking-wider shadow-md transition-colors"
               >
-                Entendi
+                ✕ Fechar Guia
               </button>
             </div>
           </div>

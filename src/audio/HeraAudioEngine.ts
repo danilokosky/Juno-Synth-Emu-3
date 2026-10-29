@@ -229,20 +229,31 @@ class HeraVoiceInstance {
     this.currentVelocityFactor = 0.45 + 0.55 * Math.min(1.0, Math.max(0.1, velocity / 127));
     const voiceVolume = Math.max(0.01, params.VCADepth * this.currentVelocityFactor);
 
+    const prevGain = Math.max(0, this.envGain.gain.value);
     this.envGain.gain.cancelScheduledValues(t);
-    this.envGain.gain.setValueAtTime(0, t);
+
+    // If voice has residual gain from previous rapid note, do a smooth 2ms de-click ramp to 0
+    const declickSec = prevGain > 0.001 ? 0.002 : 0;
+    if (declickSec > 0) {
+      this.envGain.gain.setValueAtTime(prevGain, t);
+      this.envGain.gain.linearRampToValueAtTime(0, t + declickSec);
+    } else {
+      this.envGain.gain.setValueAtTime(0, t);
+    }
+
+    const startT = t + declickSec;
 
     if (params.VCAType === 1) {
       // Gate mode: instant attack (4ms anti-click)
-      this.envGain.gain.linearRampToValueAtTime(voiceVolume, t + 0.004);
+      this.envGain.gain.linearRampToValueAtTime(voiceVolume, startT + 0.004);
     } else {
       // ADSR Envelope mode
       const attackSec = Math.max(0.002, getAttackSec(params.ENVAttack));
       const decaySec = Math.max(0.004, getDecaySec(params.ENVDecay));
       const sustainVal = params.ENVSustain * voiceVolume;
 
-      this.envGain.gain.linearRampToValueAtTime(voiceVolume, t + attackSec);
-      this.envGain.gain.exponentialRampToValueAtTime(Math.max(0.0001, sustainVal), t + attackSec + decaySec);
+      this.envGain.gain.linearRampToValueAtTime(voiceVolume, startT + attackSec);
+      this.envGain.gain.exponentialRampToValueAtTime(Math.max(0.0001, sustainVal), startT + attackSec + decaySec);
     }
   }
 
@@ -381,20 +392,20 @@ class HeraVoiceInstance {
     }
 
     const t = this.ctx.currentTime;
+    const currentGain = Math.max(0.0001, this.envGain.gain.value);
     this.envGain.gain.cancelScheduledValues(t);
+    this.envGain.gain.setValueAtTime(currentGain, t);
 
     if (params.VCAType === 1) {
-      // Gate release: rapid 6ms anti-click
-      this.envGain.gain.linearRampToValueAtTime(0.0001, t + 0.006);
+      // Gate release: rapid 8ms anti-click
+      this.envGain.gain.linearRampToValueAtTime(0.00001, t + 0.008);
       this.releaseTimer = window.setTimeout(() => {
         this.stopImmediate();
         this.releaseTimer = null;
-      }, 15);
+      }, 18);
     } else {
       // ADSR release
-      const releaseSec = Math.max(0.005, getReleaseSec(params.ENVRelease));
-      const currentGain = Math.max(0.0001, this.envGain.gain.value);
-      this.envGain.gain.setValueAtTime(currentGain, t);
+      const releaseSec = Math.max(0.008, getReleaseSec(params.ENVRelease));
       this.envGain.gain.exponentialRampToValueAtTime(0.00001, t + releaseSec);
 
       // Filter release ramp
@@ -868,46 +879,50 @@ export class HeraSynthesizerEngine {
   }
 
   private updateDelayMode() {
-    if (
-      !this.delayDryGain ||
-      !this.delayWetGain ||
-      !this.delayNodeL ||
-      !this.delayNodeR ||
-      !this.delayFeedbackL ||
-      !this.delayFeedbackR ||
-      !this.ctx
-    ) {
-      return;
+    try {
+      if (
+        !this.delayDryGain ||
+        !this.delayWetGain ||
+        !this.delayNodeL ||
+        !this.delayNodeR ||
+        !this.delayFeedbackL ||
+        !this.delayFeedbackR ||
+        !this.ctx
+      ) {
+        return;
+      }
+
+      const t = this.ctx.currentTime;
+      const isEnabled = this.params.DelayEnabled > 0.5;
+
+      if (!isEnabled) {
+        this.delayDryGain.gain.setTargetAtTime(1.0, t, 0.02);
+        this.delayWetGain.gain.setTargetAtTime(0.0, t, 0.02);
+        this.delayFeedbackL.gain.setTargetAtTime(0.0, t, 0.02);
+        this.delayFeedbackR.gain.setTargetAtTime(0.0, t, 0.02);
+        return;
+      }
+
+      // Delay time: safe clamping between 0.06s and 0.75s, strictly within 2.0s buffer limit
+      const baseTimeSec = 0.06 + Math.max(0, Math.min(1, this.params.DelayTime)) * 0.69;
+      const timeL = Math.max(0.01, Math.min(1.8, baseTimeSec));
+      const timeR = Math.max(0.01, Math.min(1.8, baseTimeSec * 1.333)); // Ping-pong stereo offset
+
+      const fb = Math.max(0, Math.min(0.85, this.params.DelayFeedback)) * 0.72;
+      const wet = Math.max(0, Math.min(1.0, this.params.DelayMix)) * 0.65;
+      const dry = Math.max(0, 1.0 - (wet * 0.35));
+
+      this.delayNodeL.delayTime.setTargetAtTime(timeL, t, 0.03);
+      this.delayNodeR.delayTime.setTargetAtTime(timeR, t, 0.03);
+
+      this.delayFeedbackL.gain.setTargetAtTime(fb * 0.45, t, 0.02);
+      this.delayFeedbackR.gain.setTargetAtTime(fb * 0.45, t, 0.02);
+
+      this.delayDryGain.gain.setTargetAtTime(dry, t, 0.02);
+      this.delayWetGain.gain.setTargetAtTime(wet, t, 0.02);
+    } catch (err) {
+      console.warn('updateDelayMode audio error caught:', err);
     }
-
-    const t = this.ctx.currentTime;
-    const isEnabled = this.params.DelayEnabled > 0.5;
-
-    if (!isEnabled) {
-      this.delayDryGain.gain.setTargetAtTime(1.0, t, 0.02);
-      this.delayWetGain.gain.setTargetAtTime(0.0, t, 0.02);
-      this.delayFeedbackL.gain.setTargetAtTime(0.0, t, 0.02);
-      this.delayFeedbackR.gain.setTargetAtTime(0.0, t, 0.02);
-      return;
-    }
-
-    // Delay time: 0.0 = 60ms, 1.0 = 750ms
-    const baseTimeSec = 0.06 + Math.max(0, Math.min(1, this.params.DelayTime)) * 0.69;
-    const timeL = baseTimeSec;
-    const timeR = baseTimeSec * 1.333; // Ping-pong stereo offset
-
-    const fb = Math.max(0, Math.min(1, this.params.DelayFeedback)) * 0.72;
-    const wet = Math.max(0, Math.min(1, this.params.DelayMix)) * 0.65;
-    const dry = 1.0 - (wet * 0.35);
-
-    this.delayNodeL.delayTime.setTargetAtTime(timeL, t, 0.03);
-    this.delayNodeR.delayTime.setTargetAtTime(timeR, t, 0.03);
-
-    this.delayFeedbackL.gain.setTargetAtTime(fb * 0.45, t, 0.02);
-    this.delayFeedbackR.gain.setTargetAtTime(fb * 0.45, t, 0.02);
-
-    this.delayDryGain.gain.setTargetAtTime(dry, t, 0.02);
-    this.delayWetGain.gain.setTargetAtTime(wet, t, 0.02);
   }
 
   // Arpeggiator Configuration

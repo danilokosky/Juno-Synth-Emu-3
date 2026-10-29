@@ -39,7 +39,10 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
             <button
               key={opt.value}
               type="button"
-              onClick={() => onChange(opt.value)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange(opt.value);
+              }}
               className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded transition-all duration-75 cursor-pointer ${
                 isSelected
                   ? 'bg-amber-500 text-black shadow font-black border border-amber-400'

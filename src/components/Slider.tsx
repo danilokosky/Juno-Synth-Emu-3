@@ -43,6 +43,7 @@ export const Slider: React.FC<SliderProps> = ({
   const trackRef = useRef<HTMLDivElement | null>(null);
   const faderAreaRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
+  const activeTouchIdRef = useRef<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
 
@@ -70,9 +71,9 @@ export const Slider: React.FC<SliderProps> = ({
     [min, max, range, step, onChange]
   );
 
-  // Native non-passive touch listeners on the fader area:
-  // Calling e.preventDefault() here unequivocally forbids the Android / Mobile browser
-  // from scrolling the page when the user touches and drags the fader!
+  // Independent multi-touch listeners on the fader area:
+  // Each fader tracks its own touch.identifier so touching multiple faders simultaneously
+  // never crosses or overrides values between them!
   useEffect(() => {
     const el = faderAreaRef.current;
     if (!el) return;
@@ -86,8 +87,10 @@ export const Slider: React.FC<SliderProps> = ({
       }
       e.preventDefault();
       e.stopPropagation();
-      const touch = e.touches[0];
+      // Identify the touch that started on this specific element
+      const touch = e.changedTouches[0];
       if (touch) {
+        activeTouchIdRef.current = touch.identifier;
         setIsDragging(true);
         setShowTooltip(true);
         updateFromPointer(touch.clientY);
@@ -95,20 +98,30 @@ export const Slider: React.FC<SliderProps> = ({
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (isMidiLearnActive) return;
+      if (isMidiLearnActive || activeTouchIdRef.current === null) return;
       e.preventDefault();
       e.stopPropagation();
-      const touch = e.touches[0];
-      if (touch) {
-        updateFromPointer(touch.clientY);
+      // Only process the touch that belongs to this specific fader
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === activeTouchIdRef.current) {
+          updateFromPointer(e.touches[i].clientY);
+          break;
+        }
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      if (isMidiLearnActive) return;
+      if (isMidiLearnActive || activeTouchIdRef.current === null) return;
       e.preventDefault();
-      setIsDragging(false);
-      setShowTooltip(false);
+      // Check if this fader's touch ended
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === activeTouchIdRef.current) {
+          activeTouchIdRef.current = null;
+          setIsDragging(false);
+          setShowTooltip(false);
+          break;
+        }
+      }
     };
 
     el.addEventListener('touchstart', onTouchStart, { passive: false });
