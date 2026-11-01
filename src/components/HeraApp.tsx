@@ -58,7 +58,7 @@ export const HeraApp: React.FC = () => {
     } catch {
       // ignore
     }
-    return 0;
+    return 1;
   });
   const [midiEffectsChannel, setMidiEffectsChannel] = useState<number>(() => {
     try {
@@ -148,6 +148,10 @@ export const HeraApp: React.FC = () => {
         midiTimeoutRef.current = window.setTimeout(() => setMidiActive(false), 200);
       },
       (param, val) => {
+        if (param === 'MasterVolume') {
+          setIsMuted(false);
+          setMasterVolume(val);
+        }
         setParams((prev) => ({ ...prev, [param]: val }));
       },
       (mapping, learnedParam, learnedCC) => {
@@ -184,9 +188,21 @@ export const HeraApp: React.FC = () => {
   );
 
   const handleSelectPreset = useCallback((newParams: HeraParameters, name: string) => {
-    setParams(newParams);
+    setParams((prev) => {
+      // Preserve global post-processing Reverb & Master Volume when changing synth presets
+      const merged: HeraParameters = {
+        ...newParams,
+        MasterVolume: prev.MasterVolume,
+        ReverbEnabled: prev.ReverbEnabled,
+        ReverbType: prev.ReverbType,
+        ReverbTime: prev.ReverbTime,
+        ReverbDecay: prev.ReverbDecay,
+        ReverbMix: prev.ReverbMix,
+      };
+      synthEngine.setAllParameters(merged);
+      return merged;
+    });
     setCurrentPresetName(name);
-    synthEngine.setAllParameters(newParams);
   }, []);
 
   const startAudioOnInteraction = async () => {
@@ -245,6 +261,9 @@ export const HeraApp: React.FC = () => {
   };
 
   const getMappedCC = (param: keyof HeraParameters): number | null => {
+    if (midiManagerInstance) {
+      return midiManagerInstance.getCCForParam(param);
+    }
     for (const [ccStr, p] of Object.entries(currentMidiMapping)) {
       if (p === param) return Number(ccStr);
     }
@@ -340,7 +359,7 @@ export const HeraApp: React.FC = () => {
                   </div>
 
                   {/* Keys MIDI Channel Selector */}
-                  <div className="flex items-center gap-0.5" title="Canal MIDI exclusivo para as Teclas (Notas e Pitch Bend)">
+                  <div className="flex items-center gap-0.5" title="Canal MIDI para as Teclas (Notas, Pitch Bend, Volume Geral, VCA Level e Levels do DCO/VCO)">
                     <span className="text-[8.5px] text-zinc-400 font-bold">TECLAS:</span>
                     <select
                       value={midiKeysChannel}
@@ -401,7 +420,7 @@ export const HeraApp: React.FC = () => {
                   <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-black ${
                     isMidiLearnActive ? 'bg-zinc-950 text-sky-300' : 'bg-zinc-900 text-zinc-400'
                   }`}>
-                    {Object.keys(currentMidiMapping).length + Object.keys(currentMidiActionMapping).length}
+                    {(midiManagerInstance ? Object.keys(midiManagerInstance.getParamToCCMap()).length : Object.keys(currentMidiMapping).length) + Object.keys(currentMidiActionMapping).length}
                   </span>
                 </button>
 
@@ -431,11 +450,65 @@ export const HeraApp: React.FC = () => {
                   </a>
                 )}
 
-                {/* Master Volume */}
-                <div className="flex items-center gap-1 pl-1">
+                {/* Master Volume (Mappable on Keys MIDI Channel) */}
+                <div
+                  onClick={(e) => {
+                    if (isMidiLearnActive) {
+                      e.stopPropagation();
+                      handleSelectForLearn('MasterVolume');
+                    }
+                  }}
+                  title={
+                    isMidiLearnActive
+                      ? 'Clique para mapear Volume Geral (Canal das Teclas)'
+                      : 'Volume Master Geral (Mapeável no Canal das Teclas)'
+                  }
+                  className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded transition-shadow ${
+                    isMidiLearnActive
+                      ? selectedLearnParam === 'MasterVolume'
+                        ? 'cursor-pointer ring-2 ring-sky-400 bg-sky-500/20 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
+                        : 'cursor-pointer ring-1 ring-sky-400/30 hover:ring-sky-400/70 hover:bg-sky-500/10'
+                      : ''
+                  }`}
+                >
+                  {isMidiLearnActive && (getMappedCC('MasterVolume') !== null || selectedLearnParam === 'MasterVolume') && (
+                    <div className="absolute -bottom-3.5 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center whitespace-nowrap">
+                      {getMappedCC('MasterVolume') !== null ? (
+                        <div
+                          className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border shadow select-none ${
+                            selectedLearnParam === 'MasterVolume'
+                              ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
+                              : 'bg-[#0284c7] border-[#38bdf8]'
+                          }`}
+                        >
+                          <span>CC{getMappedCC('MasterVolume')}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUnmapParam('MasterVolume');
+                            }}
+                            className="text-white hover:text-red-200 font-bold text-[8px] leading-none cursor-pointer pl-0.5"
+                            title="Desmapear Volume Geral"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
+                          MAPEAR
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={(e) => {
+                      if (isMidiLearnActive) {
+                        e.stopPropagation();
+                        handleSelectForLearn('MasterVolume');
+                        return;
+                      }
                       const next = !isMuted;
                       setIsMuted(next);
                       synthEngine.setMasterVolume(next ? 0 : masterVolume);
@@ -451,13 +524,17 @@ export const HeraApp: React.FC = () => {
                     step="0.01"
                     value={isMuted ? 0 : masterVolume}
                     onChange={(e) => {
+                      if (isMidiLearnActive) {
+                        handleSelectForLearn('MasterVolume');
+                        return;
+                      }
                       const val = parseFloat(e.target.value);
                       setIsMuted(false);
                       setMasterVolume(val);
-                      synthEngine.setMasterVolume(val);
+                      handleParamChange('MasterVolume', val);
                     }}
                     className="w-16 accent-amber-500 cursor-pointer"
-                    title="Volume Master Geral"
+                    title="Volume Master Geral (Canal das Teclas)"
                   />
                 </div>
 
@@ -1070,6 +1147,140 @@ export const HeraApp: React.FC = () => {
                   {params.DelayEnabled > 0.5 ? 'STEREO TAPE ECHO' : 'BYPASS'}
                 </div>
               </div>
+
+              {/* SECTION: GLOBAL POST-PROCESSING REVERB */}
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-violet-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
+                <div className="flex items-center justify-between pb-0.5 border-b border-zinc-800/80 gap-1.5 px-0.5">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-black font-mono tracking-widest text-violet-400 uppercase">
+                      REVERB
+                    </span>
+                    <span className="text-[7px] font-mono font-bold px-1 py-0.2 rounded bg-violet-950/90 text-violet-300 border border-violet-700/60 uppercase">
+                      GLOBAL
+                    </span>
+                  </div>
+                  <div className="relative flex items-center">
+                    {isMidiLearnActive && (getMappedCC('ReverbEnabled') !== null || selectedLearnParam === 'ReverbEnabled') && (
+                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center whitespace-nowrap">
+                        {getMappedCC('ReverbEnabled') !== null ? (
+                          <div
+                            className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border shadow select-none ${
+                              selectedLearnParam === 'ReverbEnabled'
+                                ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
+                                : 'bg-[#0284c7] border-[#38bdf8]'
+                            }`}
+                          >
+                            <span>CC{getMappedCC('ReverbEnabled')}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUnmapParam('ReverbEnabled');
+                              }}
+                              className="text-white hover:text-red-200 font-bold text-[8px] leading-none cursor-pointer pl-0.5"
+                              title="Desmapear Reverb ON/OFF"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
+                            MAPEAR
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isMidiLearnActive) {
+                          handleSelectForLearn('ReverbEnabled');
+                        } else {
+                          handleParamChange('ReverbEnabled', params.ReverbEnabled > 0.5 ? 0 : 1);
+                        }
+                      }}
+                      className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold border transition-shadow cursor-pointer ${
+                        selectedLearnParam === 'ReverbEnabled'
+                          ? 'bg-sky-500/30 text-white border-sky-400 ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
+                          : isMidiLearnActive
+                          ? 'bg-zinc-800 text-zinc-200 border-zinc-700 ring-1 ring-sky-400/25 hover:ring-sky-400/70'
+                          : params.ReverbEnabled > 0.5
+                          ? 'bg-violet-600 text-white border-violet-400 shadow-[0_0_8px_#8b5cf6]'
+                          : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                      }`}
+                      title={
+                        isMidiLearnActive
+                          ? 'Clique para mapear Global Reverb ON/OFF via MIDI'
+                          : 'Ativar/Desativar Reverb Global de Pós-Processamento'
+                      }
+                    >
+                      {params.ReverbEnabled > 0.5 ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-center gap-1 my-1">
+                  <div className="flex flex-col justify-center pr-1 border-r border-zinc-800/80">
+                    <ToggleSwitch
+                      label="Mode"
+                      options={[
+                        { label: 'PLATE', value: 0 },
+                        { label: 'HALL', value: 1 },
+                      ]}
+                      value={params.ReverbType >= 0.5 ? 1 : 0}
+                      onChange={(v) => handleParamChange('ReverbType', v)}
+                      isMidiLearnActive={isMidiLearnActive}
+                      isSelectedForLearn={selectedLearnParam === 'ReverbType'}
+                      mappedCC={getMappedCC('ReverbType')}
+                      onSelectForLearn={() => handleSelectForLearn('ReverbType')}
+                      onUnmap={() => handleUnmapParam('ReverbType')}
+                    />
+                  </div>
+                  <Slider
+                    label="Time"
+                    value={params.ReverbTime}
+                    onChange={(v) => handleParamChange('ReverbTime', v)}
+                    defaultValue={0.45}
+                    color="cyan"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'ReverbTime'}
+                    mappedCC={getMappedCC('ReverbTime')}
+                    onSelectForLearn={() => handleSelectForLearn('ReverbTime')}
+                    onUnmap={() => handleUnmapParam('ReverbTime')}
+                  />
+                  <Slider
+                    label="Decay"
+                    value={params.ReverbDecay}
+                    onChange={(v) => handleParamChange('ReverbDecay', v)}
+                    defaultValue={0.55}
+                    color="cyan"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'ReverbDecay'}
+                    mappedCC={getMappedCC('ReverbDecay')}
+                    onSelectForLearn={() => handleSelectForLearn('ReverbDecay')}
+                    onUnmap={() => handleUnmapParam('ReverbDecay')}
+                  />
+                  <Slider
+                    label="Mix"
+                    value={params.ReverbMix}
+                    onChange={(v) => handleParamChange('ReverbMix', v)}
+                    defaultValue={0.3}
+                    color="cyan"
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'ReverbMix'}
+                    mappedCC={getMappedCC('ReverbMix')}
+                    onSelectForLearn={() => handleSelectForLearn('ReverbMix')}
+                    onUnmap={() => handleUnmapParam('ReverbMix')}
+                  />
+                </div>
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                  {params.ReverbEnabled > 0.5
+                    ? params.ReverbType >= 0.5
+                      ? 'POST-FX CONCERT HALL'
+                      : 'POST-FX STUDIO PLATE'
+                    : 'POST-FX BYPASS'}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1171,7 +1382,7 @@ export const HeraApp: React.FC = () => {
                     </select>
                   </div>
                   <p className="text-[10px] text-zinc-400">
-                    Você também pode alterar ambos os canais diretamente na barra superior (<strong className="text-amber-400">TECLAS</strong> e <strong className="text-sky-400">FX/CTRL</strong>).
+                    O canal <strong className="text-amber-400">TECLAS</strong> (Canal 1 por padrão) recebe Notas, Pitch Bend, <strong className="text-amber-300">Volume Geral (Master)</strong>, <strong className="text-amber-300">VCA Level</strong> e os <strong className="text-amber-300">Levels do DCO/VCO (Pulse, Saw, Sub, Noise)</strong>. O canal <strong className="text-sky-400">FX/CTRL</strong> recebe filtros, modulação, Chorus, Echo Delay e Reverb Global.
                   </p>
                 </div>
               </div>
@@ -1181,7 +1392,7 @@ export const HeraApp: React.FC = () => {
                 <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-1.5 border border-zinc-800 text-zinc-300">
                   <p>1. Clique no botão <strong className="text-sky-400">MIDI LEARN</strong> na barra superior.</p>
                   <p>2. Os controles que já possuem vínculo mostram o balão <code className="text-sky-400">CCxx ✕</code>; os não mapeados ficam limpos sem balão.</p>
-                  <p>3. Clique em <strong className="text-amber-400">qualquer parte</strong> de um fader, chave seletora (switch) ou botão de efeito (Chorus, Echo Delay ON/OFF, Arp): a <strong className="text-sky-400">auréola luminosa</strong> e o balão <code className="text-sky-400">MAPEAR</code> aparecerão.</p>
+                  <p>3. Clique em <strong className="text-amber-400">qualquer parte</strong> de um fader, Volume Geral, chave seletora (switch) ou botão de efeito (Chorus, Echo Delay, Reverb Global, Arp): a <strong className="text-sky-400">auréola luminosa</strong> e o balão <code className="text-sky-400">MAPEAR</code> aparecerão.</p>
                   <p>4. Mova o knob, fader ou botão no seu controlador MIDI: o vínculo será salvo imediatamente!</p>
                   <p>5. Para remover um vínculo, clique no <strong className="text-red-400">✕</strong> no balão do controle.</p>
                 </div>
@@ -1202,10 +1413,11 @@ export const HeraApp: React.FC = () => {
               </div>
 
               <div>
-                <h4 className="font-bold text-zinc-100 mb-1">Entendendo os Delays: LFO Delay vs Echo Delay</h4>
+                <h4 className="font-bold text-zinc-100 mb-1">Delays e Reverb Global de Pós-Processamento</h4>
                 <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-1.5 border border-zinc-800 text-zinc-300">
-                  <p><strong className="text-yellow-400">1. LFO Vib Del (Atraso do Vibrato):</strong> No painel original do Roland Juno-60, o fader &quot;Delay&quot; do LFO define o tempo (em segundos) antes de iniciar o vibrato. <em>Importante:</em> só afeta o som se o slider <strong className="text-red-400">LFO</strong> na seção DCO ou VCF estiver levantado!</p>
-                  <p><strong className="text-emerald-400">2. Echo Delay (Eco Estéreo Espacial):</strong> Localizado ao lado do Chorus. Possui botão <strong className="text-emerald-400">ON/OFF</strong>, tempo de repetição (Time), realimentação (Feedback) e Mix para criar ecos espaciais e cinematográficos.</p>
+                  <p><strong className="text-yellow-400">1. LFO Vib Del (Atraso do Vibrato):</strong> Define o tempo antes de iniciar o vibrato quando o slider <strong className="text-red-400">LFO</strong> na seção DCO ou VCF está levantado.</p>
+                  <p><strong className="text-emerald-400">2. Echo Delay (Eco Estéreo Espacial):</strong> Localizado ao lado do Chorus. Possui botão <strong className="text-emerald-400">ON/OFF</strong>, Time, Feedback e Mix.</p>
+                  <p><strong className="text-violet-400">3. Reverb Global (Pós-Processamento Estéreo):</strong> Estágio global pós-sintetizador com modos <strong className="text-violet-300">PLATE</strong> e <strong className="text-violet-300">HALL</strong>, controles de <strong className="text-violet-300">Time</strong>, <strong className="text-violet-300">Decay</strong>, <strong className="text-violet-300">Mix</strong> e <strong className="text-violet-300">ON/OFF</strong>, todos mapeáveis via MIDI.</p>
                 </div>
               </div>
 

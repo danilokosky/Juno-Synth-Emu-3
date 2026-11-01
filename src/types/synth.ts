@@ -35,6 +35,9 @@ export interface HeraParameters {
   ENVSustain: number;        // 0.0 - 1.0
   ENVRelease: number;        // 0.0 - 1.0 (2ms - 20s)
 
+  // Master Volume (Global, mapped on Keys MIDI Channel)
+  MasterVolume: number;      // 0.0 - 1.0
+
   // Chorus
   ChorusI: number;           // 0 or 1
   ChorusII: number;          // 0 or 1
@@ -44,6 +47,13 @@ export interface HeraParameters {
   DelayTime: number;         // 0.0 - 1.0 (50ms - 800ms)
   DelayFeedback: number;     // 0.0 - 1.0 (0% - 85%)
   DelayMix: number;          // 0.0 - 1.0 (Dry/Wet)
+
+  // Global Post-Processing Stereo Reverb (Plate / Hall)
+  ReverbEnabled: number;     // 0 or 1
+  ReverbType: number;        // 0: Plate, 1: Hall
+  ReverbTime: number;        // 0.0 - 1.0 (Pre-Delay & Room Size Time)
+  ReverbDecay: number;       // 0.0 - 1.0 (RT60 Decay Feedback)
+  ReverbMix: number;         // 0.0 - 1.0 (Dry/Wet)
 }
 
 export const DEFAULT_PARAMETERS: HeraParameters = {
@@ -77,6 +87,8 @@ export const DEFAULT_PARAMETERS: HeraParameters = {
   ENVSustain: 1.0,
   ENVRelease: 0.45,
 
+  MasterVolume: 0.85,
+
   ChorusI: 1,
   ChorusII: 0,
 
@@ -84,6 +96,12 @@ export const DEFAULT_PARAMETERS: HeraParameters = {
   DelayTime: 0.35,
   DelayFeedback: 0.4,
   DelayMix: 0.35,
+
+  ReverbEnabled: 0,
+  ReverbType: 0, // 0 = PLATE, 1 = HALL
+  ReverbTime: 0.35,
+  ReverbDecay: 0.55,
+  ReverbMix: 0.30,
 };
 
 export interface VoiceStatus {

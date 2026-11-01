@@ -8,17 +8,28 @@ export interface MidiDevice {
   state: string;
 }
 
+// Parameters that respond on the Keys MIDI Channel (Channel 1 by default: Master Volume, VCA Level, and VCO/DCO Waveform Levels)
+export const KEYS_CHANNEL_PARAMS: ReadonlySet<keyof HeraParameters> = new Set<keyof HeraParameters>([
+  'MasterVolume',   // Master Volume (Volume Geral)
+  'VCADepth',       // VCA Level
+  'DCOPulseLevel',  // VCO/DCO Pulse Level
+  'DCOSawLevel',    // VCO/DCO Saw Level
+  'DCOSubLevel',    // VCO/DCO Sub Level
+  'DCONoiseLevel',  // VCO/DCO Noise Level
+]);
+
 // Default hardware MIDI CC Mapping for physical knobs/switches/faders
 export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
   1: 'DCOPitchModDepth', // Modulation Wheel
-  7: 'VCADepth',         // Master Volume
+  7: 'MasterVolume',     // Master Volume (Keys Channel)
+  11: 'VCADepth',        // VCA Level (Keys Channel)
   14: 'DCORange',        // DCO Range
   15: 'DCOPWMMod',       // PWM Mod Source
   16: 'DCOPWMDepth',     // PWM Depth
-  18: 'DCOPulseLevel',   // Pulse Level
-  19: 'DCOSawLevel',     // Saw Level
-  20: 'DCOSubLevel',     // Sub Level
-  21: 'DCONoiseLevel',   // Noise Level
+  18: 'DCOPulseLevel',   // VCO/DCO Pulse Level (Keys Channel)
+  19: 'DCOSawLevel',     // VCO/DCO Saw Level (Keys Channel)
+  20: 'DCOSubLevel',     // VCO/DCO Sub Level (Keys Channel)
+  21: 'DCONoiseLevel',   // VCO/DCO Noise Level (Keys Channel)
   22: 'HPF',             // HPF Cutoff
   74: 'VCFCutoff',       // Standard MIDI Brightness / Cutoff
   71: 'VCFResonance',    // Standard MIDI Resonance
@@ -39,9 +50,22 @@ export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
   86: 'DelayTime',       // Echo Delay Time
   87: 'DelayFeedback',   // Echo Delay Feedback
   88: 'DelayMix',        // Echo Delay Mix
+  89: 'ReverbEnabled',   // Global Post Reverb On/Off
+  90: 'ReverbType',      // Global Post Reverb Type (Plate / Hall)
+  91: 'ReverbMix',       // Global Post Reverb Mix
+  92: 'ReverbTime',      // Global Post Reverb Time
+  93: 'ReverbDecay',     // Global Post Reverb Decay
 };
 
 export type MidiMappableAction = 'prevPreset' | 'nextPreset' | 'lfoTrig' | 'arpToggle' | 'arpHold';
+
+function buildDefaultParamToCC(): Partial<Record<keyof HeraParameters, number>> {
+  const map: Partial<Record<keyof HeraParameters, number>> = {};
+  for (const [ccStr, param] of Object.entries(DEFAULT_MIDI_CC_MAP)) {
+    map[param] = Number(ccStr);
+  }
+  return map;
+}
 
 export class MidiManager {
   private midiAccess: MIDIAccess | null = null;
@@ -61,12 +85,12 @@ export class MidiManager {
   private synth: HeraSynthesizerEngine;
 
   // 0 = OMNI (Global / All Channels 1-16), 1..16 = Specific MIDI Channel
-  // keysChannel: filters Note On (0x9), Note Off (0x8), Pitch Bend (0xE)
-  private keysChannel: number = 0;
-  // effectsChannel: filters Control Change (0xB) & Program Change (0xC) (all mappable controls, modulation & effects)
+  // keysChannel (default 1 = Channel 1): filters Note On (0x9), Note Off (0x8), Pitch Bend (0xE), AND Volume/VCO Level CCs
+  private keysChannel: number = 1;
+  // effectsChannel (default 0 = OMNI or 2..16): filters Effects, Filter, LFO, Switches, Reverb, Delay & Actions
   private effectsChannel: number = 0;
 
-  private ccMapping: Record<number, keyof HeraParameters> = { ...DEFAULT_MIDI_CC_MAP };
+  private paramToCC: Partial<Record<keyof HeraParameters, number>> = buildDefaultParamToCC();
   private actionMapping: Record<number, MidiMappableAction> = { 110: 'prevPreset', 111: 'nextPreset' };
   private activeLearnParam: keyof HeraParameters | null = null;
   private activeLearnAction: MidiMappableAction | null = null;
@@ -74,7 +98,7 @@ export class MidiManager {
   constructor(synth: HeraSynthesizerEngine) {
     this.synth = synth;
     try {
-      const savedKeys = localStorage.getItem('hera_midi_keys_channel') ?? localStorage.getItem('hera_midi_channel');
+      const savedKeys = localStorage.getItem('hera_midi_keys_channel');
       if (savedKeys !== null) {
         const parsed = parseInt(savedKeys, 10);
         if (!isNaN(parsed) && parsed >= 0 && parsed <= 16) {
@@ -174,39 +198,49 @@ export class MidiManager {
   }
 
   mapCC(cc: number, param: keyof HeraParameters) {
-    // Remove existing mapping for this parameter if any
-    for (const [k, v] of Object.entries(this.ccMapping)) {
-      if (v === param) {
-        delete this.ccMapping[Number(k)];
+    const targetIsKeysGroup = KEYS_CHANNEL_PARAMS.has(param);
+    // Remove duplicate CC only within the same channel group (Keys vs Effects)
+    for (const [p, existingCC] of Object.entries(this.paramToCC)) {
+      const paramKey = p as keyof HeraParameters;
+      if (existingCC === cc && KEYS_CHANNEL_PARAMS.has(paramKey) === targetIsKeysGroup) {
+        delete this.paramToCC[paramKey];
       }
     }
-    this.ccMapping[cc] = param;
+    this.paramToCC[param] = cc;
     this.onMappingChanged?.(this.getMapping(), param, cc);
   }
 
   unmapParam(param: keyof HeraParameters) {
-    for (const [k, v] of Object.entries(this.ccMapping)) {
-      if (v === param) {
-        delete this.ccMapping[Number(k)];
+    delete this.paramToCC[param];
+    this.onMappingChanged?.(this.getMapping());
+  }
+
+  unmapCC(cc: number) {
+    for (const [p, existingCC] of Object.entries(this.paramToCC)) {
+      if (existingCC === cc) {
+        delete this.paramToCC[p as keyof HeraParameters];
       }
     }
     this.onMappingChanged?.(this.getMapping());
   }
 
-  unmapCC(cc: number) {
-    delete this.ccMapping[cc];
-    this.onMappingChanged?.(this.getMapping());
+  getCCForParam(param: keyof HeraParameters): number | null {
+    const cc = this.paramToCC[param];
+    return cc !== undefined ? cc : null;
   }
 
-  getCCForParam(param: keyof HeraParameters): number | null {
-    for (const [ccStr, p] of Object.entries(this.ccMapping)) {
-      if (p === param) return Number(ccStr);
-    }
-    return null;
+  getParamToCCMap(): Partial<Record<keyof HeraParameters, number>> {
+    return { ...this.paramToCC };
   }
 
   getMapping(): Record<number, keyof HeraParameters> {
-    return { ...this.ccMapping };
+    const out: Record<number, keyof HeraParameters> = {};
+    for (const [param, cc] of Object.entries(this.paramToCC)) {
+      if (cc !== undefined) {
+        out[cc] = param as keyof HeraParameters;
+      }
+    }
+    return out;
   }
 
   setOnProgramChange(cb: (programNumber: number) => void) {
@@ -258,7 +292,7 @@ export class MidiManager {
   }
 
   resetToDefaultMapping() {
-    this.ccMapping = { ...DEFAULT_MIDI_CC_MAP };
+    this.paramToCC = buildDefaultParamToCC();
     this.actionMapping = { 110: 'prevPreset', 111: 'nextPreset' };
     this.onMappingChanged?.(this.getMapping());
     this.onActionMappingChanged?.(this.getActionMapping());
@@ -292,16 +326,26 @@ export class MidiManager {
     const command = statusByte >> 4;
     const msgChannel = (statusByte & 0x0f) + 1; // 1..16
 
+    const isKeysChannelMatch = this.keysChannel === 0 || msgChannel === this.keysChannel;
+    const isEffectsChannelMatch = this.effectsChannel === 0 || msgChannel === this.effectsChannel;
+
     // 1. Keys / Notes Channel Filtering (Note On 0x9, Note Off 0x8, Pitch Bend 0xE)
     if (command === 0x9 || command === 0x8 || command === 0xe) {
-      if (this.keysChannel > 0 && msgChannel !== this.keysChannel) {
+      if (!isKeysChannelMatch) {
         return;
       }
     }
 
-    // 2. Controls / Modulation / Effects Channel Filtering (Control Change 0xB, Program Change 0xC)
-    if (command === 0xb || command === 0xc) {
-      if (this.effectsChannel > 0 && msgChannel !== this.effectsChannel) {
+    // 2. Program Change (0xC) on Effects/Controls channel
+    if (command === 0xc) {
+      if (!isEffectsChannelMatch) {
+        return;
+      }
+    }
+
+    // 3. Control Change (0xB): routed to Keys Channel for Volumes/VCO Levels, and Effects Channel for Effects/Controls
+    if (command === 0xb) {
+      if (!isKeysChannelMatch && !isEffectsChannelMatch) {
         return;
       }
     }
@@ -348,23 +392,19 @@ export class MidiManager {
         const normalized = value / 127;
         this.onMidiActivity?.(cc, value, msgChannel);
 
-        // MIDI Learn interception for Parameters
+        // MIDI Learn interception for Parameters (channel-aware: Volumes/VCO Levels learn on Keys channel, others on Effects channel)
         if (this.activeLearnParam) {
           const learned = this.activeLearnParam;
-          // Remove existing mappings for this param
-          for (const [k, v] of Object.entries(this.ccMapping)) {
-            if (v === learned) {
-              delete this.ccMapping[Number(k)];
-            }
+          const isKeysParam = KEYS_CHANNEL_PARAMS.has(learned);
+          if ((isKeysParam && isKeysChannelMatch) || (!isKeysParam && isEffectsChannelMatch)) {
+            this.mapCC(cc, learned);
+            this.activeLearnParam = null;
+            console.log(`MIDI Learn complete: CC ${cc} (Ch ${msgChannel}) mapped to ${learned}`);
           }
-          this.ccMapping[cc] = learned;
-          this.activeLearnParam = null;
-          this.onMappingChanged?.(this.getMapping(), learned, cc);
-          console.log(`MIDI Learn complete: CC ${cc} mapped to ${learned}`);
         }
 
-        // MIDI Learn interception for Actions (e.g. prevPreset, nextPreset, lfoTrig, arpToggle, arpHold)
-        if (this.activeLearnAction) {
+        // MIDI Learn interception for Actions (prevPreset, nextPreset, lfoTrig, arpToggle, arpHold -> Effects channel)
+        if (this.activeLearnAction && isEffectsChannelMatch) {
           const learned = this.activeLearnAction;
           for (const [k, v] of Object.entries(this.actionMapping)) {
             if (v === learned) {
@@ -377,15 +417,23 @@ export class MidiManager {
           console.log(`MIDI Learn action complete: CC ${cc} mapped to ${learned}`);
         }
 
-        // Check if CC triggers an Action (only on button press / value > 63)
-        const targetAction = this.actionMapping[cc];
-        if (targetAction && value > 63) {
-          this.onActionTriggered?.(targetAction);
+        // Check if CC triggers an Action (only on Effects channel & button press / value > 63)
+        if (isEffectsChannelMatch) {
+          const targetAction = this.actionMapping[cc];
+          if (targetAction && value > 63) {
+            this.onActionTriggered?.(targetAction);
+          }
         }
 
-        // Check if CC is mapped to a synth parameter
-        const targetParam = this.ccMapping[cc];
-        if (targetParam) {
+        // Check if CC is mapped to any synth parameter(s) matching the incoming MIDI channel group
+        for (const [paramKey, mappedCC] of Object.entries(this.paramToCC)) {
+          if (mappedCC !== cc) continue;
+          const targetParam = paramKey as keyof HeraParameters;
+          const isKeysParam = KEYS_CHANNEL_PARAMS.has(targetParam);
+
+          if (isKeysParam && !isKeysChannelMatch) continue;
+          if (!isKeysParam && !isEffectsChannelMatch) continue;
+
           let paramValue: number = normalized;
 
           // Handle stepped/discrete parameters
@@ -393,12 +441,17 @@ export class MidiManager {
             paramValue = Math.min(2, Math.floor(normalized * 3));
           } else if (targetParam === 'DCOPWMMod') {
             paramValue = Math.min(2, Math.floor(normalized * 3));
-          } else if (targetParam === 'VCAType' || targetParam === 'LFOTrigMode') {
+          } else if (
+            targetParam === 'VCAType' ||
+            targetParam === 'LFOTrigMode' ||
+            targetParam === 'ReverbType'
+          ) {
             paramValue = normalized >= 0.5 ? 1 : 0;
           } else if (
             targetParam === 'ChorusI' ||
             targetParam === 'ChorusII' ||
-            targetParam === 'DelayEnabled'
+            targetParam === 'DelayEnabled' ||
+            targetParam === 'ReverbEnabled'
           ) {
             paramValue = normalized >= 0.5 ? 1 : 0;
           } else if (targetParam === 'VCFEnv') {

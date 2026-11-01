@@ -527,6 +527,7 @@ export class HeraSynthesizerEngine {
   private delayInputGain: GainNode | null = null;
   private delayDryGain: GainNode | null = null;
   private delayWetGain: GainNode | null = null;
+  private delaySumGain: GainNode | null = null;
   private delayNodeL: DelayNode | null = null;
   private delayNodeR: DelayNode | null = null;
   private delayFeedbackL: GainNode | null = null;
@@ -534,10 +535,20 @@ export class HeraSynthesizerEngine {
   private delayFilterL: BiquadFilterNode | null = null;
   private delayFilterR: BiquadFilterNode | null = null;
 
+  // Global Post-Processing Stereo Reverb (Plate / Hall)
+  private reverbInputGain: GainNode | null = null;
+  private reverbDryGain: GainNode | null = null;
+  private reverbWetGain: GainNode | null = null;
+  private reverbPreDelay: DelayNode | null = null;
+  private reverbCombDelays: DelayNode[] = [];
+  private reverbCombFeedbacks: GainNode[] = [];
+  private reverbCombFilters: BiquadFilterNode[] = [];
+  private reverbTankLfo: OscillatorNode | null = null;
+
   // Global Audio-Rate LFO for voice pitch/filter mod
   private globalLfoOsc: OscillatorNode | null = null;
   private globalLfoBus: GainNode | null = null;
-  private masterVolume: number = 0.8;
+  private masterVolume: number = 0.85;
 
   // Voice allocation (6-voice polyphony with Round-Robin)
   private voices: HeraVoiceInstance[] = [];
@@ -590,6 +601,7 @@ export class HeraSynthesizerEngine {
 
   setMasterVolume(vol: number) {
     this.masterVolume = Math.max(0, Math.min(1, vol));
+    this.params.MasterVolume = this.masterVolume;
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setTargetAtTime(this.masterVolume * 0.85, this.ctx.currentTime, 0.02);
     }
@@ -700,6 +712,7 @@ export class HeraSynthesizerEngine {
     this.isInitialized = true;
     this.updateChorusMode();
     this.updateDelayMode();
+    this.updateReverbMode();
   }
 
   private createSoftClipCurve(samples: number): Float32Array {
@@ -820,11 +833,15 @@ export class HeraSynthesizerEngine {
     this.delayFeedbackR.connect(this.delayNodeR);
     this.delayFeedbackR.connect(this.delayNodeL);
 
-    // Delay stereo merge
+    // Delay stereo merge into delaySumGain
     const delayMerger = this.ctx.createChannelMerger(2);
     this.delayNodeL.connect(delayMerger, 0, 0);
     this.delayNodeR.connect(delayMerger, 0, 1);
     delayMerger.connect(this.delayWetGain);
+
+    this.delaySumGain = this.ctx.createGain();
+    this.delayDryGain.connect(this.delaySumGain);
+    this.delayWetGain.connect(this.delaySumGain);
 
     // Master Dynamics Limiter (Peak Protection - eliminates any clipping / "estouro")
     this.masterLimiter = this.ctx.createDynamicsCompressor();
@@ -834,11 +851,121 @@ export class HeraSynthesizerEngine {
     this.masterLimiter.attack.setValueAtTime(0.001, this.ctx.currentTime);
     this.masterLimiter.release.setValueAtTime(0.12, this.ctx.currentTime);
 
-    this.delayDryGain.connect(this.masterLimiter);
-    this.delayWetGain.connect(this.masterLimiter);
+    // Separate Global Post-Processing Stage: Stereo Plate/Hall Reverb after Delay, feeding Master Limiter
+    this.setupGlobalPostReverb(this.delaySumGain, this.masterLimiter);
 
     this.masterLimiter.connect(this.analyser);
     this.analyser.connect(this.ctx.destination);
+  }
+
+  private setupGlobalPostReverb(input: AudioNode, output: AudioNode) {
+    if (!this.ctx) return;
+
+    this.reverbDryGain = this.ctx.createGain();
+    this.reverbInputGain = this.ctx.createGain();
+    this.reverbWetGain = this.ctx.createGain();
+    this.reverbWetGain.gain.value = 0.0;
+
+    input.connect(this.reverbDryGain);
+    input.connect(this.reverbInputGain);
+    this.reverbDryGain.connect(output);
+
+    // Pre-Delay line (controlled by ReverbTime)
+    this.reverbPreDelay = this.ctx.createDelay(0.25);
+    this.reverbPreDelay.delayTime.value = 0.018;
+
+    // Low-cut filter to keep low-end punch clean
+    const lowCut = this.ctx.createBiquadFilter();
+    lowCut.type = 'highpass';
+    lowCut.frequency.value = 135;
+
+    // Dual allpass diffusers for smooth studio density
+    const diffuser1 = this.ctx.createBiquadFilter();
+    diffuser1.type = 'allpass';
+    diffuser1.frequency.value = 380;
+    diffuser1.Q.value = 1.1;
+
+    const diffuser2 = this.ctx.createBiquadFilter();
+    diffuser2.type = 'allpass';
+    diffuser2.frequency.value = 1240;
+    diffuser2.Q.value = 1.1;
+
+    this.reverbInputGain.connect(this.reverbPreDelay);
+    this.reverbPreDelay.connect(lowCut);
+    lowCut.connect(diffuser1);
+    diffuser1.connect(diffuser2);
+
+    const stereoMerger = this.ctx.createChannelMerger(2);
+    const leftSum = this.ctx.createGain();
+    const rightSum = this.ctx.createGain();
+    const crossLtoR = this.ctx.createGain();
+    const crossRtoL = this.ctx.createGain();
+    crossLtoR.gain.value = 0.28;
+    crossRtoL.gain.value = 0.28;
+
+    leftSum.connect(stereoMerger, 0, 0);
+    leftSum.connect(crossLtoR);
+    crossLtoR.connect(stereoMerger, 0, 1);
+
+    rightSum.connect(stereoMerger, 0, 1);
+    rightSum.connect(crossRtoL);
+    crossRtoL.connect(stereoMerger, 0, 0);
+
+    // 6 mutually-prime parallel comb filter tank lines (3 Left, 3 Right)
+    const baseCombTimes = [0.0297, 0.0371, 0.0411, 0.0313, 0.0389, 0.0437];
+    this.reverbCombDelays = [];
+    this.reverbCombFeedbacks = [];
+    this.reverbCombFilters = [];
+
+    // Subtle tank chorus LFO to eliminate metallic standing waves
+    this.reverbTankLfo = this.ctx.createOscillator();
+    this.reverbTankLfo.type = 'sine';
+    this.reverbTankLfo.frequency.value = 0.41;
+    this.reverbTankLfo.start();
+
+    baseCombTimes.forEach((baseDelay, idx) => {
+      if (!this.ctx) return;
+      const delayNode = this.ctx.createDelay(0.25);
+      delayNode.delayTime.value = baseDelay;
+
+      const dampFilter = this.ctx.createBiquadFilter();
+      dampFilter.type = 'lowpass';
+      dampFilter.frequency.value = 5500;
+      dampFilter.Q.value = 0.5;
+
+      const fbGain = this.ctx.createGain();
+      fbGain.gain.value = 0;
+
+      const outGain = this.ctx.createGain();
+      outGain.gain.value = 0.28;
+
+      diffuser2.connect(delayNode);
+      delayNode.connect(dampFilter);
+      dampFilter.connect(fbGain);
+      fbGain.connect(delayNode);
+      dampFilter.connect(outGain);
+
+      if (idx < 3) {
+        outGain.connect(leftSum);
+      } else {
+        outGain.connect(rightSum);
+      }
+
+      // Modulate 2 tank lines subtly for lush Plate/Hall tail
+      if ((idx === 1 || idx === 4) && this.reverbTankLfo) {
+        const lfoModGain = this.ctx.createGain();
+        lfoModGain.gain.value = idx === 1 ? 0.00024 : -0.00024;
+        this.reverbTankLfo.connect(lfoModGain);
+        lfoModGain.connect(delayNode.delayTime);
+      }
+
+      this.reverbCombDelays.push(delayNode);
+      this.reverbCombFeedbacks.push(fbGain);
+      this.reverbCombFilters.push(dampFilter);
+    });
+
+    stereoMerger.connect(this.reverbWetGain);
+    this.reverbWetGain.connect(output);
   }
 
   private updateChorusMode() {
@@ -950,6 +1077,75 @@ export class HeraSynthesizerEngine {
       this.delayWetGain.gain.setTargetAtTime(wet, t, 0.02);
     } catch (err) {
       console.warn('updateDelayMode audio error caught:', err);
+    }
+  }
+
+  private updateReverbMode() {
+    try {
+      if (
+        !this.ctx ||
+        !this.reverbDryGain ||
+        !this.reverbWetGain ||
+        !this.reverbPreDelay ||
+        this.reverbCombDelays.length === 0
+      ) {
+        return;
+      }
+
+      const t = this.ctx.currentTime;
+      const isEnabled = this.params.ReverbEnabled > 0.5;
+
+      if (!isEnabled) {
+        this.reverbDryGain.gain.setTargetAtTime(1.0, t, 0.025);
+        this.reverbWetGain.gain.setTargetAtTime(0.0, t, 0.025);
+        this.reverbCombFeedbacks.forEach((fb) => {
+          fb.gain.setTargetAtTime(0.0, t, 0.04);
+        });
+        return;
+      }
+
+      const isHall = this.params.ReverbType >= 0.5; // 0 = PLATE, 1 = HALL
+      const timeNorm = Math.max(0, Math.min(1, this.params.ReverbTime));
+      const decayNorm = Math.max(0, Math.min(1, this.params.ReverbDecay));
+      const mixNorm = Math.max(0, Math.min(1, this.params.ReverbMix));
+
+      // Plate vs Hall acoustic profile:
+      // Plate: tight pre-delay (4ms..45ms), compact dense tank scale (0.85x..1.25x), bright damping (6800 Hz)
+      // Hall: spacious pre-delay (15ms..95ms), large concert hall tank scale (1.15x..1.85x), warm damping (3400 Hz)
+      const preDelaySec = isHall
+        ? 0.015 + timeNorm * 0.080
+        : 0.004 + timeNorm * 0.041;
+      const sizeScale = isHall
+        ? 1.15 + timeNorm * 0.70
+        : 0.85 + timeNorm * 0.40;
+      const dampingCutoffHz = isHall ? 3400 : 6800;
+
+      // Feedback (RT60 decay): safe range 0.40 to 0.915
+      const feedbackVal = 0.40 + decayNorm * 0.515;
+
+      const wet = mixNorm * 0.78;
+      const dry = Math.max(0.25, 1.0 - wet * 0.32);
+
+      this.reverbPreDelay.delayTime.setTargetAtTime(preDelaySec, t, 0.03);
+
+      const baseCombTimes = [0.0297, 0.0371, 0.0411, 0.0313, 0.0389, 0.0437];
+      this.reverbCombDelays.forEach((delayNode, idx) => {
+        const targetTime = Math.min(0.22, baseCombTimes[idx] * sizeScale);
+        delayNode.delayTime.setTargetAtTime(targetTime, t, 0.035);
+      });
+
+      this.reverbCombFilters.forEach((filter) => {
+        filter.frequency.setTargetAtTime(dampingCutoffHz, t, 0.03);
+      });
+
+      this.reverbCombFeedbacks.forEach((fb) => {
+        fb.gain.setTargetAtTime(feedbackVal, t, 0.025);
+      });
+
+      this.reverbDryGain.gain.setTargetAtTime(dry, t, 0.025);
+      this.reverbWetGain.gain.setTargetAtTime(wet, t, 0.025);
+    } catch (err) {
+      console.warn('updateReverbMode audio error caught:', err);
     }
   }
 
@@ -1242,6 +1438,8 @@ export class HeraSynthesizerEngine {
           v.updateLfoDepth(this.params, this.modWheelAmount);
         }
       });
+    } else if (param === 'MasterVolume') {
+      this.setMasterVolume(value as number);
     } else if (param === 'VCADepth') {
       this.voices.forEach(v => {
         if (v.active) {
@@ -1250,6 +1448,8 @@ export class HeraSynthesizerEngine {
       });
     } else if (param.startsWith('Delay')) {
       this.updateDelayMode();
+    } else if (param.startsWith('Reverb')) {
+      this.updateReverbMode();
     } else if (
       param.startsWith('VCF') ||
       param.startsWith('ENV') ||
@@ -1267,8 +1467,14 @@ export class HeraSynthesizerEngine {
 
   setAllParameters(params: HeraParameters) {
     this.params = { ...params };
+    if (typeof params.MasterVolume === 'number') {
+      this.masterVolume = Math.max(0, Math.min(1, params.MasterVolume));
+    }
     if (!this.ctx) return;
 
+    if (this.masterGain) {
+      this.masterGain.gain.setTargetAtTime(this.masterVolume * 0.85, this.ctx.currentTime, 0.02);
+    }
     if (this.hpfFilter) {
       this.hpfFilter.frequency.setTargetAtTime(getHpfFrequency(params.HPF), this.ctx.currentTime, 0.02);
     }
@@ -1277,6 +1483,7 @@ export class HeraSynthesizerEngine {
     }
     this.updateChorusMode();
     this.updateDelayMode();
+    this.updateReverbMode();
     this.voices.forEach(v => {
       if (v.active) {
         v.updateOscillators(this.params, this.pitchBendSemitones, false);
