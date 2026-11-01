@@ -99,6 +99,12 @@ class HeraVoiceInstance {
     this.vcfFilter2 = ctx.createBiquadFilter();
     this.vcfFilter2.type = 'lowpass';
 
+    // Connect oscillator gains to filter once in constructor (prevents duplicate summing)
+    this.sawGain.connect(this.vcfFilter1);
+    this.pulseGain.connect(this.vcfFilter1);
+    this.subGain.connect(this.vcfFilter1);
+    this.noiseGain.connect(this.vcfFilter1);
+
     this.vcfFilter1.connect(this.vcfFilter2);
 
     this.envGain = ctx.createGain();
@@ -158,7 +164,6 @@ class HeraVoiceInstance {
     this.sawOsc.detune.setValueAtTime(basePitchDetune, t);
     this.sawGain.gain.setValueAtTime(params.DCOSawLevel * 0.24, t);
     this.sawOsc.connect(this.sawGain);
-    this.sawGain.connect(this.vcfFilter1);
     this.sawOsc.start(t);
 
     // 2. Pulse Oscillator with PWM:
@@ -190,7 +195,6 @@ class HeraVoiceInstance {
     this.pulseDelay.connect(this.pulseGain);
 
     this.pulseGain.gain.setValueAtTime(params.DCOPulseLevel * 0.24, t);
-    this.pulseGain.connect(this.vcfFilter1);
     this.pulseOsc1.start(t);
     this.pulseOsc2.start(t);
 
@@ -201,7 +205,6 @@ class HeraVoiceInstance {
     this.subOsc.detune.setValueAtTime(basePitchDetune, t);
     this.subGain.gain.setValueAtTime(params.DCOSubLevel * 0.18, t);
     this.subOsc.connect(this.subGain);
-    this.subGain.connect(this.vcfFilter1);
     this.subOsc.start(t);
 
     // Connect voice LFO pitch gain to detune of all oscillators for continuous, silky vibrato
@@ -216,7 +219,6 @@ class HeraVoiceInstance {
     this.noiseSource.loop = true;
     this.noiseGain.gain.setValueAtTime(params.DCONoiseLevel * 0.12, t);
     this.noiseSource.connect(this.noiseGain);
-    this.noiseGain.connect(this.vcfFilter1);
     this.noiseSource.start(t);
 
     // Schedule LFO delay envelope for this voice
@@ -232,13 +234,15 @@ class HeraVoiceInstance {
     const prevGain = Math.max(0, this.envGain.gain.value);
     this.envGain.gain.cancelScheduledValues(t);
 
-    // If voice has residual gain from previous rapid note, do a smooth 2ms de-click ramp to 0
-    const declickSec = prevGain > 0.001 ? 0.002 : 0;
-    if (declickSec > 0) {
+    // If voice has residual gain from previous rapid note, do a smooth 2ms de-click ramp to 0.
+    // If starting from silence, keep gain clamped at 0 for 1.5ms to shield oscillator startup phase.
+    const declickSec = prevGain > 0.001 ? 0.002 : 0.0015;
+    if (prevGain > 0.001) {
       this.envGain.gain.setValueAtTime(prevGain, t);
       this.envGain.gain.linearRampToValueAtTime(0, t + declickSec);
     } else {
       this.envGain.gain.setValueAtTime(0, t);
+      this.envGain.gain.setValueAtTime(0, t + declickSec);
     }
 
     const startT = t + declickSec;
@@ -361,17 +365,19 @@ class HeraVoiceInstance {
       const attackSec = Math.max(0.002, getAttackSec(params.ENVAttack));
       const decaySec = Math.max(0.004, getDecaySec(params.ENVDecay));
 
-      this.vcfFilter1.frequency.setValueAtTime(noteCutoffHz, t);
-      this.vcfFilter2.frequency.setValueAtTime(noteCutoffHz, t);
+      // Settle filter coefficients during the 1.5ms pre-shield so transitions are completely silent
+      const filterStartT = t + 0.0015;
+      this.vcfFilter1.frequency.setValueAtTime(noteCutoffHz, filterStartT);
+      this.vcfFilter2.frequency.setValueAtTime(noteCutoffHz, filterStartT);
 
-      this.vcfFilter1.frequency.exponentialRampToValueAtTime(peakCutoffHz, t + attackSec);
-      this.vcfFilter2.frequency.exponentialRampToValueAtTime(peakCutoffHz, t + attackSec);
+      this.vcfFilter1.frequency.exponentialRampToValueAtTime(peakCutoffHz, filterStartT + attackSec);
+      this.vcfFilter2.frequency.exponentialRampToValueAtTime(peakCutoffHz, filterStartT + attackSec);
 
-      this.vcfFilter1.frequency.exponentialRampToValueAtTime(sustainCutoffHz, t + attackSec + decaySec);
-      this.vcfFilter2.frequency.exponentialRampToValueAtTime(sustainCutoffHz, t + attackSec + decaySec);
+      this.vcfFilter1.frequency.exponentialRampToValueAtTime(sustainCutoffHz, filterStartT + attackSec + decaySec);
+      this.vcfFilter2.frequency.exponentialRampToValueAtTime(sustainCutoffHz, filterStartT + attackSec + decaySec);
     } else {
-      this.vcfFilter1.frequency.setTargetAtTime(sustainCutoffHz, t, 0.02);
-      this.vcfFilter2.frequency.setTargetAtTime(sustainCutoffHz, t, 0.02);
+      this.vcfFilter1.frequency.setTargetAtTime(sustainCutoffHz, t, 0.005);
+      this.vcfFilter2.frequency.setTargetAtTime(sustainCutoffHz, t, 0.005);
     }
   }
 
@@ -478,6 +484,13 @@ class HeraVoiceInstance {
     this.pulseDelay = null;
     this.subOsc = null;
     this.noiseSource = null;
+
+    try {
+      this.envGain.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.envGain.gain.setValueAtTime(0, this.ctx.currentTime);
+    } catch {
+      // ignored
+    }
   }
 }
 
@@ -800,10 +813,10 @@ export class HeraSynthesizerEngine {
 
     // Master Dynamics Limiter (Peak Protection - eliminates any clipping / "estouro")
     this.masterLimiter = this.ctx.createDynamicsCompressor();
-    this.masterLimiter.threshold.setValueAtTime(-2.0, this.ctx.currentTime);
-    this.masterLimiter.knee.setValueAtTime(6.0, this.ctx.currentTime);
-    this.masterLimiter.ratio.setValueAtTime(10.0, this.ctx.currentTime);
-    this.masterLimiter.attack.setValueAtTime(0.003, this.ctx.currentTime);
+    this.masterLimiter.threshold.setValueAtTime(-1.5, this.ctx.currentTime);
+    this.masterLimiter.knee.setValueAtTime(14.0, this.ctx.currentTime);
+    this.masterLimiter.ratio.setValueAtTime(8.0, this.ctx.currentTime);
+    this.masterLimiter.attack.setValueAtTime(0.001, this.ctx.currentTime);
     this.masterLimiter.release.setValueAtTime(0.12, this.ctx.currentTime);
 
     this.delayDryGain.connect(this.masterLimiter);
