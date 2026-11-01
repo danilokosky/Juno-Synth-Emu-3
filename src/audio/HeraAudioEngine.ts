@@ -141,8 +141,7 @@ class HeraVoiceInstance {
     }
 
     const t = this.ctx.currentTime;
-    const currentGain = Math.max(0, this.envGain.gain.value);
-    const isVoiceSounding = this.active || currentGain > 0.001;
+    const isVoiceSounding = this.active;
     // Smooth 3ms crossfade when stealing an active or releasing voice
     const declickSec = isVoiceSounding ? 0.003 : 0.001;
     const startT = t + declickSec;
@@ -156,9 +155,16 @@ class HeraVoiceInstance {
     const oldSub = this.subOsc;
     const oldNoise = this.noiseSource;
 
-    // Fade down current voice sound to 0 at startT
-    this.envGain.gain.cancelScheduledValues(t);
-    this.envGain.gain.setValueAtTime(currentGain, t);
+    // Freeze gain at exact audio-thread value without jumping, then ramp to 0 at startT
+    if (typeof this.envGain.gain.cancelAndHoldAtTime === 'function') {
+      try {
+        this.envGain.gain.cancelAndHoldAtTime(t);
+      } catch {
+        this.envGain.gain.cancelScheduledValues(t);
+      }
+    } else {
+      this.envGain.gain.cancelScheduledValues(t);
+    }
     this.envGain.gain.linearRampToValueAtTime(0, startT);
 
     // Stop old oscillators only at startT when gain has reached exactly zero
@@ -430,9 +436,17 @@ class HeraVoiceInstance {
     }
 
     const t = this.ctx.currentTime;
-    const currentGain = Math.max(0.0001, this.envGain.gain.value);
-    this.envGain.gain.cancelScheduledValues(t);
-    this.envGain.gain.setValueAtTime(currentGain, t);
+
+    // Freeze gain at exact audio-thread value without jumping
+    if (typeof this.envGain.gain.cancelAndHoldAtTime === 'function') {
+      try {
+        this.envGain.gain.cancelAndHoldAtTime(t);
+      } catch {
+        this.envGain.gain.cancelScheduledValues(t);
+      }
+    } else {
+      this.envGain.gain.cancelScheduledValues(t);
+    }
 
     if (params.VCAType === 1) {
       // Gate release: rapid 8ms anti-click
@@ -442,20 +456,31 @@ class HeraVoiceInstance {
         this.releaseTimer = null;
       }, 18);
     } else {
-      // ADSR release
+      // ADSR release: smooth exponential RC decay to silence (no setValueAtTime jump)
       const releaseSec = Math.max(0.008, getReleaseSec(params.ENVRelease));
-      this.envGain.gain.exponentialRampToValueAtTime(0.00001, t + releaseSec);
+      const timeConstant = Math.max(0.003, releaseSec * 0.28);
+      this.envGain.gain.setTargetAtTime(0.0, t, timeConstant);
 
-      // Filter release ramp
+      // Filter release ramp: smooth exponential transition to rest cutoff
       const minFreq = 16;
       const maxFreq = 20000;
       const restCutoffHz = Math.min(20000, Math.max(16, minFreq * Math.pow(maxFreq / minFreq, params.VCFCutoff)));
-      this.vcfFilter1.frequency.cancelScheduledValues(t);
-      this.vcfFilter2.frequency.cancelScheduledValues(t);
-      this.vcfFilter1.frequency.setValueAtTime(Math.max(16, this.vcfFilter1.frequency.value), t);
-      this.vcfFilter2.frequency.setValueAtTime(Math.max(16, this.vcfFilter2.frequency.value), t);
-      this.vcfFilter1.frequency.exponentialRampToValueAtTime(restCutoffHz, t + releaseSec);
-      this.vcfFilter2.frequency.exponentialRampToValueAtTime(restCutoffHz, t + releaseSec);
+
+      if (typeof this.vcfFilter1.frequency.cancelAndHoldAtTime === 'function') {
+        try {
+          this.vcfFilter1.frequency.cancelAndHoldAtTime(t);
+          this.vcfFilter2.frequency.cancelAndHoldAtTime(t);
+        } catch {
+          this.vcfFilter1.frequency.cancelScheduledValues(t);
+          this.vcfFilter2.frequency.cancelScheduledValues(t);
+        }
+      } else {
+        this.vcfFilter1.frequency.cancelScheduledValues(t);
+        this.vcfFilter2.frequency.cancelScheduledValues(t);
+      }
+
+      this.vcfFilter1.frequency.setTargetAtTime(restCutoffHz, t, timeConstant);
+      this.vcfFilter2.frequency.setTargetAtTime(restCutoffHz, t, timeConstant);
 
       // Schedule Web Audio native stop directly on audio thread for clean cleanup
       const stopTime = t + releaseSec + 0.05;
