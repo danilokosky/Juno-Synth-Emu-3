@@ -48,6 +48,18 @@ export const HeraApp: React.FC = () => {
   // MIDI
   const [midiDevices, setMidiDevices] = useState<MidiDevice[]>([]);
   const [midiActive, setMidiActive] = useState<boolean>(false);
+  const [midiChannel, setMidiChannel] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('hera_midi_channel');
+      if (saved !== null) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 16) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return 0;
+  });
   const [midiManagerInstance, setMidiManagerInstance] = useState<MidiManager | null>(null);
   const [currentMidiMapping, setCurrentMidiMapping] = useState<Record<number, keyof HeraParameters>>({});
   const [currentMidiActionMapping, setCurrentMidiActionMapping] = useState<Record<number, MidiMappableAction>>({ 110: 'prevPreset', 111: 'nextPreset' });
@@ -81,6 +93,7 @@ export const HeraApp: React.FC = () => {
     // Initialize MIDI
     const midiMgr = new MidiManager(synthEngine);
     setMidiManagerInstance(midiMgr);
+    setMidiChannel(midiMgr.getMidiChannel());
     setCurrentMidiMapping(midiMgr.getMapping());
     setCurrentMidiActionMapping(midiMgr.getActionMapping());
 
@@ -172,6 +185,13 @@ export const HeraApp: React.FC = () => {
   const handleChorusToggle = (chorusNum: 'ChorusI' | 'ChorusII') => {
     const current = params[chorusNum];
     handleParamChange(chorusNum, current > 0.5 ? 0 : 1);
+  };
+
+  // MIDI Channel Selection Helper
+  const handleMidiChannelChange = (newChannel: number) => {
+    const ch = Math.max(0, Math.min(16, Math.floor(newChannel)));
+    setMidiChannel(ch);
+    midiManagerInstance?.setMidiChannel(ch);
   };
 
   // MIDI Learn Selection & Unmapping Helpers
@@ -272,19 +292,34 @@ export const HeraApp: React.FC = () => {
               </div>
 
               {/* Master Volume & Recording Controls */}
-              <div className="flex items-center gap-2 bg-zinc-950 p-1.5 rounded border border-zinc-800">
-                {/* MIDI in LED */}
-                <div className="flex items-center gap-1 px-1.5 text-[9px] font-mono text-zinc-400 border-r border-zinc-800">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-zinc-950 p-1.5 rounded border border-zinc-800">
+                {/* MIDI in LED + Direct MIDI In Channel Selector */}
+                <div className="flex items-center gap-1.5 px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 border-r border-zinc-800">
                   <Radio
                     size={13}
-                    className={midiActive ? 'text-emerald-400 animate-pulse' : 'text-zinc-600'}
+                    className={midiActive ? 'text-emerald-400 animate-pulse' : 'text-zinc-500'}
                   />
-                  <span>MIDI</span>
+                  <span className="text-[9px] text-zinc-400 font-bold tracking-wider">MIDI IN</span>
                   <div
                     className={`w-2 h-2 rounded-full ${
                       midiActive ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-zinc-800'
                     }`}
+                    title={midiDevices.length > 0 ? `Conectado: ${midiDevices.map(d => d.name).join(', ')}` : 'Aguardando controlador MIDI'}
                   />
+                  <select
+                    value={midiChannel}
+                    onChange={(e) => handleMidiChannelChange(Number(e.target.value))}
+                    aria-label="Selecionar Canal MIDI In"
+                    title="Canal de Recepção MIDI In (OMNI = Todos os canais 1-16, ou selecione um canal exclusivo)"
+                    className="ml-0.5 bg-zinc-900 hover:bg-zinc-800 text-amber-400 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 focus:outline-none focus:border-amber-500 cursor-pointer transition-colors"
+                  >
+                    <option value={0}>CH: OMNI (ALL)</option>
+                    {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                      <option key={ch} value={ch}>
+                        CH: {String(ch).padStart(2, '0')}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Interactive MIDI LEARN Main Button */}
@@ -923,6 +958,30 @@ export const HeraApp: React.FC = () => {
 
             {/* Modal Body (Scrollable) */}
             <div className="text-xs space-y-3.5 text-zinc-300 font-sans flex-1 overflow-y-auto pr-2 my-3 overscroll-contain">
+              <div>
+                <h4 className="font-bold text-zinc-100 mb-1">Canal de Recepção MIDI In</h4>
+                <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-2 border border-zinc-800 text-zinc-300">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Selecione o canal MIDI do seu controlador:</span>
+                    <select
+                      value={midiChannel}
+                      onChange={(e) => handleMidiChannelChange(Number(e.target.value))}
+                      className="bg-zinc-900 text-amber-400 font-mono font-bold text-xs px-2.5 py-1 rounded border border-amber-500/50 focus:outline-none cursor-pointer"
+                    >
+                      <option value={0}>OMNI (Todos 1-16)</option>
+                      {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                        <option key={ch} value={ch}>
+                          Canal {String(ch).padStart(2, '0')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-[10px] text-zinc-400">
+                    Você também pode alterar o canal diretamente na barra superior ao lado do LED <strong className="text-emerald-400">MIDI IN</strong>. Sua escolha fica salva automaticamente.
+                  </p>
+                </div>
+              </div>
+
               <div>
                 <h4 className="font-bold text-zinc-100 mb-1">Como usar o MIDI Learn</h4>
                 <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-1.5 border border-zinc-800 text-zinc-300">

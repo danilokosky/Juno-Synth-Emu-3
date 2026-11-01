@@ -45,13 +45,13 @@ class HeraVoiceInstance {
   startTime: number = 0;
   active: boolean = false;
   released: boolean = true;
+  private sameNoteDamped: boolean = false;
 
   // Persistent Analog DCO Nodes (never destroyed during playback -> zero graph-lock & zero phase clicks)
   private ctx: AudioContext;
   private voiceGain: GainNode;
   private sawOsc: OscillatorNode;
-  private pulseOsc1: OscillatorNode;
-  private pulseOsc2: OscillatorNode;
+  private pulseOsc: OscillatorNode;
   private pulseInvertGain: GainNode;
   private pulseDelay: DelayNode;
   private subOsc: OscillatorNode;
@@ -75,9 +75,6 @@ class HeraVoiceInstance {
   private currentVelocityFactor: number = 1.0;
   private onVoiceIdle?: () => void;
 
-  // Subtle per-voice analog calibration offset (cents) like the 6 physical Juno-60 voice cards
-  private readonly analogDriftCents: number;
-
   constructor(
     id: number,
     ctx: AudioContext,
@@ -90,9 +87,6 @@ class HeraVoiceInstance {
     this.ctx = ctx;
     this.noiseBuffer = noiseBuffer;
     this.onVoiceIdle = onVoiceIdle;
-
-    const drifts = [-1.4, 1.1, -0.8, 1.5, -1.1, 0.9];
-    this.analogDriftCents = drifts[id % drifts.length];
 
     this.voiceGain = ctx.createGain();
     this.voiceGain.gain.value = 1.0;
@@ -148,13 +142,10 @@ class HeraVoiceInstance {
     this.sawOsc.frequency.value = 440;
     this.sawOsc.connect(this.sawGain);
 
-    this.pulseOsc1 = ctx.createOscillator();
-    this.pulseOsc1.type = 'sawtooth';
-    this.pulseOsc1.frequency.value = 440;
-
-    this.pulseOsc2 = ctx.createOscillator();
-    this.pulseOsc2.type = 'sawtooth';
-    this.pulseOsc2.frequency.value = 440;
+    // Single phase-locked DCO sawtooth split into direct + inverted delayed path for 100% uniform PWM across all 6 voices
+    this.pulseOsc = ctx.createOscillator();
+    this.pulseOsc.type = 'sawtooth';
+    this.pulseOsc.frequency.value = 440;
 
     this.pulseInvertGain = ctx.createGain();
     this.pulseInvertGain.gain.value = -1.0;
@@ -162,8 +153,8 @@ class HeraVoiceInstance {
     this.pulseDelay = ctx.createDelay(0.05);
     this.pulseDelay.delayTime.value = 0.001;
 
-    this.pulseOsc1.connect(this.pulseGain);
-    this.pulseOsc2.connect(this.pulseInvertGain);
+    this.pulseOsc.connect(this.pulseGain);
+    this.pulseOsc.connect(this.pulseInvertGain);
     this.pulseInvertGain.connect(this.pulseDelay);
     this.pulseDelay.connect(this.pulseGain);
 
@@ -179,15 +170,13 @@ class HeraVoiceInstance {
 
     // Connect LFO pitch modulation once
     this.voiceLfoPitchGain.connect(this.sawOsc.detune);
-    this.voiceLfoPitchGain.connect(this.pulseOsc1.detune);
-    this.voiceLfoPitchGain.connect(this.pulseOsc2.detune);
+    this.voiceLfoPitchGain.connect(this.pulseOsc.detune);
     this.voiceLfoPitchGain.connect(this.subOsc.detune);
 
     // Start all oscillators once (silenced behind envGain = 0 when idle)
     const now = ctx.currentTime;
     this.sawOsc.start(now);
-    this.pulseOsc1.start(now);
-    this.pulseOsc2.start(now);
+    this.pulseOsc.start(now);
     this.subOsc.start(now);
     this.noiseSource.start(now);
   }
@@ -223,9 +212,10 @@ class HeraVoiceInstance {
     this.startTime = t;
     this.active = true;
     this.released = false;
+    this.sameNoteDamped = false;
 
-    // Update DCO frequencies, PWM width, and waveform mix levels
-    this.updateOscillators(params, pitchBendSemitones, !wasActive);
+    // Update DCO frequencies, PWM width, and waveform mix levels smoothly
+    this.updateOscillators(params, pitchBendSemitones);
 
     // Schedule LFO delay envelope for this voice
     this.scheduleLfo(params, modWheelAmount, t);
@@ -237,11 +227,8 @@ class HeraVoiceInstance {
     this.currentVelocityFactor = 0.45 + 0.55 * Math.min(1.0, Math.max(0.1, velocity / 127));
     const voiceVolume = Math.max(0.01, params.VCADepth * this.currentVelocityFactor);
 
-    // Freeze current envelope voltage on audio thread (Warm Retrigger rises from current level without zeroing)
+    // Freeze current envelope voltage on audio thread (Warm Retrigger rises from current level without ever jumping to 0)
     this.holdParam(this.envGain.gain, t);
-    if (!wasActive) {
-      this.envGain.gain.setValueAtTime(0, t);
-    }
 
     if (params.VCAType === 1) {
       // Gate mode: smooth 2.5ms RC gate opening (click-free)
@@ -263,7 +250,7 @@ class HeraVoiceInstance {
     }
   }
 
-  updateOscillators(params: HeraParameters, pitchBendSemitones: number, immediate: boolean = false) {
+  updateOscillators(params: HeraParameters, pitchBendSemitones: number, _immediate: boolean = false) {
     const t = this.ctx.currentTime;
     const rangeFactors = [0.5, 1.0, 2.0];
     const rangeFactor = rangeFactors[Math.max(0, Math.min(2, Math.floor(params.DCORange)))];
@@ -271,49 +258,36 @@ class HeraVoiceInstance {
     const midiFreq = 440 * Math.pow(2, (this.note - 69) / 12);
     this.baseFreq = midiFreq * rangeFactor;
 
-    const totalDetune = pitchBendSemitones * 100 + this.analogDriftCents;
+    const totalDetune = pitchBendSemitones * 100;
 
     const pwm = params.DCOPWMDepth;
     const pulseWidthRatio = 0.5 - 0.45 * Math.max(-0.95, Math.min(0.95, pwm));
     const period = 1 / Math.max(10, this.baseFreq);
     const delayTime = Math.max(0.00005, Math.min(0.04, period * pulseWidthRatio));
 
-    if (immediate) {
-      this.sawOsc.frequency.setValueAtTime(this.baseFreq, t);
-      this.pulseOsc1.frequency.setValueAtTime(this.baseFreq, t);
-      this.pulseOsc2.frequency.setValueAtTime(this.baseFreq, t);
-      this.subOsc.frequency.setValueAtTime(this.baseFreq * 0.5, t);
+    this.holdParam(this.sawOsc.frequency, t);
+    this.holdParam(this.pulseOsc.frequency, t);
+    this.holdParam(this.subOsc.frequency, t);
+    this.holdParam(this.sawOsc.detune, t);
+    this.holdParam(this.pulseOsc.detune, t);
+    this.holdParam(this.subOsc.detune, t);
+    this.holdParam(this.pulseDelay.delayTime, t);
 
-      this.sawOsc.detune.setValueAtTime(totalDetune, t);
-      this.pulseOsc1.detune.setValueAtTime(totalDetune, t);
-      this.pulseOsc2.detune.setValueAtTime(totalDetune, t);
-      this.subOsc.detune.setValueAtTime(totalDetune, t);
+    // Smooth 1.2ms micro-transition prevents delay-line & oscillator discontinuities at high BPM (150-260 BPM)
+    this.sawOsc.frequency.setTargetAtTime(this.baseFreq, t, 0.0012);
+    this.pulseOsc.frequency.setTargetAtTime(this.baseFreq, t, 0.0012);
+    this.subOsc.frequency.setTargetAtTime(this.baseFreq * 0.5, t, 0.0012);
 
-      this.pulseDelay.delayTime.setValueAtTime(delayTime, t);
+    this.sawOsc.detune.setTargetAtTime(totalDetune, t, 0.0015);
+    this.pulseOsc.detune.setTargetAtTime(totalDetune, t, 0.0015);
+    this.subOsc.detune.setTargetAtTime(totalDetune, t, 0.0015);
 
-      this.sawGain.gain.setValueAtTime(params.DCOSawLevel * 0.24, t);
-      this.pulseGain.gain.setValueAtTime(params.DCOPulseLevel * 0.24, t);
-      this.subGain.gain.setValueAtTime(params.DCOSubLevel * 0.18, t);
-      this.noiseGain.gain.setValueAtTime(params.DCONoiseLevel * 0.12, t);
-    } else {
-      // Smooth 1.5ms micro-glide for warm retrigger or live slider tweaks
-      this.sawOsc.frequency.setTargetAtTime(this.baseFreq, t, 0.0015);
-      this.pulseOsc1.frequency.setTargetAtTime(this.baseFreq, t, 0.0015);
-      this.pulseOsc2.frequency.setTargetAtTime(this.baseFreq, t, 0.0015);
-      this.subOsc.frequency.setTargetAtTime(this.baseFreq * 0.5, t, 0.0015);
+    this.pulseDelay.delayTime.setTargetAtTime(delayTime, t, 0.0015);
 
-      this.sawOsc.detune.setTargetAtTime(totalDetune, t, 0.002);
-      this.pulseOsc1.detune.setTargetAtTime(totalDetune, t, 0.002);
-      this.pulseOsc2.detune.setTargetAtTime(totalDetune, t, 0.002);
-      this.subOsc.detune.setTargetAtTime(totalDetune, t, 0.002);
-
-      this.pulseDelay.delayTime.setTargetAtTime(delayTime, t, 0.002);
-
-      this.sawGain.gain.setTargetAtTime(params.DCOSawLevel * 0.24, t, 0.005);
-      this.pulseGain.gain.setTargetAtTime(params.DCOPulseLevel * 0.24, t, 0.005);
-      this.subGain.gain.setTargetAtTime(params.DCOSubLevel * 0.18, t, 0.005);
-      this.noiseGain.gain.setTargetAtTime(params.DCONoiseLevel * 0.12, t, 0.005);
-    }
+    this.sawGain.gain.setTargetAtTime(params.DCOSawLevel * 0.24, t, 0.003);
+    this.pulseGain.gain.setTargetAtTime(params.DCOPulseLevel * 0.24, t, 0.003);
+    this.subGain.gain.setTargetAtTime(params.DCOSubLevel * 0.18, t, 0.003);
+    this.noiseGain.gain.setTargetAtTime(params.DCONoiseLevel * 0.12, t, 0.003);
   }
 
   scheduleLfo(params: HeraParameters, modWheelAmount: number, t: number) {
@@ -367,7 +341,7 @@ class HeraVoiceInstance {
     pitchBendSemitones: number,
     envAmountMultiplier: number = 1.0,
     isNoteOn: boolean = false,
-    wasActive: boolean = false
+    _wasActive: boolean = false
   ) {
     const t = this.ctx.currentTime;
 
@@ -399,11 +373,6 @@ class HeraVoiceInstance {
       const attackSec = Math.max(0.004, getAttackSec(params.ENVAttack));
       const decaySec = Math.max(0.006, getDecaySec(params.ENVDecay));
 
-      if (!wasActive) {
-        this.vcfFilter1.frequency.setValueAtTime(noteCutoffHz, t);
-        this.vcfFilter2.frequency.setValueAtTime(noteCutoffHz, t);
-      }
-
       if (params.ENVSustain >= 0.99) {
         this.vcfFilter1.frequency.setTargetAtTime(peakCutoffHz, t, attackSec * 0.35);
         this.vcfFilter2.frequency.setTargetAtTime(peakCutoffHz, t, attackSec * 0.35);
@@ -429,7 +398,8 @@ class HeraVoiceInstance {
 
   // Smoothly accelerate release when another Round-Robin voice plays the exact same note
   softenSameNoteRelease() {
-    if (!this.active) return;
+    if (!this.active || this.sameNoteDamped) return;
+    this.sameNoteDamped = true;
     if (this.releaseTimer !== null) {
       clearTimeout(this.releaseTimer);
       this.releaseTimer = null;
@@ -437,15 +407,16 @@ class HeraVoiceInstance {
     this.released = true;
     const t = this.ctx.currentTime;
     this.holdParam(this.envGain.gain, t);
-    // Gentle 28ms RC time constant (~110ms smooth decay, zero click, preserves 1/16 arp articulation)
-    this.envGain.gain.setTargetAtTime(0.0, t, 0.028);
+    // Gentle 16ms RC time constant (~75ms smooth decay, zero click, fast enough for 180-260 BPM 1/16 arp)
+    this.envGain.gain.setTargetAtTime(0.0, t, 0.016);
 
     this.releaseTimer = window.setTimeout(() => {
       this.active = false;
       this.note = -1;
+      this.sameNoteDamped = false;
       this.releaseTimer = null;
       this.onVoiceIdle?.();
-    }, 140);
+    }, 80);
   }
 
   stop(params: HeraParameters) {
@@ -461,18 +432,18 @@ class HeraVoiceInstance {
     this.holdParam(this.envGain.gain, t);
 
     if (params.VCAType === 1) {
-      // Gate release: smooth 3ms RC decay
-      this.envGain.gain.setTargetAtTime(0.0, t, 0.003);
+      // Gate release: smooth 4ms RC decay
+      this.envGain.gain.setTargetAtTime(0.0, t, 0.004);
       this.releaseTimer = window.setTimeout(() => {
         this.active = false;
         this.note = -1;
         this.releaseTimer = null;
         this.onVoiceIdle?.();
-      }, 25);
+      }, 28);
     } else {
       // ADSR release: continuous analog RC discharge
-      const releaseSec = Math.max(0.010, getReleaseSec(params.ENVRelease));
-      const timeConstant = Math.max(0.004, releaseSec * 0.25);
+      const releaseSec = Math.max(0.012, getReleaseSec(params.ENVRelease));
+      const timeConstant = Math.max(0.005, releaseSec * 0.25);
       this.envGain.gain.setTargetAtTime(0.0, t, timeConstant);
 
       const minFreq = 16;
@@ -505,7 +476,7 @@ class HeraVoiceInstance {
     try {
       const t = this.ctx.currentTime;
       this.holdParam(this.envGain.gain, t);
-      this.envGain.gain.setTargetAtTime(0.0, t, 0.004);
+      this.envGain.gain.setTargetAtTime(0.0, t, 0.005);
     } catch {
       // ignored
     }
@@ -515,14 +486,12 @@ class HeraVoiceInstance {
     this.stopImmediate();
     try {
       this.sawOsc.stop();
-      this.pulseOsc1.stop();
-      this.pulseOsc2.stop();
+      this.pulseOsc.stop();
       this.subOsc.stop();
       this.noiseSource.stop();
     } catch {}
     this.sawOsc.disconnect();
-    this.pulseOsc1.disconnect();
-    this.pulseOsc2.disconnect();
+    this.pulseOsc.disconnect();
     this.pulseInvertGain.disconnect();
     this.pulseDelay.disconnect();
     this.subOsc.disconnect();

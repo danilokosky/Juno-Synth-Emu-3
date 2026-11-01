@@ -48,7 +48,7 @@ export class MidiManager {
   private isSupported: boolean = false;
   private connectedDevices: MidiDevice[] = [];
   private onDevicesChanged?: (devices: MidiDevice[]) => void;
-  private onMidiActivity?: (cc?: number, value?: number) => void;
+  private onMidiActivity?: (cc?: number, value?: number, channel?: number) => void;
   private onParamChangedFromMidi?: (param: keyof HeraParameters, value: number) => void;
   private onMappingChanged?: (
     mapping: Record<number, keyof HeraParameters>,
@@ -60,6 +60,9 @@ export class MidiManager {
   private onActionMappingChanged?: (actionMap: Record<number, MidiMappableAction>, learnedAction?: MidiMappableAction, learnedCC?: number) => void;
   private synth: HeraSynthesizerEngine;
 
+  // 0 = OMNI (Global / All Channels 1-16), 1..16 = Specific MIDI Channel
+  private midiChannel: number = 0;
+
   private ccMapping: Record<number, keyof HeraParameters> = { ...DEFAULT_MIDI_CC_MAP };
   private actionMapping: Record<number, MidiMappableAction> = { 110: 'prevPreset', 111: 'nextPreset' };
   private activeLearnParam: keyof HeraParameters | null = null;
@@ -67,11 +70,39 @@ export class MidiManager {
 
   constructor(synth: HeraSynthesizerEngine) {
     this.synth = synth;
+    try {
+      const savedChannel = localStorage.getItem('hera_midi_channel');
+      if (savedChannel !== null) {
+        const parsed = parseInt(savedChannel, 10);
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 16) {
+          this.midiChannel = parsed;
+        }
+      }
+    } catch {
+      // localStorage unavailable
+    }
+  }
+
+  setMidiChannel(channel: number) {
+    const clamped = Math.max(0, Math.min(16, Math.floor(channel)));
+    if (this.midiChannel !== clamped) {
+      this.midiChannel = clamped;
+      this.synth.allNotesOff();
+      try {
+        localStorage.setItem('hera_midi_channel', String(clamped));
+      } catch {
+        // localStorage unavailable
+      }
+    }
+  }
+
+  getMidiChannel(): number {
+    return this.midiChannel;
   }
 
   async init(
     onDevicesChanged?: (devices: MidiDevice[]) => void,
-    onMidiActivity?: (cc?: number, value?: number) => void,
+    onMidiActivity?: (cc?: number, value?: number, channel?: number) => void,
     onParamChangedFromMidi?: (param: keyof HeraParameters, value: number) => void,
     onMappingChanged?: (
       mapping: Record<number, keyof HeraParameters>,
@@ -229,15 +260,23 @@ export class MidiManager {
   }
 
   private handleMidiMessage(event: MIDIMessageEvent) {
-    if (!event.data) return;
+    if (!event.data || event.data.length < 1) return;
 
-    const [statusByte, data1, data2] = event.data;
+    const [statusByte, data1 = 0, data2 = 0] = event.data;
     const command = statusByte >> 4;
+    const msgChannel = (statusByte & 0x0f) + 1; // 1..16
+
+    // Filter channel voice messages (0x8..0xE) if a specific MIDI In channel (1..16) is selected
+    if (command >= 0x8 && command <= 0xe) {
+      if (this.midiChannel > 0 && msgChannel !== this.midiChannel) {
+        return;
+      }
+    }
 
     switch (command) {
       case 0x9: {
         // Note On
-        this.onMidiActivity?.();
+        this.onMidiActivity?.(undefined, undefined, msgChannel);
         const note = data1;
         const velocity = data2;
         if (velocity > 0) {
@@ -249,14 +288,14 @@ export class MidiManager {
       }
       case 0x8: {
         // Note Off
-        this.onMidiActivity?.();
+        this.onMidiActivity?.(undefined, undefined, msgChannel);
         const note = data1;
         this.synth.noteOff(note);
         break;
       }
       case 0xe: {
         // Pitch Bend (14-bit)
-        this.onMidiActivity?.();
+        this.onMidiActivity?.(undefined, undefined, msgChannel);
         const bendRaw = (data2 << 7) | data1;
         const normalized = (bendRaw - 8192) / 8192;
         this.synth.setPitchBend(normalized);
@@ -264,7 +303,7 @@ export class MidiManager {
       }
       case 0xc: {
         // Program Change (0xCn program)
-        this.onMidiActivity?.();
+        this.onMidiActivity?.(undefined, undefined, msgChannel);
         const programNumber = data1;
         this.onProgramChange?.(programNumber);
         break;
@@ -274,7 +313,7 @@ export class MidiManager {
         const cc = data1;
         const value = data2;
         const normalized = value / 127;
-        this.onMidiActivity?.(cc, value);
+        this.onMidiActivity?.(cc, value, msgChannel);
 
         // MIDI Learn interception for Parameters
         if (this.activeLearnParam) {
