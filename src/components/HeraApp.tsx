@@ -48,9 +48,21 @@ export const HeraApp: React.FC = () => {
   // MIDI
   const [midiDevices, setMidiDevices] = useState<MidiDevice[]>([]);
   const [midiActive, setMidiActive] = useState<boolean>(false);
-  const [midiChannel, setMidiChannel] = useState<number>(() => {
+  const [midiKeysChannel, setMidiKeysChannel] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('hera_midi_channel');
+      const saved = localStorage.getItem('hera_midi_keys_channel') ?? localStorage.getItem('hera_midi_channel');
+      if (saved !== null) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 16) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return 0;
+  });
+  const [midiEffectsChannel, setMidiEffectsChannel] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('hera_midi_ctrl_channel');
       if (saved !== null) {
         const parsed = parseInt(saved, 10);
         if (!isNaN(parsed) && parsed >= 0 && parsed <= 16) return parsed;
@@ -70,6 +82,7 @@ export const HeraApp: React.FC = () => {
   const [selectedLearnAction, setSelectedLearnAction] = useState<MidiMappableAction | null>(null);
   const [lastLearnedInfo, setLastLearnedInfo] = useState<{ param: string; cc: number } | null>(null);
   const loadPresetByIndexRef = useRef<((index: number) => void) | null>(null);
+  const arpActionsRef = useRef<{ toggleArp: () => void; toggleHold: () => void } | null>(null);
 
   // Help modal
   const [showHelp, setShowHelp] = useState<boolean>(false);
@@ -93,7 +106,8 @@ export const HeraApp: React.FC = () => {
     // Initialize MIDI
     const midiMgr = new MidiManager(synthEngine);
     setMidiManagerInstance(midiMgr);
-    setMidiChannel(midiMgr.getMidiChannel());
+    setMidiKeysChannel(midiMgr.getKeysChannel());
+    setMidiEffectsChannel(midiMgr.getEffectsChannel());
     setCurrentMidiMapping(midiMgr.getMapping());
     setCurrentMidiActionMapping(midiMgr.getActionMapping());
 
@@ -108,13 +122,21 @@ export const HeraApp: React.FC = () => {
       } else if (action === 'nextPreset') {
         const btn = document.querySelector('[title*="Próximo Preset"]') as HTMLButtonElement | null;
         btn?.click();
+      } else if (action === 'lfoTrig') {
+        synthEngine.triggerManualLfo();
+      } else if (action === 'arpToggle') {
+        arpActionsRef.current?.toggleArp();
+      } else if (action === 'arpHold') {
+        arpActionsRef.current?.toggleHold();
       }
     });
 
-    midiMgr.setOnActionMappingChanged((actionMap, learnedAction) => {
+    midiMgr.setOnActionMappingChanged((actionMap, learnedAction, learnedCC) => {
       setCurrentMidiActionMapping({ ...actionMap });
-      if (learnedAction) {
+      if (learnedAction && learnedCC !== undefined) {
         setSelectedLearnAction(null);
+        setLastLearnedInfo({ param: String(learnedAction), cc: learnedCC });
+        setTimeout(() => setLastLearnedInfo(null), 3500);
       }
     });
 
@@ -187,11 +209,17 @@ export const HeraApp: React.FC = () => {
     handleParamChange(chorusNum, current > 0.5 ? 0 : 1);
   };
 
-  // MIDI Channel Selection Helper
-  const handleMidiChannelChange = (newChannel: number) => {
+  // MIDI Channel Selection Helpers (Keys vs Controls/Effects)
+  const handleMidiKeysChannelChange = (newChannel: number) => {
     const ch = Math.max(0, Math.min(16, Math.floor(newChannel)));
-    setMidiChannel(ch);
-    midiManagerInstance?.setMidiChannel(ch);
+    setMidiKeysChannel(ch);
+    midiManagerInstance?.setKeysChannel(ch);
+  };
+
+  const handleMidiEffectsChannelChange = (newChannel: number) => {
+    const ch = Math.max(0, Math.min(16, Math.floor(newChannel)));
+    setMidiEffectsChannel(ch);
+    midiManagerInstance?.setEffectsChannel(ch);
   };
 
   // MIDI Learn Selection & Unmapping Helpers
@@ -201,6 +229,8 @@ export const HeraApp: React.FC = () => {
       midiManagerInstance?.setLearnParam(null);
     } else {
       setSelectedLearnParam(param);
+      setSelectedLearnAction(null);
+      midiManagerInstance?.setLearnAction(null);
       midiManagerInstance?.setLearnParam(param);
     }
   };
@@ -293,36 +323,60 @@ export const HeraApp: React.FC = () => {
 
               {/* Master Volume & Recording Controls */}
               <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-zinc-950 p-1.5 rounded border border-zinc-800">
-                {/* MIDI in LED + Direct MIDI In Channel Selector */}
-                <div className="flex items-center gap-1.5 px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 border-r border-zinc-800">
-                  <Radio
-                    size={13}
-                    className={midiActive ? 'text-emerald-400 animate-pulse' : 'text-zinc-500'}
-                  />
-                  <span className="text-[9px] text-zinc-400 font-bold tracking-wider">MIDI IN</span>
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      midiActive ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-zinc-800'
-                    }`}
-                    title={midiDevices.length > 0 ? `Conectado: ${midiDevices.map(d => d.name).join(', ')}` : 'Aguardando controlador MIDI'}
-                  />
-                  <select
-                    value={midiChannel}
-                    onChange={(e) => handleMidiChannelChange(Number(e.target.value))}
-                    aria-label="Selecionar Canal MIDI In"
-                    title="Canal de Recepção MIDI In (OMNI = Todos os canais 1-16, ou selecione um canal exclusivo)"
-                    className="ml-0.5 bg-zinc-900 hover:bg-zinc-800 text-amber-400 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 focus:outline-none focus:border-amber-500 cursor-pointer transition-colors"
-                  >
-                    <option value={0}>CH: OMNI (ALL)</option>
-                    {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
-                      <option key={ch} value={ch}>
-                        CH: {String(ch).padStart(2, '0')}
-                      </option>
-                    ))}
-                  </select>
+                {/* MIDI in LED + Dual MIDI Channel Selectors (KEYS & CTRL/FX) */}
+                <div className="flex flex-wrap items-center gap-1.5 px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 border-r border-zinc-800">
+                  <div className="flex items-center gap-1">
+                    <Radio
+                      size={13}
+                      className={midiActive ? 'text-emerald-400 animate-pulse' : 'text-zinc-500'}
+                    />
+                    <span className="text-[9px] text-zinc-400 font-bold tracking-wider">MIDI</span>
+                    <div
+                      className={`w-2 h-2 rounded-full ${
+                        midiActive ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-zinc-800'
+                      }`}
+                      title={midiDevices.length > 0 ? `Conectado: ${midiDevices.map(d => d.name).join(', ')}` : 'Aguardando controlador MIDI'}
+                    />
+                  </div>
+
+                  {/* Keys MIDI Channel Selector */}
+                  <div className="flex items-center gap-0.5" title="Canal MIDI exclusivo para as Teclas (Notas e Pitch Bend)">
+                    <span className="text-[8.5px] text-zinc-400 font-bold">TECLAS:</span>
+                    <select
+                      value={midiKeysChannel}
+                      onChange={(e) => handleMidiKeysChannelChange(Number(e.target.value))}
+                      aria-label="Selecionar Canal MIDI das Teclas"
+                      className="bg-zinc-900 hover:bg-zinc-800 text-amber-400 font-mono font-bold text-[9.5px] px-1 py-0.5 rounded border border-zinc-700 focus:outline-none focus:border-amber-500 cursor-pointer transition-colors"
+                    >
+                      <option value={0}>OMNI</option>
+                      {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                        <option key={ch} value={ch}>
+                          CH {String(ch).padStart(2, '0')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Controls & Effects MIDI Channel Selector */}
+                  <div className="flex items-center gap-0.5" title="Canal MIDI exclusivo para Controles, Modulação e Efeitos (MIDI CC / Presets)">
+                    <span className="text-[8.5px] text-sky-400 font-bold">FX/CTRL:</span>
+                    <select
+                      value={midiEffectsChannel}
+                      onChange={(e) => handleMidiEffectsChannelChange(Number(e.target.value))}
+                      aria-label="Selecionar Canal MIDI de Efeitos e Controles"
+                      className="bg-zinc-900 hover:bg-zinc-800 text-sky-300 font-mono font-bold text-[9.5px] px-1 py-0.5 rounded border border-zinc-700 focus:outline-none focus:border-sky-400 cursor-pointer transition-colors"
+                    >
+                      <option value={0}>OMNI</option>
+                      {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                        <option key={ch} value={ch}>
+                          CH {String(ch).padStart(2, '0')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
-                {/* Interactive MIDI LEARN Main Button */}
+                {/* Interactive MIDI LEARN Main Button (Fixed border/dimensions -> zero layout shift) */}
                 <button
                   type="button"
                   onClick={() => {
@@ -335,17 +389,17 @@ export const HeraApp: React.FC = () => {
                       midiManagerInstance?.setLearnAction(null);
                     }
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono font-bold transition-all cursor-pointer shadow-sm ${
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-bold transition-shadow cursor-pointer shadow-sm border ${
                     isMidiLearnActive
-                      ? 'bg-[#0284c7] text-white border-2 border-[#38bdf8] shadow-[0_0_12px_rgba(56,189,248,0.55)] ring-2 ring-sky-400/70'
-                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700'
+                      ? 'bg-[#0284c7] text-white border-[#38bdf8] shadow-[0_0_12px_rgba(56,189,248,0.55)] ring-2 ring-sky-400/70'
+                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
                   }`}
-                  title="Ativar/Desativar modo MIDI Learn para mapear controles físicos do teclado"
+                  title="Ativar/Desativar modo MIDI Learn: clique diretamente em qualquer fader, switch ou botão para mapear"
                 >
                   <Sliders size={13} className={isMidiLearnActive ? 'text-white' : 'text-sky-400'} />
-                  <span>{isMidiLearnActive ? 'LEARN [ATIVO]' : 'MIDI LEARN'}</span>
+                  <span>MIDI LEARN</span>
                   <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-black ${
-                    isMidiLearnActive ? 'bg-zinc-950 text-sky-300 border border-sky-400/40' : 'bg-zinc-900 text-zinc-400'
+                    isMidiLearnActive ? 'bg-zinc-950 text-sky-300' : 'bg-zinc-900 text-zinc-400'
                   }`}>
                     {Object.keys(currentMidiMapping).length + Object.keys(currentMidiActionMapping).length}
                   </span>
@@ -465,12 +519,60 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('LFODelay')}
                   />
                 </div>
-                {/* Manual LFO Trigger button (iconic Juno button!) */}
-                <div className="pt-0.5 border-t border-zinc-800/80 flex flex-col items-center">
+                {/* Manual LFO Trigger button (iconic Juno button - Mappable via MIDI!) */}
+                <div className="relative pt-0.5 border-t border-zinc-800/80 flex flex-col items-center">
+                  {isMidiLearnActive && (getMappedActionCC('lfoTrig') !== null || selectedLearnAction === 'lfoTrig') && (
+                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center whitespace-nowrap">
+                      {getMappedActionCC('lfoTrig') !== null ? (
+                        <div
+                          className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border shadow select-none ${
+                            selectedLearnAction === 'lfoTrig'
+                              ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
+                              : 'bg-[#0284c7] border-[#38bdf8]'
+                          }`}
+                        >
+                          <span>CC{getMappedActionCC('lfoTrig')}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUnmapAction('lfoTrig');
+                            }}
+                            className="text-white hover:text-red-200 font-bold text-[8px] leading-none cursor-pointer pl-0.5"
+                            title="Desmapear MAN TRIG"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
+                          MAPEAR
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
-                    onClick={() => synthEngine.triggerManualLfo()}
-                    className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 active:bg-amber-600 active:text-black rounded text-[8.5px] font-mono font-bold text-zinc-300 border border-zinc-700 cursor-pointer transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isMidiLearnActive) {
+                        handleSelectActionForLearn('lfoTrig');
+                      } else {
+                        synthEngine.triggerManualLfo();
+                      }
+                    }}
+                    title={
+                      isMidiLearnActive
+                        ? 'Clique para mapear MAN TRIG via MIDI'
+                        : 'Acionar gatilho manual do LFO'
+                    }
+                    className={`px-2 py-0.5 rounded text-[8.5px] font-mono font-bold border cursor-pointer transition-shadow ${
+                      selectedLearnAction === 'lfoTrig'
+                        ? 'bg-sky-500/20 text-white border-sky-400 ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
+                        : isMidiLearnActive
+                        ? 'bg-zinc-800 text-zinc-200 border-zinc-700 ring-1 ring-sky-400/25 hover:ring-sky-400/70'
+                        : 'bg-zinc-800 hover:bg-zinc-700 active:bg-amber-600 active:text-black text-zinc-300 border-zinc-700'
+                    }`}
                   >
                     MAN TRIG
                   </button>
@@ -494,6 +596,11 @@ export const HeraApp: React.FC = () => {
                       ]}
                       value={params.DCORange}
                       onChange={(v) => handleParamChange('DCORange', v)}
+                      isMidiLearnActive={isMidiLearnActive}
+                      isSelectedForLearn={selectedLearnParam === 'DCORange'}
+                      mappedCC={getMappedCC('DCORange')}
+                      onSelectForLearn={() => handleSelectForLearn('DCORange')}
+                      onUnmap={() => handleUnmapParam('DCORange')}
                     />
                     <ToggleSwitch
                       label="LFO Trig"
@@ -503,6 +610,11 @@ export const HeraApp: React.FC = () => {
                       ]}
                       value={params.LFOTrigMode}
                       onChange={(v) => handleParamChange('LFOTrigMode', v)}
+                      isMidiLearnActive={isMidiLearnActive}
+                      isSelectedForLearn={selectedLearnParam === 'LFOTrigMode'}
+                      mappedCC={getMappedCC('LFOTrigMode')}
+                      onSelectForLearn={() => handleSelectForLearn('LFOTrigMode')}
+                      onUnmap={() => handleUnmapParam('LFOTrigMode')}
                     />
                     <ToggleSwitch
                       label="PWM"
@@ -513,6 +625,11 @@ export const HeraApp: React.FC = () => {
                       ]}
                       value={params.DCOPWMMod}
                       onChange={(v) => handleParamChange('DCOPWMMod', v)}
+                      isMidiLearnActive={isMidiLearnActive}
+                      isSelectedForLearn={selectedLearnParam === 'DCOPWMMod'}
+                      mappedCC={getMappedCC('DCOPWMMod')}
+                      onSelectForLearn={() => handleSelectForLearn('DCOPWMMod')}
+                      onUnmap={() => handleUnmapParam('DCOPWMMod')}
                     />
                   </div>
 
@@ -723,6 +840,11 @@ export const HeraApp: React.FC = () => {
                     ]}
                     value={params.VCAType}
                     onChange={(v) => handleParamChange('VCAType', v)}
+                    isMidiLearnActive={isMidiLearnActive}
+                    isSelectedForLearn={selectedLearnParam === 'VCAType'}
+                    mappedCC={getMappedCC('VCAType')}
+                    onSelectForLearn={() => handleSelectForLearn('VCAType')}
+                    onUnmap={() => handleUnmapParam('VCAType')}
                   />
                   <Slider
                     label="Level"
@@ -846,18 +968,65 @@ export const HeraApp: React.FC = () => {
                   <span className="text-[10px] font-black font-mono tracking-widest text-emerald-400 uppercase">
                     ECHO DELAY
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleParamChange('DelayEnabled', params.DelayEnabled > 0.5 ? 0 : 1)}
-                    className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold border transition-all cursor-pointer ${
-                      params.DelayEnabled > 0.5
-                        ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_8px_#10b981]'
-                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
-                    }`}
-                    title="Ativar/Desativar Efeito de Delay / Eco Estéreo"
-                  >
-                    {params.DelayEnabled > 0.5 ? 'ON' : 'OFF'}
-                  </button>
+                  <div className="relative flex items-center">
+                    {isMidiLearnActive && (getMappedCC('DelayEnabled') !== null || selectedLearnParam === 'DelayEnabled') && (
+                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center whitespace-nowrap">
+                        {getMappedCC('DelayEnabled') !== null ? (
+                          <div
+                            className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border shadow select-none ${
+                              selectedLearnParam === 'DelayEnabled'
+                                ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
+                                : 'bg-[#0284c7] border-[#38bdf8]'
+                            }`}
+                          >
+                            <span>CC{getMappedCC('DelayEnabled')}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUnmapParam('DelayEnabled');
+                              }}
+                              className="text-white hover:text-red-200 font-bold text-[8px] leading-none cursor-pointer pl-0.5"
+                              title="Desmapear Delay ON/OFF"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
+                            MAPEAR
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isMidiLearnActive) {
+                          handleSelectForLearn('DelayEnabled');
+                        } else {
+                          handleParamChange('DelayEnabled', params.DelayEnabled > 0.5 ? 0 : 1);
+                        }
+                      }}
+                      className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold border transition-shadow cursor-pointer ${
+                        selectedLearnParam === 'DelayEnabled'
+                          ? 'bg-sky-500/30 text-white border-sky-400 ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
+                          : isMidiLearnActive
+                          ? 'bg-zinc-800 text-zinc-200 border-zinc-700 ring-1 ring-sky-400/25 hover:ring-sky-400/70'
+                          : params.DelayEnabled > 0.5
+                          ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_8px_#10b981]'
+                          : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                      }`}
+                      title={
+                        isMidiLearnActive
+                          ? 'Clique para mapear Echo Delay ON/OFF via MIDI'
+                          : 'Ativar/Desativar Efeito de Delay / Eco Estéreo'
+                      }
+                    >
+                      {params.DelayEnabled > 0.5 ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center justify-center gap-1 my-1">
                   <Slider
@@ -920,7 +1089,17 @@ export const HeraApp: React.FC = () => {
                 loadPresetByIndexRef.current = fn;
               }}
             />
-            <Arpeggiator />
+            <Arpeggiator
+              isMidiLearnActive={isMidiLearnActive}
+              selectedLearnAction={selectedLearnAction}
+              mappedCCArpToggle={getMappedActionCC('arpToggle')}
+              mappedCCArpHold={getMappedActionCC('arpHold')}
+              onSelectActionForLearn={handleSelectActionForLearn}
+              onUnmapAction={handleUnmapAction}
+              onRegisterArpActions={(handlers) => {
+                arpActionsRef.current = handlers;
+              }}
+            />
           </div>
 
           {/* Bottom Virtual Piano Keyboard & Controls */}
@@ -959,13 +1138,13 @@ export const HeraApp: React.FC = () => {
             {/* Modal Body (Scrollable) */}
             <div className="text-xs space-y-3.5 text-zinc-300 font-sans flex-1 overflow-y-auto pr-2 my-3 overscroll-contain">
               <div>
-                <h4 className="font-bold text-zinc-100 mb-1">Canal de Recepção MIDI In</h4>
+                <h4 className="font-bold text-zinc-100 mb-1">Canais MIDI Independentes (Teclas vs Controles/Efeitos)</h4>
                 <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-2 border border-zinc-800 text-zinc-300">
                   <div className="flex items-center justify-between gap-2">
-                    <span>Selecione o canal MIDI do seu controlador:</span>
+                    <span>1. Canal MIDI para <strong className="text-amber-400">Teclas (Notas)</strong>:</span>
                     <select
-                      value={midiChannel}
-                      onChange={(e) => handleMidiChannelChange(Number(e.target.value))}
+                      value={midiKeysChannel}
+                      onChange={(e) => handleMidiKeysChannelChange(Number(e.target.value))}
                       className="bg-zinc-900 text-amber-400 font-mono font-bold text-xs px-2.5 py-1 rounded border border-amber-500/50 focus:outline-none cursor-pointer"
                     >
                       <option value={0}>OMNI (Todos 1-16)</option>
@@ -976,8 +1155,23 @@ export const HeraApp: React.FC = () => {
                       ))}
                     </select>
                   </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>2. Canal MIDI para <strong className="text-sky-400">Controles e Efeitos</strong>:</span>
+                    <select
+                      value={midiEffectsChannel}
+                      onChange={(e) => handleMidiEffectsChannelChange(Number(e.target.value))}
+                      className="bg-zinc-900 text-sky-300 font-mono font-bold text-xs px-2.5 py-1 rounded border border-sky-400/50 focus:outline-none cursor-pointer"
+                    >
+                      <option value={0}>OMNI (Todos 1-16)</option>
+                      {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                        <option key={ch} value={ch}>
+                          Canal {String(ch).padStart(2, '0')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <p className="text-[10px] text-zinc-400">
-                    Você também pode alterar o canal diretamente na barra superior ao lado do LED <strong className="text-emerald-400">MIDI IN</strong>. Sua escolha fica salva automaticamente.
+                    Você também pode alterar ambos os canais diretamente na barra superior (<strong className="text-amber-400">TECLAS</strong> e <strong className="text-sky-400">FX/CTRL</strong>).
                   </p>
                 </div>
               </div>
@@ -985,11 +1179,11 @@ export const HeraApp: React.FC = () => {
               <div>
                 <h4 className="font-bold text-zinc-100 mb-1">Como usar o MIDI Learn</h4>
                 <div className="bg-zinc-950 p-2.5 rounded font-mono text-[11px] space-y-1.5 border border-zinc-800 text-zinc-300">
-                  <p>1. Clique no botão <strong className="text-amber-400">MIDI LEARN</strong> na barra superior.</p>
-                  <p>2. Todos os controles mostrarão as etiquetas de CC atual ou botão <code className="text-amber-400">+ LEARN</code>.</p>
-                  <p>3. Toque no controle desejado: uma <strong className="text-amber-400">auréola luminosa</strong> indicará que ele está selecionado.</p>
-                  <p>4. Mova qualquer knob ou fader no seu controlador MIDI: o controle será vinculado imediatamente!</p>
-                  <p>5. Para desmapear, basta clicar no <strong className="text-red-400">✕</strong> na etiqueta do controle.</p>
+                  <p>1. Clique no botão <strong className="text-sky-400">MIDI LEARN</strong> na barra superior.</p>
+                  <p>2. Os controles que já possuem vínculo mostram o balão <code className="text-sky-400">CCxx ✕</code>; os não mapeados ficam limpos sem balão.</p>
+                  <p>3. Clique em <strong className="text-amber-400">qualquer parte</strong> de um fader, chave seletora (switch) ou botão de efeito (Chorus, Echo Delay ON/OFF, Arp): a <strong className="text-sky-400">auréola luminosa</strong> e o balão <code className="text-sky-400">MAPEAR</code> aparecerão.</p>
+                  <p>4. Mova o knob, fader ou botão no seu controlador MIDI: o vínculo será salvo imediatamente!</p>
+                  <p>5. Para remover um vínculo, clique no <strong className="text-red-400">✕</strong> no balão do controle.</p>
                 </div>
               </div>
 

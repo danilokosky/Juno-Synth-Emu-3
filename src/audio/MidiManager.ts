@@ -41,7 +41,7 @@ export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
   88: 'DelayMix',        // Echo Delay Mix
 };
 
-export type MidiMappableAction = 'prevPreset' | 'nextPreset';
+export type MidiMappableAction = 'prevPreset' | 'nextPreset' | 'lfoTrig' | 'arpToggle' | 'arpHold';
 
 export class MidiManager {
   private midiAccess: MIDIAccess | null = null;
@@ -61,7 +61,10 @@ export class MidiManager {
   private synth: HeraSynthesizerEngine;
 
   // 0 = OMNI (Global / All Channels 1-16), 1..16 = Specific MIDI Channel
-  private midiChannel: number = 0;
+  // keysChannel: filters Note On (0x9), Note Off (0x8), Pitch Bend (0xE)
+  private keysChannel: number = 0;
+  // effectsChannel: filters Control Change (0xB) & Program Change (0xC) (all mappable controls, modulation & effects)
+  private effectsChannel: number = 0;
 
   private ccMapping: Record<number, keyof HeraParameters> = { ...DEFAULT_MIDI_CC_MAP };
   private actionMapping: Record<number, MidiMappableAction> = { 110: 'prevPreset', 111: 'nextPreset' };
@@ -71,11 +74,18 @@ export class MidiManager {
   constructor(synth: HeraSynthesizerEngine) {
     this.synth = synth;
     try {
-      const savedChannel = localStorage.getItem('hera_midi_channel');
-      if (savedChannel !== null) {
-        const parsed = parseInt(savedChannel, 10);
+      const savedKeys = localStorage.getItem('hera_midi_keys_channel') ?? localStorage.getItem('hera_midi_channel');
+      if (savedKeys !== null) {
+        const parsed = parseInt(savedKeys, 10);
         if (!isNaN(parsed) && parsed >= 0 && parsed <= 16) {
-          this.midiChannel = parsed;
+          this.keysChannel = parsed;
+        }
+      }
+      const savedFx = localStorage.getItem('hera_midi_ctrl_channel');
+      if (savedFx !== null) {
+        const parsed = parseInt(savedFx, 10);
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 16) {
+          this.effectsChannel = parsed;
         }
       }
     } catch {
@@ -83,21 +93,37 @@ export class MidiManager {
     }
   }
 
-  setMidiChannel(channel: number) {
+  setKeysChannel(channel: number) {
     const clamped = Math.max(0, Math.min(16, Math.floor(channel)));
-    if (this.midiChannel !== clamped) {
-      this.midiChannel = clamped;
+    if (this.keysChannel !== clamped) {
+      this.keysChannel = clamped;
       this.synth.allNotesOff();
       try {
-        localStorage.setItem('hera_midi_channel', String(clamped));
+        localStorage.setItem('hera_midi_keys_channel', String(clamped));
       } catch {
         // localStorage unavailable
       }
     }
   }
 
-  getMidiChannel(): number {
-    return this.midiChannel;
+  getKeysChannel(): number {
+    return this.keysChannel;
+  }
+
+  setEffectsChannel(channel: number) {
+    const clamped = Math.max(0, Math.min(16, Math.floor(channel)));
+    if (this.effectsChannel !== clamped) {
+      this.effectsChannel = clamped;
+      try {
+        localStorage.setItem('hera_midi_ctrl_channel', String(clamped));
+      } catch {
+        // localStorage unavailable
+      }
+    }
+  }
+
+  getEffectsChannel(): number {
+    return this.effectsChannel;
   }
 
   async init(
@@ -266,9 +292,16 @@ export class MidiManager {
     const command = statusByte >> 4;
     const msgChannel = (statusByte & 0x0f) + 1; // 1..16
 
-    // Filter channel voice messages (0x8..0xE) if a specific MIDI In channel (1..16) is selected
-    if (command >= 0x8 && command <= 0xe) {
-      if (this.midiChannel > 0 && msgChannel !== this.midiChannel) {
+    // 1. Keys / Notes Channel Filtering (Note On 0x9, Note Off 0x8, Pitch Bend 0xE)
+    if (command === 0x9 || command === 0x8 || command === 0xe) {
+      if (this.keysChannel > 0 && msgChannel !== this.keysChannel) {
+        return;
+      }
+    }
+
+    // 2. Controls / Modulation / Effects Channel Filtering (Control Change 0xB, Program Change 0xC)
+    if (command === 0xb || command === 0xc) {
+      if (this.effectsChannel > 0 && msgChannel !== this.effectsChannel) {
         return;
       }
     }
@@ -330,7 +363,7 @@ export class MidiManager {
           console.log(`MIDI Learn complete: CC ${cc} mapped to ${learned}`);
         }
 
-        // MIDI Learn interception for Actions (e.g. prevPreset, nextPreset)
+        // MIDI Learn interception for Actions (e.g. prevPreset, nextPreset, lfoTrig, arpToggle, arpHold)
         if (this.activeLearnAction) {
           const learned = this.activeLearnAction;
           for (const [k, v] of Object.entries(this.actionMapping)) {
@@ -362,7 +395,11 @@ export class MidiManager {
             paramValue = Math.min(2, Math.floor(normalized * 3));
           } else if (targetParam === 'VCAType' || targetParam === 'LFOTrigMode') {
             paramValue = normalized >= 0.5 ? 1 : 0;
-          } else if (targetParam === 'ChorusI' || targetParam === 'ChorusII') {
+          } else if (
+            targetParam === 'ChorusI' ||
+            targetParam === 'ChorusII' ||
+            targetParam === 'DelayEnabled'
+          ) {
             paramValue = normalized >= 0.5 ? 1 : 0;
           } else if (targetParam === 'VCFEnv') {
             // Bipolar: -1.0 to 1.0

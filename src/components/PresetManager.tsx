@@ -232,53 +232,51 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
         <div className="flex items-center gap-1.5 ml-auto">
           {/* Previous Preset Button (Mappable via MIDI) */}
           <div className="relative flex flex-col items-center">
-            {isMidiLearnActive && (
-              <div className="absolute -top-6 flex items-center justify-center min-h-[16px] z-30">
+            {isMidiLearnActive && (mappedCCPrev !== null || selectedLearnAction === 'prevPreset') && (
+              <div className="absolute -top-5 left-1/2 -translate-x-1/2 flex items-center justify-center whitespace-nowrap z-30">
                 {mappedCCPrev !== null && mappedCCPrev !== undefined ? (
-                  <div className="inline-flex items-center gap-1 bg-[#0284c7] text-white text-[8px] font-mono font-bold px-1.5 py-0.2 rounded-full border border-[#38bdf8] shadow select-none">
-                    <span>CC {mappedCCPrev}</span>
+                  <div
+                    className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border shadow select-none ${
+                      selectedLearnAction === 'prevPreset'
+                        ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
+                        : 'bg-[#0284c7] border-[#38bdf8]'
+                    }`}
+                  >
+                    <span>CC{mappedCCPrev}</span>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         onUnmapAction?.('prevPreset');
                       }}
-                      className="text-white hover:text-red-300 font-bold text-[9px] cursor-pointer"
+                      className="text-white hover:text-red-200 font-bold text-[8px] leading-none cursor-pointer pl-0.5"
                       title="Desmapear CC Prev"
                     >
                       ✕
                     </button>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectActionForLearn?.('prevPreset');
-                    }}
-                    className={`rounded-full px-1.5 py-0.2 text-[7.5px] font-mono font-bold cursor-pointer transition-all ${
-                      selectedLearnAction === 'prevPreset'
-                        ? 'bg-[#0284c7] text-white border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.7)]'
-                        : 'bg-zinc-950 text-sky-400 border border-sky-400/40 hover:text-white'
-                    }`}
-                  >
-                    {selectedLearnAction === 'prevPreset' ? 'AURÉOLA' : '+ LEARN'}
-                  </button>
+                  <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
+                    MAPEAR
+                  </div>
                 )}
               </div>
             )}
             <button
               type="button"
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 if (isMidiLearnActive) {
                   onSelectActionForLearn?.('prevPreset');
                 } else {
                   handlePrev();
                 }
               }}
-              className={`p-1.5 rounded border transition-colors cursor-pointer shadow-sm ${
+              className={`p-1.5 rounded border transition-shadow cursor-pointer shadow-sm ${
                 selectedLearnAction === 'prevPreset'
-                  ? 'bg-sky-600 text-white border-sky-400 ring-2 ring-sky-400'
+                  ? 'bg-sky-600/30 text-white border-sky-400 ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
+                  : isMidiLearnActive
+                  ? 'bg-zinc-800 text-zinc-200 border-zinc-700 ring-1 ring-sky-400/25 hover:ring-sky-400/70'
                   : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700 active:bg-zinc-900'
               }`}
               title="Preset Anterior (Program Change / MIDI CC)"
@@ -289,53 +287,51 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
 
           {/* Next Preset Button (Mappable via MIDI) */}
           <div className="relative flex flex-col items-center">
-            {isMidiLearnActive && (
-              <div className="absolute -top-6 flex items-center justify-center min-h-[16px] z-30">
+            {isMidiLearnActive && (mappedCCNext !== null || selectedLearnAction === 'nextPreset') && (
+              <div className="absolute -top-5 left-1/2 -translate-x-1/2 flex items-center justify-center whitespace-nowrap z-30">
                 {mappedCCNext !== null && mappedCCNext !== undefined ? (
-                  <div className="inline-flex items-center gap-1 bg-[#0284c7] text-white text-[8px] font-mono font-bold px-1.5 py-0.2 rounded-full border border-[#38bdf8] shadow select-none">
-                    <span>CC {mappedCCNext}</span>
+                  <div
+                    className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border shadow select-none ${
+                      selectedLearnAction === 'nextPreset'
+                        ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
+                        : 'bg-[#0284c7] border-[#38bdf8]'
+                    }`}
+                  >
+                    <span>CC{mappedCCNext}</span>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         onUnmapAction?.('nextPreset');
                       }}
-                      className="text-white hover:text-red-300 font-bold text-[9px] cursor-pointer"
+                      className="text-white hover:text-red-200 font-bold text-[8px] leading-none cursor-pointer pl-0.5"
                       title="Desmapear CC Next"
                     >
                       ✕
                     </button>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectActionForLearn?.('nextPreset');
-                    }}
-                    className={`rounded-full px-1.5 py-0.2 text-[7.5px] font-mono font-bold cursor-pointer transition-all ${
-                      selectedLearnAction === 'nextPreset'
-                        ? 'bg-[#0284c7] text-white border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.7)]'
-                        : 'bg-zinc-950 text-sky-400 border border-sky-400/40 hover:text-white'
-                    }`}
-                  >
-                    {selectedLearnAction === 'nextPreset' ? 'AURÉOLA' : '+ LEARN'}
-                  </button>
+                  <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
+                    MAPEAR
+                  </div>
                 )}
               </div>
             )}
             <button
               type="button"
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 if (isMidiLearnActive) {
                   onSelectActionForLearn?.('nextPreset');
                 } else {
                   handleNext();
                 }
               }}
-              className={`p-1.5 rounded border transition-colors cursor-pointer shadow-sm ${
+              className={`p-1.5 rounded border transition-shadow cursor-pointer shadow-sm ${
                 selectedLearnAction === 'nextPreset'
-                  ? 'bg-sky-600 text-white border-sky-400 ring-2 ring-sky-400'
+                  ? 'bg-sky-600/30 text-white border-sky-400 ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
+                  : isMidiLearnActive
+                  ? 'bg-zinc-800 text-zinc-200 border-zinc-700 ring-1 ring-sky-400/25 hover:ring-sky-400/70'
                   : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700 active:bg-zinc-900'
               }`}
               title="Próximo Preset (Program Change / MIDI CC)"
