@@ -1,0 +1,6 @@
+{
+  "summary":  "Plano de implementacao para alocacao polifonica Round-Robin de 6 vozes e retrigger analogico continuo (Warm Capacitor Retrigger) sem zerar o envelope VCA/VCF, eliminando cortes e estalos no arpejador.",
+  "updatedAt":  "2026-11-01T21:20:28.136849214Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
