@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <aaudio/AAudio.h>
 #include <android/log.h>
+#include <cstring>
 #include <memory>
 #include <atomic>
 #include "HeraEngine.hpp"
@@ -73,7 +74,9 @@ bool openAndStartStream() {
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setChannelCount(builder, 2);
+#if __ANDROID_API__ >= 28
     AAudioStreamBuilder_setUsage(builder, AAUDIO_USAGE_MEDIA);
+#endif
     AAudioStreamBuilder_setDataCallback(builder, dataCallback, gEngine.get());
     AAudioStreamBuilder_setErrorCallback(builder, errorCallback, gEngine.get());
 

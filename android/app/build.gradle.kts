@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.hera.juno"
-        minSdk = 26 // Android 8.0+ required for Native AAudio & Native MIDI API
+        minSdk = 28 // Android 9.0+ required for full Native AAudio Usage API & Native MIDI API
         targetSdk = 34
         versionCode = 2
         versionName = "2.0.0-native"
