@@ -21,6 +21,7 @@ declare global {
   interface Window {
     AndroidHost?: {
       saveTextFile?: (filename: string, content: string, mimeType: string) => boolean;
+      refreshMidiDevices?: () => void;
     };
   }
 }

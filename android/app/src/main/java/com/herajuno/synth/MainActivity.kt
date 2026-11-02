@@ -3,12 +3,20 @@ package com.herajuno.synth
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.media.midi.MidiDevice
+import android.media.midi.MidiDeviceInfo
+import android.media.midi.MidiManager
+import android.media.midi.MidiOutputPort
+import android.media.midi.MidiReceiver
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
@@ -30,6 +38,33 @@ class MainActivity : ComponentActivity() {
     private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
     private var pendingSaveContent: String? = null
     private var pendingSaveFilename: String? = null
+
+    // Native Android USB / Bluetooth MIDI Bridge state
+    private var androidMidiManager: MidiManager? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val openedMidiDevices = mutableMapOf<Int, MidiDevice>()
+    private val openedOutputPorts = mutableListOf<MidiOutputPort>()
+    private val connectedDeviceNames = mutableMapOf<Int, String>()
+
+    private val midiDeviceCallback = object : MidiManager.DeviceCallback() {
+        override fun onDeviceAdded(device: MidiDeviceInfo?) {
+            device?.let { openMidiDevice(it) }
+        }
+
+        override fun onDeviceRemoved(device: MidiDeviceInfo?) {
+            device?.let { info ->
+                connectedDeviceNames.remove(info.id)
+                openedMidiDevices.remove(info.id)?.let { dev ->
+                    try {
+                        dev.close()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error closing removed MIDI device", e)
+                    }
+                }
+                notifyWebViewMidiDevices()
+            }
+        }
+    }
 
     // Launcher for <input type="file"> (Load Preset XML)
     private val fileChooserLauncher = registerForActivityResult(
@@ -121,6 +156,93 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun initNativeAndroidMidi() {
+        try {
+            val mgr = getSystemService(Context.MIDI_SERVICE) as? MidiManager ?: return
+            this.androidMidiManager = mgr
+            mgr.registerDeviceCallback(midiDeviceCallback, mainHandler)
+            for (info in mgr.devices) {
+                openMidiDevice(info)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Native Android MidiManager initialization error", e)
+        }
+    }
+
+    private fun openMidiDevice(info: MidiDeviceInfo) {
+        try {
+            val mgr = androidMidiManager ?: return
+            if (openedMidiDevices.containsKey(info.id)) return
+
+            val props = info.properties
+            val name = props.getString(MidiDeviceInfo.PROPERTY_NAME)
+                ?: props.getString(MidiDeviceInfo.PROPERTY_PRODUCT)
+                ?: "MIDI Controller ${info.id}"
+
+            mgr.openDevice(info, { device ->
+                if (device == null) return@openDevice
+                openedMidiDevices[info.id] = device
+                connectedDeviceNames[info.id] = name
+
+                // Open ALL output ports (e.g., Launchkey MK4 MIDI port + DAW port)
+                for (portInfo in info.ports) {
+                    if (portInfo.type == MidiDeviceInfo.PortInfo.TYPE_OUTPUT) {
+                        try {
+                            val outputPort = device.openOutputPort(portInfo.portNumber)
+                            if (outputPort != null) {
+                                openedOutputPorts.add(outputPort)
+                                outputPort.connect(object : MidiReceiver() {
+                                    override fun onSend(
+                                        msg: ByteArray?,
+                                        offset: Int,
+                                        count: Int,
+                                        timestamp: Long
+                                    ) {
+                                        if (msg == null || count <= 0) return
+                                        val sb = StringBuilder(count * 4)
+                                        for (i in 0 until count) {
+                                            if (i > 0) sb.append(',')
+                                            sb.append(msg[offset + i].toInt() and 0xFF)
+                                        }
+                                        val payload = sb.toString()
+                                        mainHandler.post {
+                                            webView?.evaluateJavascript(
+                                                "window.__onAndroidNativeMidi && window.__onAndroidNativeMidi([$payload]);",
+                                                null
+                                            )
+                                        }
+                                    }
+                                })
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to open MIDI output port ${portInfo.portNumber}", e)
+                        }
+                    }
+                }
+                notifyWebViewMidiDevices()
+            }, mainHandler)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to open MIDI device", e)
+        }
+    }
+
+    private fun notifyWebViewMidiDevices() {
+        mainHandler.post {
+            try {
+                val escapedNames = connectedDeviceNames.values.joinToString(",") { raw ->
+                    val safe = raw.replace("\\", "\\\\").replace("\"", "\\\"")
+                    "\"$safe\""
+                }
+                webView?.evaluateJavascript(
+                    "window.__onAndroidNativeMidiDevices && window.__onAndroidNativeMidiDevices([$escapedNames]);",
+                    null
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Error notifying WebView of MIDI devices", e)
+            }
+        }
+    }
+
     inner class AndroidHostBridge {
         @JavascriptInterface
         fun saveTextFile(filename: String, content: String, mimeType: String): Boolean {
@@ -144,6 +266,18 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error in saveTextFile bridge", e)
                 saveDirectlyToDownloads(filename, content)
+            }
+        }
+
+        @JavascriptInterface
+        fun refreshMidiDevices() {
+            mainHandler.post {
+                try {
+                    androidMidiManager?.devices?.forEach { openMidiDevice(it) }
+                    notifyWebViewMidiDevices()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error in refreshMidiDevices", e)
+                }
             }
         }
     }
@@ -189,7 +323,7 @@ class MainActivity : ComponentActivity() {
                 // Enable OpenGL hardware acceleration
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-                // Register native bridge for Preset XML Export/Download
+                // Register native bridge for Preset XML Export/Download & Native MIDI
                 addJavascriptInterface(AndroidHostBridge(), "AndroidHost")
 
                 webChromeClient = object : WebChromeClient() {
@@ -255,12 +389,16 @@ class MainActivity : ComponentActivity() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         Log.i(TAG, "Hera Juno Synthesizer loaded successfully: $url")
+                        notifyWebViewMidiDevices()
                     }
                 }
             }
 
             this.webView = wv
             setContentView(wv)
+
+            // Initialize Native Android USB / BLE MIDI Bridge
+            initNativeAndroidMidi()
 
             // Load via secure asset loader (enables ES Modules & Web Audio with zero CORS issues)
             wv.loadUrl("https://appassets.androidplatform.net/assets/index.html")
@@ -304,6 +442,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         try {
             webView?.onResume()
+            androidMidiManager?.devices?.forEach { openMidiDevice(it) }
+            notifyWebViewMidiDevices()
         } catch (e: Exception) {
             Log.e(TAG, "Error in onResume", e)
         }
@@ -321,6 +461,20 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         try {
+            androidMidiManager?.unregisterDeviceCallback(midiDeviceCallback)
+            for (port in openedOutputPorts) {
+                try {
+                    port.close()
+                } catch (_: Exception) {}
+            }
+            openedOutputPorts.clear()
+            for (dev in openedMidiDevices.values) {
+                try {
+                    dev.close()
+                } catch (_: Exception) {}
+            }
+            openedMidiDevices.clear()
+            connectedDeviceNames.clear()
             webView?.destroy()
             webView = null
         } catch (e: Exception) {

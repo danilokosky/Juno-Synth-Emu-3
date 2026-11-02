@@ -260,6 +260,7 @@ export interface MidiControllerProfile {
   name: string;
   paramToCC: Partial<Record<keyof HeraParameters, number>>;
   paramToChannel?: Partial<Record<keyof HeraParameters, number>>;
+  mapping?: Record<number, keyof HeraParameters>; // Legacy migration support
   actionMapping: Record<number, MidiMappableAction>;
   actionToChannel?: Partial<Record<MidiMappableAction, number>>;
   keysChannel: number;
@@ -267,8 +268,19 @@ export interface MidiControllerProfile {
   sectionChannels: MidiSectionChannels;
 }
 
-const PROFILES_STORAGE_KEY = 'hera_midi_profiles_v2';
-const ACTIVE_PROFILE_STORAGE_KEY = 'hera_active_midi_profile_id_v2';
+declare global {
+  interface Window {
+    __onAndroidNativeMidi?: (bytes: number[]) => void;
+    __onAndroidNativeMidiDevices?: (deviceNames: string[]) => void;
+    AndroidHost?: {
+      saveTextFile?: (filename: string, content: string, mimeType: string) => boolean;
+      refreshMidiDevices?: () => void;
+    };
+  }
+}
+
+const PROFILES_STORAGE_KEY = 'hera_midi_profiles_v4';
+const ACTIVE_PROFILE_STORAGE_KEY = 'hera_active_midi_profile_id_v4';
 export const DEFAULT_PROFILE_ID = 'launchkey-mk4';
 
 function buildDefaultParamToCC(): Partial<Record<keyof HeraParameters, number>> {
@@ -298,6 +310,7 @@ export class MidiManager {
   private midiAccess: MIDIAccess | null = null;
   private isSupported: boolean = false;
   private connectedDevices: MidiDevice[] = [];
+  private nativeDeviceNames: string[] = [];
   private onDevicesChanged?: (devices: MidiDevice[]) => void;
   private onMidiActivity?: (cc?: number, value?: number, channel?: number) => void;
   private onParamChangedFromMidi?: (param: keyof HeraParameters, value: number) => void;
@@ -339,6 +352,10 @@ export class MidiManager {
 
   private activeLearnParam: keyof HeraParameters | null = null;
   private activeLearnAction: MidiMappableAction | null = null;
+
+  // Deduplication state between Web MIDI and Android Native MIDI Bridge
+  private lastMsgSig: number = -1;
+  private lastMsgTimestamp: number = 0;
 
   constructor(synth: HeraSynthesizerEngine) {
     this.synth = synth;
@@ -393,15 +410,30 @@ export class MidiManager {
       });
     }
 
-    // Normalize all saved profiles while strictly preserving user-unmapped controls
+    // Normalize all saved profiles and migrate legacy `mapping` if `paramToCC` was empty
     loadedProfiles = loadedProfiles.map((prof) => {
       const mergedSections: MidiSectionChannels = {
         ...LAUNCHKEY_MK4_SECTION_CHANNELS,
         ...(prof.sectionChannels || {}),
       };
-      const mergedParamToCC: Partial<Record<keyof HeraParameters, number>> = {
+
+      let mergedParamToCC: Partial<Record<keyof HeraParameters, number>> = {
         ...(prof.paramToCC || {}),
       };
+
+      // Migrate legacy `mapping` (CC -> Param) if `paramToCC` is empty
+      if (Object.keys(mergedParamToCC).length === 0 && prof.mapping) {
+        for (const [ccStr, paramKey] of Object.entries(prof.mapping)) {
+          if (paramKey) {
+            mergedParamToCC[paramKey as keyof HeraParameters] = Number(ccStr);
+          }
+        }
+      }
+
+      // Ensure default Launchkey MK4 profile never loses its default mappings if corrupted/empty
+      if (prof.id === DEFAULT_PROFILE_ID && Object.keys(mergedParamToCC).length === 0) {
+        mergedParamToCC = { ...defaultMap };
+      }
 
       return {
         ...prof,
@@ -425,7 +457,10 @@ export class MidiManager {
       this.profiles[0];
 
     this.activeProfileId = active.id;
-    this.paramToCC = { ...(active.paramToCC || buildDefaultParamToCC()) };
+    this.paramToCC =
+      active.paramToCC && Object.keys(active.paramToCC).length > 0
+        ? { ...active.paramToCC }
+        : buildDefaultParamToCC();
     this.sectionChannels = {
       ...LAUNCHKEY_MK4_SECTION_CHANNELS,
       ...(active.sectionChannels || {}),
@@ -663,37 +698,38 @@ export class MidiManager {
   }
 
   /**
-   * Determines whether a given parameter responds to a CC message on `msgChannel` (1..16).
-   * Uses the configured section channel (`0` = OMNI, `1..16` = specific MIDI channel).
+   * Determines whether a given parameter strictly matches `msgChannel` (1..16).
+   * Matches if the section is set to OMNI (0), or if `msgChannel` equals the configured
+   * section channel, or if `msgChannel` equals the parameter's individual learned channel.
    */
   private doesParamMatchChannel(param: keyof HeraParameters, msgChannel: number): boolean {
     const section = getSectionForParam(param);
     const sectionCh = this.sectionChannels[section] ?? 0;
-    if (sectionCh >= 1 && sectionCh <= 16) {
-      return msgChannel === sectionCh;
+    if (sectionCh === 0) {
+      return true; // OMNI
     }
 
     const learnedCh = this.paramToChannel[param];
-    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16) {
-      return msgChannel === learnedCh;
+    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16 && msgChannel === learnedCh) {
+      return true;
     }
 
-    return true; // OMNI
+    return msgChannel === sectionCh;
   }
 
   private doesActionMatchChannel(action: MidiMappableAction, msgChannel: number): boolean {
     const section = getSectionForAction(action);
     const sectionCh = this.sectionChannels[section] ?? 0;
-    if (sectionCh >= 1 && sectionCh <= 16) {
-      return msgChannel === sectionCh;
+    if (sectionCh === 0) {
+      return true; // OMNI
     }
 
     const learnedCh = this.actionToChannel[action];
-    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16) {
-      return msgChannel === learnedCh;
+    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16 && msgChannel === learnedCh) {
+      return true;
     }
 
-    return true; // OMNI
+    return msgChannel === sectionCh;
   }
 
   async init(
@@ -711,6 +747,27 @@ export class MidiManager {
     this.onParamChangedFromMidi = onParamChangedFromMidi;
     this.onMappingChanged = onMappingChanged;
 
+    // 1. Register Android Native MIDI Bridge callbacks (for APK WebView where Web MIDI may be absent)
+    if (typeof window !== 'undefined') {
+      window.__onAndroidNativeMidi = (bytes: number[]) => {
+        if (Array.isArray(bytes) && bytes.length > 0) {
+          this.handleRawMidiPacket(bytes);
+        }
+      };
+      window.__onAndroidNativeMidiDevices = (deviceNames: string[]) => {
+        if (Array.isArray(deviceNames)) {
+          this.nativeDeviceNames = deviceNames;
+          this.emitCombinedDevices();
+        }
+      };
+      try {
+        window.AndroidHost?.refreshMidiDevices?.();
+      } catch {
+        // ignore if not on Android host
+      }
+    }
+
+    // 2. Initialize standard Web MIDI API
     if (typeof navigator !== 'undefined' && 'requestMIDIAccess' in navigator) {
       this.isSupported = true;
       try {
@@ -719,10 +776,28 @@ export class MidiManager {
         this.updateInputs();
       } catch (err) {
         console.warn('Web MIDI Access not granted or available:', err);
+        this.emitCombinedDevices();
       }
     } else {
-      this.isSupported = false;
+      this.isSupported = typeof window !== 'undefined' && Boolean(window.AndroidHost);
+      this.emitCombinedDevices();
     }
+  }
+
+  private emitCombinedDevices() {
+    const combined: MidiDevice[] = [...this.connectedDevices];
+    for (let i = 0; i < this.nativeDeviceNames.length; i++) {
+      const name = this.nativeDeviceNames[i];
+      if (!combined.some((d) => d.name === name)) {
+        combined.push({
+          id: `android-midi-${i}`,
+          name,
+          manufacturer: 'Android MIDI',
+          state: 'connected',
+        });
+      }
+    }
+    this.onDevicesChanged?.(combined);
   }
 
   setOnMappingChanged(
@@ -746,7 +821,10 @@ export class MidiManager {
   mapCC(cc: number, param: keyof HeraParameters, learnedChannel?: number) {
     const targetSection = getSectionForParam(param);
     const sectionCh = this.sectionChannels[targetSection] ?? 0;
-    const effectiveChannel = sectionCh > 0 ? sectionCh : (learnedChannel ?? 0);
+    const effectiveChannel =
+      learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16
+        ? learnedChannel
+        : sectionCh;
 
     // Remove duplicate CC for any other parameter that listens on the same MIDI channel / section
     for (const [p, existingCC] of Object.entries(this.paramToCC)) {
@@ -755,9 +833,11 @@ export class MidiManager {
 
       const otherSection = getSectionForParam(paramKey);
       const otherSectionCh = this.sectionChannels[otherSection] ?? 0;
+      const otherLearnedCh = this.paramToChannel[paramKey] ?? otherSectionCh;
 
       if (
         otherSection === targetSection ||
+        otherLearnedCh === effectiveChannel ||
         otherSectionCh === effectiveChannel ||
         otherSectionCh === 0 ||
         effectiveChannel === 0
@@ -768,8 +848,8 @@ export class MidiManager {
     }
 
     this.paramToCC[param] = cc;
-    if (sectionCh >= 1 && sectionCh <= 16) {
-      this.paramToChannel[param] = sectionCh;
+    if (effectiveChannel >= 1 && effectiveChannel <= 16) {
+      this.paramToChannel[param] = effectiveChannel;
     } else {
       delete this.paramToChannel[param];
     }
@@ -850,9 +930,11 @@ export class MidiManager {
     this.actionMapping[cc] = action;
     const section = getSectionForAction(action);
     const sectionCh = this.sectionChannels[section] ?? 0;
-    if (sectionCh >= 1 && sectionCh <= 16) {
+    if (learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16) {
+      this.actionToChannel[action] = learnedChannel;
+    } else if (sectionCh >= 1 && sectionCh <= 16) {
       this.actionToChannel[action] = sectionCh;
-    } else if (learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16) {
+    } else {
       delete this.actionToChannel[action];
     }
     this.persistProfilesToStorage();
@@ -886,7 +968,7 @@ export class MidiManager {
 
   resetToDefaultMapping() {
     this.paramToCC = buildDefaultParamToCC();
-    this.paramToChannel = {};
+    this.paramToChannel = buildDefaultParamToChannel(this.paramToCC, this.sectionChannels);
     this.actionMapping = buildDefaultActionMapping();
     this.actionToChannel = {};
     this.persistProfilesToStorage();
@@ -912,13 +994,82 @@ export class MidiManager {
     }
 
     this.connectedDevices = devices;
-    this.onDevicesChanged?.(devices);
+    this.emitCombinedDevices();
   }
 
   private handleMidiMessage(event: MIDIMessageEvent) {
     if (!event.data || event.data.length < 1) return;
+    this.handleRawMidiPacket(event.data);
+  }
 
-    const [statusByte, data1 = 0, data2 = 0] = event.data;
+  /**
+   * Parses raw MIDI packet bytes (supports single messages, multi-message USB packets, and running status).
+   */
+  private handleRawMidiPacket(data: Uint8Array | number[]) {
+    const len = data.length;
+    let i = 0;
+    let runningStatus = 0;
+
+    while (i < len) {
+      const b = data[i] & 0xff;
+
+      // Real-time system messages (0xF8..0xFF) are 1-byte and do not affect running status
+      if (b >= 0xf8) {
+        i += 1;
+        continue;
+      }
+
+      // System Common / SysEx (0xF0..0xF7)
+      if (b >= 0xf0) {
+        runningStatus = 0;
+        if (b === 0xf0) {
+          while (i < len && (data[i] & 0xff) !== 0xf7) i++;
+          i++; // skip 0xF7
+        } else if (b === 0xf2) {
+          i += 3;
+        } else if (b === 0xf1 || b === 0xf3) {
+          i += 2;
+        } else {
+          i += 1;
+        }
+        continue;
+      }
+
+      let statusByte = runningStatus;
+      if (b & 0x80) {
+        statusByte = b;
+        runningStatus = b;
+        i += 1;
+      } else if (statusByte === 0) {
+        i += 1;
+        continue;
+      }
+
+      const command = statusByte >> 4;
+      // Program Change (0xC) and Channel Pressure (0xD) are 2-byte messages; others (0x8, 0x9, 0xA, 0xB, 0xE) are 3-byte
+      const dataBytesNeeded = command === 0xc || command === 0xd ? 1 : 2;
+      if (i + dataBytesNeeded > len) {
+        break;
+      }
+
+      const data1 = data[i] & 0x7f;
+      const data2 = dataBytesNeeded === 2 ? data[i + 1] & 0x7f : 0;
+      i += dataBytesNeeded;
+
+      this.dispatchSingleMidiMessage(statusByte, data1, data2);
+    }
+  }
+
+  private dispatchSingleMidiMessage(statusByte: number, data1: number, data2: number) {
+    // Deduplicate identical messages arriving simultaneously via both Web MIDI and Android Native MIDI Bridge
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const sig = (statusByte << 16) | (data1 << 8) | data2;
+    if (sig === this.lastMsgSig && now - this.lastMsgTimestamp < 5) {
+      return;
+    }
+    this.lastMsgSig = sig;
+    this.lastMsgTimestamp = now;
+
     const command = statusByte >> 4;
     const msgChannel = (statusByte & 0x0f) + 1; // 1..16
 
@@ -927,24 +1078,11 @@ export class MidiManager {
     const arpPresetsCh = this.sectionChannels.arpPresets ?? 0;
     const isArpPresetsChannelMatch = arpPresetsCh === 0 || msgChannel === arpPresetsCh;
 
-    // 1. Keys / Notes Channel Filtering (Note On 0x9, Note Off 0x8, Pitch Bend 0xE)
-    if (command === 0x9 || command === 0x8 || command === 0xe) {
-      if (!isKeysChannelMatch) {
-        return;
-      }
-    }
-
-    // 2. Program Change (0xC) on Arp & Presets section channel
-    if (command === 0xc) {
-      if (!isArpPresetsChannelMatch) {
-        return;
-      }
-    }
-
     switch (command) {
       case 0x9: {
         // Note On
         this.onMidiActivity?.(undefined, undefined, msgChannel);
+        if (!isKeysChannelMatch) return;
         const note = data1;
         const velocity = data2;
         if (velocity > 0) {
@@ -957,6 +1095,7 @@ export class MidiManager {
       case 0x8: {
         // Note Off
         this.onMidiActivity?.(undefined, undefined, msgChannel);
+        if (!isKeysChannelMatch) return;
         const note = data1;
         this.synth.noteOff(note);
         break;
@@ -964,6 +1103,7 @@ export class MidiManager {
       case 0xe: {
         // Pitch Bend (14-bit)
         this.onMidiActivity?.(undefined, undefined, msgChannel);
+        if (!isKeysChannelMatch) return;
         const bendRaw = (data2 << 7) | data1;
         const normalized = (bendRaw - 8192) / 8192;
         this.synth.setPitchBend(normalized);
@@ -972,6 +1112,7 @@ export class MidiManager {
       case 0xc: {
         // Program Change (0xCn program)
         this.onMidiActivity?.(undefined, undefined, msgChannel);
+        if (!isArpPresetsChannelMatch) return;
         const programNumber = data1;
         this.onProgramChange?.(programNumber);
         break;
@@ -985,50 +1126,51 @@ export class MidiManager {
         const normalized = clampedCC / 100;
         this.onMidiActivity?.(cc, clampedCC, msgChannel);
 
-        // 1. MIDI Learn interception for Parameters (respects the listening channel configured for that parameter's section):
+        // 1. MIDI Learn interception for Parameters (accepts incoming CC on whichever channel the hardware knob uses):
         if (this.activeLearnParam) {
           const learned = this.activeLearnParam;
-          const learnSection = getSectionForParam(learned);
-          const learnSectionCh = this.sectionChannels[learnSection] ?? 0;
-          if (learnSectionCh === 0 || msgChannel === learnSectionCh) {
-            this.mapCC(cc, learned, msgChannel);
-            this.activeLearnParam = null;
-          }
+          this.mapCC(cc, learned, msgChannel);
+          this.activeLearnParam = null;
         }
 
-        // 2. MIDI Learn interception for Actions (respects the listening channel configured for that action's section):
+        // 2. MIDI Learn interception for Actions:
         if (this.activeLearnAction) {
           const learned = this.activeLearnAction;
-          const learnSection = getSectionForAction(learned);
-          const learnSectionCh = this.sectionChannels[learnSection] ?? 0;
-          if (learnSectionCh === 0 || msgChannel === learnSectionCh) {
-            this.mapActionCC(cc, learned, msgChannel);
-            this.activeLearnAction = null;
-          }
+          this.mapActionCC(cc, learned, msgChannel);
+          this.activeLearnAction = null;
         }
 
-        // 3. Check if CC triggers an Action (matches that action's section channel)
+        // 3. Check if CC triggers an Action
         // Rule: 0 = OFF, >= 1 = ON
         const targetAction = this.actionMapping[cc];
-        if (targetAction && this.doesActionMatchChannel(targetAction, msgChannel)) {
+        if (targetAction) {
           if (targetAction === 'arpToggle' || targetAction === 'arpHold') {
-            // Switch state directly: 0 = OFF, >= 1 = ON
             this.onActionTriggered?.(targetAction, value);
           } else if (value >= 1) {
-            // Momentary actions (prevPreset, nextPreset, lfoTrig) trigger when value >= 1
             this.onActionTriggered?.(targetAction, value);
           }
         }
 
-        // 4. Check if CC is mapped to any synth parameter(s) matching the incoming MIDI channel
+        // 4. Two-Pass Parameter Resolution for CC:
+        //    Pass 1: Parameters mapped to `cc` that strictly match `msgChannel` (disambiguates shared CCs like CC7 on CH2 vs CH6).
+        //    Pass 2: If no parameter on `msgChannel` claimed `cc`, fallback to any parameter mapped to `cc`
+        //            so hardware controllers transmitting on CH1 or another channel still control all mapped knobs/faders!
+        const strictMatchedParams: Array<keyof HeraParameters> = [];
+        const allMappedParamsForCC: Array<keyof HeraParameters> = [];
+
         for (const [paramKey, mappedCC] of Object.entries(this.paramToCC)) {
           if (mappedCC !== cc) continue;
           const targetParam = paramKey as keyof HeraParameters;
-
-          if (!this.doesParamMatchChannel(targetParam, msgChannel)) {
-            continue;
+          allMappedParamsForCC.push(targetParam);
+          if (this.doesParamMatchChannel(targetParam, msgChannel)) {
+            strictMatchedParams.push(targetParam);
           }
+        }
 
+        const paramsToUpdate =
+          strictMatchedParams.length > 0 ? strictMatchedParams : allMappedParamsForCC;
+
+        for (const targetParam of paramsToUpdate) {
           let paramValue: number = normalized;
 
           // Handle switches & buttons: 0 is OFF (0), >= 1 is ON (1)

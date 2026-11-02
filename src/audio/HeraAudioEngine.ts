@@ -1505,13 +1505,13 @@ export class HeraSynthesizerEngine {
       });
     } else if (param.startsWith('DCO')) {
       this.voices.forEach(v => {
-        if (v.active && !v.released) {
+        if (v.active) {
           v.updateOscillators(this.params, this.pitchBendSemitones, false);
         }
       });
     } else if (param.startsWith('VCF')) {
       this.voices.forEach(v => {
-        if (v.active && !v.released) {
+        if (v.active) {
           v.updateFilter(this.params, this.pitchBendSemitones);
         }
       });
