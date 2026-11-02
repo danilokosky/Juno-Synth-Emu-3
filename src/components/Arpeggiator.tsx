@@ -11,7 +11,12 @@ interface ArpeggiatorProps {
   mappedCCArpHold?: number | null;
   onSelectActionForLearn?: (action: MidiMappableAction) => void;
   onUnmapAction?: (action: MidiMappableAction) => void;
-  onRegisterArpActions?: (handlers: { toggleArp: () => void; toggleHold: () => void }) => void;
+  onRegisterArpActions?: (handlers: {
+    toggleArp: () => void;
+    toggleHold: () => void;
+    setArpEnabled: (enabled: boolean) => void;
+    setHoldEnabled: (hold: boolean) => void;
+  }) => void;
 }
 
 export const Arpeggiator: React.FC<ArpeggiatorProps> = ({
@@ -52,10 +57,30 @@ export const Arpeggiator: React.FC<ArpeggiatorProps> = ({
     });
   };
 
+  const setArpEnabled = (enabled: boolean) => {
+    setConfig((prev) => {
+      if (prev.enabled === enabled) return prev;
+      const next = { ...prev, enabled };
+      synthEngine.setArpConfig(next);
+      return next;
+    });
+  };
+
+  const setHoldEnabled = (hold: boolean) => {
+    setConfig((prev) => {
+      if (prev.hold === hold) return prev;
+      const next = { ...prev, hold };
+      synthEngine.setArpConfig(next);
+      return next;
+    });
+  };
+
   useEffect(() => {
     onRegisterArpActions?.({
       toggleArp: toggleEnabled,
       toggleHold: toggleHold,
+      setArpEnabled,
+      setHoldEnabled,
     });
   }, [onRegisterArpActions]);
 

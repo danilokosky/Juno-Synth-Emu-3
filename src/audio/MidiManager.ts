@@ -59,12 +59,29 @@ export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
 
 export type MidiMappableAction = 'prevPreset' | 'nextPreset' | 'lfoTrig' | 'arpToggle' | 'arpHold';
 
+export interface MidiControllerProfile {
+  id: string;
+  name: string;
+  paramToCC: Partial<Record<keyof HeraParameters, number>>;
+  actionMapping: Record<number, MidiMappableAction>;
+  keysChannel: number;
+  effectsChannel: number;
+}
+
+const PROFILES_STORAGE_KEY = 'hera_midi_profiles_v1';
+const ACTIVE_PROFILE_STORAGE_KEY = 'hera_active_midi_profile_id_v1';
+export const DEFAULT_PROFILE_ID = 'launchkey-mk4';
+
 function buildDefaultParamToCC(): Partial<Record<keyof HeraParameters, number>> {
   const map: Partial<Record<keyof HeraParameters, number>> = {};
   for (const [ccStr, param] of Object.entries(DEFAULT_MIDI_CC_MAP)) {
     map[param] = Number(ccStr);
   }
   return map;
+}
+
+function buildDefaultActionMapping(): Record<number, MidiMappableAction> {
+  return { 110: 'prevPreset', 111: 'nextPreset' };
 }
 
 export class MidiManager {
@@ -80,8 +97,18 @@ export class MidiManager {
     learnedCC?: number
   ) => void;
   private onProgramChange?: (programNumber: number) => void;
-  private onActionTriggered?: (action: MidiMappableAction) => void;
-  private onActionMappingChanged?: (actionMap: Record<number, MidiMappableAction>, learnedAction?: MidiMappableAction, learnedCC?: number) => void;
+  private onActionTriggered?: (action: MidiMappableAction, rawValue: number) => void;
+  private onActionMappingChanged?: (
+    actionMap: Record<number, MidiMappableAction>,
+    learnedAction?: MidiMappableAction,
+    learnedCC?: number
+  ) => void;
+  private onProfilesChanged?: (
+    profiles: MidiControllerProfile[],
+    activeProfileId: string,
+    keysChannel: number,
+    effectsChannel: number
+  ) => void;
   private synth: HeraSynthesizerEngine;
 
   // 0 = OMNI (Global / All Channels 1-16), 1..16 = Specific MIDI Channel
@@ -91,12 +118,22 @@ export class MidiManager {
   private effectsChannel: number = 0;
 
   private paramToCC: Partial<Record<keyof HeraParameters, number>> = buildDefaultParamToCC();
-  private actionMapping: Record<number, MidiMappableAction> = { 110: 'prevPreset', 111: 'nextPreset' };
+  private actionMapping: Record<number, MidiMappableAction> = buildDefaultActionMapping();
+  private profiles: MidiControllerProfile[] = [];
+  private activeProfileId: string = DEFAULT_PROFILE_ID;
+
   private activeLearnParam: keyof HeraParameters | null = null;
   private activeLearnAction: MidiMappableAction | null = null;
 
   constructor(synth: HeraSynthesizerEngine) {
     this.synth = synth;
+    this.loadProfilesFromStorage();
+  }
+
+  private loadProfilesFromStorage() {
+    let loadedProfiles: MidiControllerProfile[] = [];
+    let savedActiveId: string | null = null;
+
     try {
       const savedKeys = localStorage.getItem('hera_midi_keys_channel');
       if (savedKeys !== null) {
@@ -112,9 +149,164 @@ export class MidiManager {
           this.effectsChannel = parsed;
         }
       }
+
+      const rawProfiles = localStorage.getItem(PROFILES_STORAGE_KEY);
+      if (rawProfiles) {
+        const parsed = JSON.parse(rawProfiles);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          loadedProfiles = parsed;
+        }
+      }
+      savedActiveId = localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY);
     } catch {
-      // localStorage unavailable
+      // localStorage unavailable or corrupted
     }
+
+    if (loadedProfiles.length === 0) {
+      loadedProfiles = [
+        {
+          id: DEFAULT_PROFILE_ID,
+          name: 'Launchkey MK4',
+          paramToCC: buildDefaultParamToCC(),
+          actionMapping: buildDefaultActionMapping(),
+          keysChannel: this.keysChannel,
+          effectsChannel: this.effectsChannel,
+        },
+      ];
+    } else if (!loadedProfiles.some((p) => p.id === DEFAULT_PROFILE_ID)) {
+      loadedProfiles.unshift({
+        id: DEFAULT_PROFILE_ID,
+        name: 'Launchkey MK4',
+        paramToCC: buildDefaultParamToCC(),
+        actionMapping: buildDefaultActionMapping(),
+        keysChannel: this.keysChannel,
+        effectsChannel: this.effectsChannel,
+      });
+    }
+
+    this.profiles = loadedProfiles;
+    const active =
+      this.profiles.find((p) => p.id === savedActiveId) ||
+      this.profiles.find((p) => p.id === DEFAULT_PROFILE_ID) ||
+      this.profiles[0];
+
+    this.activeProfileId = active.id;
+    this.paramToCC = { ...(active.paramToCC || buildDefaultParamToCC()) };
+    this.actionMapping = { ...(active.actionMapping || buildDefaultActionMapping()) };
+    if (typeof active.keysChannel === 'number') {
+      this.keysChannel = active.keysChannel;
+    }
+    if (typeof active.effectsChannel === 'number') {
+      this.effectsChannel = active.effectsChannel;
+    }
+
+    this.persistProfilesToStorage();
+  }
+
+  private persistProfilesToStorage() {
+    // Sync current state into the active profile slot first
+    this.profiles = this.profiles.map((p) =>
+      p.id === this.activeProfileId
+        ? {
+            ...p,
+            paramToCC: { ...this.paramToCC },
+            actionMapping: { ...this.actionMapping },
+            keysChannel: this.keysChannel,
+            effectsChannel: this.effectsChannel,
+          }
+        : p
+    );
+
+    try {
+      localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(this.profiles));
+      localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, this.activeProfileId);
+      localStorage.setItem('hera_midi_keys_channel', String(this.keysChannel));
+      localStorage.setItem('hera_midi_ctrl_channel', String(this.effectsChannel));
+    } catch {
+      // ignore storage errors
+    }
+
+    this.onProfilesChanged?.(
+      this.getProfiles(),
+      this.activeProfileId,
+      this.keysChannel,
+      this.effectsChannel
+    );
+  }
+
+  setOnProfilesChanged(
+    cb: (
+      profiles: MidiControllerProfile[],
+      activeProfileId: string,
+      keysChannel: number,
+      effectsChannel: number
+    ) => void
+  ) {
+    this.onProfilesChanged = cb;
+  }
+
+  getProfiles(): MidiControllerProfile[] {
+    return this.profiles.map((p) => ({
+      ...p,
+      paramToCC: { ...p.paramToCC },
+      actionMapping: { ...p.actionMapping },
+    }));
+  }
+
+  getActiveProfileId(): string {
+    return this.activeProfileId;
+  }
+
+  selectProfile(profileId: string) {
+    const target = this.profiles.find((p) => p.id === profileId);
+    if (!target) return;
+
+    this.activeProfileId = target.id;
+    this.paramToCC = { ...target.paramToCC };
+    this.actionMapping = { ...target.actionMapping };
+    if (typeof target.keysChannel === 'number') {
+      this.keysChannel = target.keysChannel;
+    }
+    if (typeof target.effectsChannel === 'number') {
+      this.effectsChannel = target.effectsChannel;
+    }
+
+    this.synth.allNotesOff();
+    this.persistProfilesToStorage();
+    this.onMappingChanged?.(this.getMapping());
+    this.onActionMappingChanged?.(this.getActionMapping());
+  }
+
+  createProfile(name: string): MidiControllerProfile {
+    const trimmed = name.trim() || `Perfil ${this.profiles.length + 1}`;
+    const newProfile: MidiControllerProfile = {
+      id: `profile-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: trimmed,
+      paramToCC: { ...this.paramToCC },
+      actionMapping: { ...this.actionMapping },
+      keysChannel: this.keysChannel,
+      effectsChannel: this.effectsChannel,
+    };
+
+    this.profiles.push(newProfile);
+    this.activeProfileId = newProfile.id;
+    this.persistProfilesToStorage();
+    this.onMappingChanged?.(this.getMapping());
+    this.onActionMappingChanged?.(this.getActionMapping());
+    return newProfile;
+  }
+
+  deleteProfile(profileId: string) {
+    if (profileId === DEFAULT_PROFILE_ID) return; // Keep default Launchkey MK4 profile
+    this.profiles = this.profiles.filter((p) => p.id !== profileId);
+    if (this.activeProfileId === profileId) {
+      const fallback = this.profiles[0];
+      if (fallback) {
+        this.selectProfile(fallback.id);
+        return;
+      }
+    }
+    this.persistProfilesToStorage();
   }
 
   setKeysChannel(channel: number) {
@@ -122,11 +314,7 @@ export class MidiManager {
     if (this.keysChannel !== clamped) {
       this.keysChannel = clamped;
       this.synth.allNotesOff();
-      try {
-        localStorage.setItem('hera_midi_keys_channel', String(clamped));
-      } catch {
-        // localStorage unavailable
-      }
+      this.persistProfilesToStorage();
     }
   }
 
@@ -138,11 +326,7 @@ export class MidiManager {
     const clamped = Math.max(0, Math.min(16, Math.floor(channel)));
     if (this.effectsChannel !== clamped) {
       this.effectsChannel = clamped;
-      try {
-        localStorage.setItem('hera_midi_ctrl_channel', String(clamped));
-      } catch {
-        // localStorage unavailable
-      }
+      this.persistProfilesToStorage();
     }
   }
 
@@ -207,11 +391,13 @@ export class MidiManager {
       }
     }
     this.paramToCC[param] = cc;
+    this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping(), param, cc);
   }
 
   unmapParam(param: keyof HeraParameters) {
     delete this.paramToCC[param];
+    this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping());
   }
 
@@ -221,6 +407,7 @@ export class MidiManager {
         delete this.paramToCC[p as keyof HeraParameters];
       }
     }
+    this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping());
   }
 
@@ -247,7 +434,7 @@ export class MidiManager {
     this.onProgramChange = cb;
   }
 
-  setOnActionTriggered(cb: (action: MidiMappableAction) => void) {
+  setOnActionTriggered(cb: (action: MidiMappableAction, rawValue: number) => void) {
     this.onActionTriggered = cb;
   }
 
@@ -270,6 +457,7 @@ export class MidiManager {
       if (v === action) delete this.actionMapping[Number(k)];
     }
     this.actionMapping[cc] = action;
+    this.persistProfilesToStorage();
     this.onActionMappingChanged?.(this.getActionMapping(), action, cc);
   }
 
@@ -277,6 +465,7 @@ export class MidiManager {
     for (const [k, v] of Object.entries(this.actionMapping)) {
       if (v === action) delete this.actionMapping[Number(k)];
     }
+    this.persistProfilesToStorage();
     this.onActionMappingChanged?.(this.getActionMapping());
   }
 
@@ -293,7 +482,8 @@ export class MidiManager {
 
   resetToDefaultMapping() {
     this.paramToCC = buildDefaultParamToCC();
-    this.actionMapping = { 110: 'prevPreset', 111: 'nextPreset' };
+    this.actionMapping = buildDefaultActionMapping();
+    this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping());
     this.onActionMappingChanged?.(this.getActionMapping());
   }
@@ -399,29 +589,28 @@ export class MidiManager {
           if ((isKeysParam && isKeysChannelMatch) || (!isKeysParam && isEffectsChannelMatch)) {
             this.mapCC(cc, learned);
             this.activeLearnParam = null;
-            console.log(`MIDI Learn complete: CC ${cc} (Ch ${msgChannel}) mapped to ${learned}`);
           }
         }
 
         // MIDI Learn interception for Actions (prevPreset, nextPreset, lfoTrig, arpToggle, arpHold -> Effects channel)
         if (this.activeLearnAction && isEffectsChannelMatch) {
           const learned = this.activeLearnAction;
-          for (const [k, v] of Object.entries(this.actionMapping)) {
-            if (v === learned) {
-              delete this.actionMapping[Number(k)];
-            }
-          }
-          this.actionMapping[cc] = learned;
+          this.mapActionCC(cc, learned);
           this.activeLearnAction = null;
-          this.onActionMappingChanged?.(this.getActionMapping(), learned, cc);
-          console.log(`MIDI Learn action complete: CC ${cc} mapped to ${learned}`);
         }
 
-        // Check if CC triggers an Action (only on Effects channel & button press / value > 63)
+        // Check if CC triggers an Action (on Effects channel)
+        // Rule: 0 = OFF, >= 1 = ON
         if (isEffectsChannelMatch) {
           const targetAction = this.actionMapping[cc];
-          if (targetAction && value > 63) {
-            this.onActionTriggered?.(targetAction);
+          if (targetAction) {
+            if (targetAction === 'arpToggle' || targetAction === 'arpHold') {
+              // Switch state directly: 0 = OFF, >= 1 = ON
+              this.onActionTriggered?.(targetAction, value);
+            } else if (value >= 1) {
+              // Momentary actions (prevPreset, nextPreset, lfoTrig) trigger when value >= 1
+              this.onActionTriggered?.(targetAction, value);
+            }
           }
         }
 
@@ -436,24 +625,27 @@ export class MidiManager {
 
           let paramValue: number = normalized;
 
-          // Handle stepped/discrete parameters
-          if (targetParam === 'DCORange') {
-            paramValue = Math.min(2, Math.floor(normalized * 3));
-          } else if (targetParam === 'DCOPWMMod') {
-            paramValue = Math.min(2, Math.floor(normalized * 3));
+          // Handle switches & buttons: 0 is OFF (0), >= 1 is ON (1)
+          if (targetParam === 'DCORange' || targetParam === 'DCOPWMMod') {
+            if (value <= 0) {
+              paramValue = 0;
+            } else if (value === 1) {
+              paramValue = 1;
+            } else if (value === 2) {
+              paramValue = 2;
+            } else {
+              paramValue = value < 64 ? 1 : 2;
+            }
           } else if (
             targetParam === 'VCAType' ||
             targetParam === 'LFOTrigMode' ||
-            targetParam === 'ReverbType'
-          ) {
-            paramValue = normalized >= 0.5 ? 1 : 0;
-          } else if (
+            targetParam === 'ReverbType' ||
             targetParam === 'ChorusI' ||
             targetParam === 'ChorusII' ||
             targetParam === 'DelayEnabled' ||
             targetParam === 'ReverbEnabled'
           ) {
-            paramValue = normalized >= 0.5 ? 1 : 0;
+            paramValue = value >= 1 ? 1 : 0;
           } else if (targetParam === 'VCFEnv') {
             // Bipolar: -1.0 to 1.0
             paramValue = normalized * 2 - 1;
@@ -480,3 +672,4 @@ export class MidiManager {
     return this.connectedDevices;
   }
 }
+
