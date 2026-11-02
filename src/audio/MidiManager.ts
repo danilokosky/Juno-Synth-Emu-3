@@ -689,8 +689,10 @@ export class MidiManager {
         // Control Change
         const cc = data1;
         const value = data2;
-        const normalized = value / 127;
-        this.onMidiActivity?.(cc, value, msgChannel);
+        // Scale faders from 0 to 100 in CC values; values above 100 (up to 127+) clamp to 100
+        const clampedCC = Math.max(0, Math.min(100, value));
+        const normalized = clampedCC / 100;
+        this.onMidiActivity?.(cc, clampedCC, msgChannel);
 
         // 1. MIDI Learn interception for Parameters:
         // Accepts any physical fader/knob/switch CC on its incoming MIDI channel and locks onto (cc, msgChannel)
@@ -747,7 +749,7 @@ export class MidiManager {
             } else if (value === 2) {
               paramValue = 2;
             } else {
-              paramValue = value < 64 ? 1 : 2;
+              paramValue = clampedCC < 50 ? 1 : 2;
             }
           } else if (
             targetParam === 'VCAType' ||
@@ -760,7 +762,7 @@ export class MidiManager {
           ) {
             paramValue = value >= 1 ? 1 : 0;
           } else if (targetParam === 'VCFEnv') {
-            // Bipolar: -1.0 to 1.0
+            // Bipolar: -1.0 to 1.0 (0..100 CC -> -1.0..1.0, >100 clamped to 1.0)
             paramValue = normalized * 2 - 1;
           }
 

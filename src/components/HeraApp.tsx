@@ -77,6 +77,7 @@ export const HeraApp: React.FC = () => {
   });
   const [midiManagerInstance, setMidiManagerInstance] = useState<MidiManager | null>(null);
   const [currentMidiMapping, setCurrentMidiMapping] = useState<Record<number, keyof HeraParameters>>({});
+  const [paramToCCMap, setParamToCCMap] = useState<Partial<Record<keyof HeraParameters, number>>>({});
   const [currentMidiActionMapping, setCurrentMidiActionMapping] = useState<Record<number, MidiMappableAction>>({ 110: 'prevPreset', 111: 'nextPreset' });
 
   // MIDI Controller Profiles State (Default: Launchkey MK4, auto-saved on every mapping change)
@@ -125,6 +126,7 @@ export const HeraApp: React.FC = () => {
     setMidiKeysChannel(midiMgr.getKeysChannel());
     setMidiEffectsChannel(midiMgr.getEffectsChannel());
     setCurrentMidiMapping(midiMgr.getMapping());
+    setParamToCCMap(midiMgr.getParamToCCMap());
     setCurrentMidiActionMapping(midiMgr.getActionMapping());
     setMidiProfiles(midiMgr.getProfiles());
     setActiveMidiProfileId(midiMgr.getActiveProfileId());
@@ -134,6 +136,7 @@ export const HeraApp: React.FC = () => {
       setActiveMidiProfileId(activeId);
       setMidiKeysChannel(keysCh);
       setMidiEffectsChannel(fxCh);
+      setParamToCCMap(midiMgr.getParamToCCMap());
     });
 
     midiMgr.setOnProgramChange((programNumber: number) => {
@@ -183,6 +186,7 @@ export const HeraApp: React.FC = () => {
       },
       (mapping, learnedParam, learnedCC) => {
         setCurrentMidiMapping({ ...mapping });
+        setParamToCCMap(midiMgr.getParamToCCMap());
         if (learnedParam && learnedCC !== undefined) {
           setSelectedLearnParam(null);
           setLastLearnedInfo({ param: String(learnedParam), cc: learnedCC });
@@ -284,6 +288,7 @@ export const HeraApp: React.FC = () => {
     setActiveMidiProfileId(profileId);
     setMidiProfiles(midiManagerInstance.getProfiles());
     setCurrentMidiMapping(midiManagerInstance.getMapping());
+    setParamToCCMap(midiManagerInstance.getParamToCCMap());
     setCurrentMidiActionMapping(midiManagerInstance.getActionMapping());
     setMidiKeysChannel(midiManagerInstance.getKeysChannel());
     setMidiEffectsChannel(midiManagerInstance.getEffectsChannel());
@@ -299,6 +304,7 @@ export const HeraApp: React.FC = () => {
     setMidiProfiles(midiManagerInstance.getProfiles());
     setActiveMidiProfileId(created.id);
     setCurrentMidiMapping(midiManagerInstance.getMapping());
+    setParamToCCMap(midiManagerInstance.getParamToCCMap());
     setCurrentMidiActionMapping(midiManagerInstance.getActionMapping());
     setNewProfileName('');
     setIsCreatingProfile(false);
@@ -312,6 +318,7 @@ export const HeraApp: React.FC = () => {
     setMidiProfiles(midiManagerInstance.getProfiles());
     setActiveMidiProfileId(midiManagerInstance.getActiveProfileId());
     setCurrentMidiMapping(midiManagerInstance.getMapping());
+    setParamToCCMap(midiManagerInstance.getParamToCCMap());
     setCurrentMidiActionMapping(midiManagerInstance.getActionMapping());
   };
 
@@ -331,6 +338,7 @@ export const HeraApp: React.FC = () => {
   const handleUnmapParam = (param: keyof HeraParameters) => {
     midiManagerInstance?.unmapParam(param);
     setCurrentMidiMapping(midiManagerInstance?.getMapping() || {});
+    setParamToCCMap(midiManagerInstance?.getParamToCCMap() || {});
     if (selectedLearnParam === param) {
       setSelectedLearnParam(null);
       midiManagerInstance?.setLearnParam(null);
@@ -338,11 +346,10 @@ export const HeraApp: React.FC = () => {
   };
 
   const getMappedCC = (param: keyof HeraParameters): number | null => {
+    const cc = paramToCCMap[param];
+    if (cc !== undefined) return cc;
     if (midiManagerInstance) {
       return midiManagerInstance.getCCForParam(param);
-    }
-    for (const [ccStr, p] of Object.entries(currentMidiMapping)) {
-      if (p === param) return Number(ccStr);
     }
     return null;
   };
@@ -721,6 +728,9 @@ export const HeraApp: React.FC = () => {
                     className="w-16 accent-amber-500 cursor-pointer"
                     title="Volume Master Geral (Canal das Teclas)"
                   />
+                  <span className="text-[9px] font-mono text-amber-400 font-bold min-w-[20px] text-right">
+                    {Math.min(100, Math.max(0, Math.round((isMuted ? 0 : masterVolume) * 100)))}
+                  </span>
                 </div>
 
                 {/* Help button */}
@@ -986,7 +996,6 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('HPF', v)}
                     defaultValue={0}
                     color="cyan"
-                    formatValue={(v) => (v < 0.05 ? '0' : (v * 3).toFixed(0))}
                     isMidiLearnActive={isMidiLearnActive}
                     isSelectedForLearn={selectedLearnParam === 'HPF'}
                     mappedCC={getMappedCC('HPF')}
@@ -1039,7 +1048,6 @@ export const HeraApp: React.FC = () => {
                     onChange={(v) => handleParamChange('VCFEnv', v)}
                     defaultValue={0}
                     color="cyan"
-                    formatValue={(v) => (v > 0 ? `+${(v * 10).toFixed(1)}` : (v * 10).toFixed(1))}
                     isMidiLearnActive={isMidiLearnActive}
                     isSelectedForLearn={selectedLearnParam === 'VCFEnv'}
                     mappedCC={getMappedCC('VCFEnv')}

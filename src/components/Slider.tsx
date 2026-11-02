@@ -80,9 +80,7 @@ export const Slider: React.FC<SliderProps> = ({
 
     const onTouchStart = (e: TouchEvent) => {
       if (isMidiLearnActive) {
-        e.preventDefault();
-        e.stopPropagation();
-        onSelectForLearn?.();
+        // Handled by container onPointerDown to avoid double-triggering onTouchStart + onPointerDown
         return;
       }
       e.preventDefault();
@@ -135,7 +133,7 @@ export const Slider: React.FC<SliderProps> = ({
       el.removeEventListener('touchend', onTouchEnd);
       el.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [isMidiLearnActive, updateFromPointer, onSelectForLearn]);
+  }, [isMidiLearnActive, updateFromPointer]);
 
   // Window-level pointer listeners while dragging for desktop/mouse response
   useEffect(() => {
@@ -165,16 +163,15 @@ export const Slider: React.FC<SliderProps> = ({
     };
   }, [isDragging, updateFromPointer]);
 
-  // Touch and pointer down handler
+  // Touch and pointer down handler for fader movement (when NOT in MIDI learn mode)
   const handlePointerDown = (e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    // In MIDI learn mode: select this control for mapping instead of moving the fader
     if (isMidiLearnActive) {
-      onSelectForLearn?.();
+      // Selection is handled once at containerRef.onPointerDown
       return;
     }
+
+    e.preventDefault();
+    e.stopPropagation();
 
     activePointerIdRef.current = e.pointerId;
 
@@ -190,6 +187,7 @@ export const Slider: React.FC<SliderProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    if (isMidiLearnActive) return;
     e.preventDefault();
     if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) return;
     activePointerIdRef.current = null;
@@ -215,7 +213,7 @@ export const Slider: React.FC<SliderProps> = ({
 
   const displayString = formatValue
     ? formatValue(value)
-    : (value * (max === 1 && min === 0 ? 10 : 1)).toFixed(1);
+    : String(Math.min(100, Math.max(0, Math.round(normalizedValue * 100))));
 
   // Cap indicator color based on section
   const capColorClass =
@@ -241,8 +239,9 @@ export const Slider: React.FC<SliderProps> = ({
       onMouseLeave={() => !isDragging && setShowTooltip(false)}
       onWheel={handleWheel}
       onDoubleClick={handleDoubleClick}
-      onClick={(e) => {
+      onPointerDown={(e) => {
         if (isMidiLearnActive) {
+          e.preventDefault();
           e.stopPropagation();
           onSelectForLearn?.();
         }
@@ -256,18 +255,31 @@ export const Slider: React.FC<SliderProps> = ({
       {/* Floating MIDI Learn Badge (position: absolute -> zero layout shift!) */}
       {isMidiLearnActive && (mappedCC !== null || isSelectedForLearn) && (
         <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center whitespace-nowrap pointer-events-auto">
-          {mappedCC !== null && mappedCC !== undefined ? (
-            <div
-              className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full shadow-md border select-none ${
-                isSelectedForLearn
-                  ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
-                  : 'bg-[#0284c7] hover:bg-[#0369a1] border-[#38bdf8]'
-              }`}
-            >
+          {isSelectedForLearn ? (
+            <div className="inline-flex items-center gap-0.5 bg-sky-500 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse select-none">
+              <span>{mappedCC !== null && mappedCC !== undefined ? `MAPEAR (CC${mappedCC})` : 'MAPEAR'}</span>
+              {mappedCC !== null && mappedCC !== undefined && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onUnmap?.();
+                  }}
+                  className="text-white hover:text-red-200 font-black text-[8px] leading-none cursor-pointer pl-0.5"
+                  title={`Desmapear CC ${mappedCC}`}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ) : mappedCC !== null && mappedCC !== undefined ? (
+            <div className="inline-flex items-center gap-0.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full shadow-md border border-[#38bdf8] select-none">
               <span>CC{mappedCC}</span>
               <button
                 type="button"
-                onClick={(e) => {
+                onPointerDown={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
                   onUnmap?.();
                 }}
@@ -277,11 +289,7 @@ export const Slider: React.FC<SliderProps> = ({
                 ✕
               </button>
             </div>
-          ) : (
-            <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_10px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
-              MAPEAR
-            </div>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -301,9 +309,9 @@ export const Slider: React.FC<SliderProps> = ({
         className="relative flex items-center justify-center w-8 sm:w-9 h-26 sm:h-28 px-0.5 py-2 cursor-pointer select-none active:brightness-110 touch-none"
       >
         {/* Tick scale marks left side - strictly z-0 behind the fader cap */}
-        <div className="absolute left-0 top-2.5 bottom-2.5 flex flex-col justify-between items-end pr-0.5 text-[7px] font-mono text-zinc-500 pointer-events-none z-0">
-          <span>10</span>
-          <span>5</span>
+        <div className="absolute left-0 top-2.5 bottom-2.5 flex flex-col justify-between items-end pr-0.5 text-[6.5px] font-mono text-zinc-500 pointer-events-none z-0">
+          <span>100</span>
+          <span>50</span>
           <span>0</span>
         </div>
 
