@@ -397,8 +397,8 @@ fun HeraJunoNativeScreen(
                             .weight(1f)
                             .background(Color(0xFF11131A))
                             .horizontalScroll(rackScrollState)
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         // SECTION 1: LFO (Rate + Vib Del + ultra-small thin centered MAN TRIG button at bottom)
                         val manTrigActive = (paramState[SynthParam.LFOManualTrig] ?: 0f) >= 0.5f
@@ -410,7 +410,7 @@ fun HeraJunoNativeScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(14.dp)
+                                        .height(16.dp)
                                         .background(Color(0xFF080A0F)),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -433,7 +433,7 @@ fun HeraJunoNativeScreen(
                         ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         JunoParamFader(
@@ -465,18 +465,18 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
-                        // Compact 3-Switch Column (RANGE, LFO TRIG, PWM)
+                        // Compact 3-Switch Column (RANGE, LFO TRIG, PWM) centered vertically from the middle
                         Column(
-                            verticalArrangement = Arrangement.SpaceBetween,
+                            verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
-                                .fillMaxHeight()
+                                .wrapContentHeight()
                                 .background(Color(0xFF0A0D14), RoundedCornerShape(4.dp))
                                 .border(1.dp, Color(0xFF1A2232), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 2.5.dp, vertical = 1.5.dp)
+                                .padding(horizontal = 3.dp, vertical = 4.dp)
                         ) {
                             SelectorGroupBox(
                                 param = SynthParam.DCORange,
@@ -592,7 +592,7 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         JunoParamFader(
@@ -660,7 +660,7 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         SelectorGroupBox(
@@ -693,7 +693,7 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         JunoParamFader(
@@ -751,7 +751,7 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxHeight().padding(horizontal = 2.dp)
                     ) {
                         JunoChorusButton(
@@ -798,7 +798,7 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         JunoParamFader(
@@ -856,7 +856,7 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         SelectorGroupBox(
@@ -2775,12 +2775,12 @@ private fun SynthModuleCard(
                 .background(accentColor.copy(alpha = 0.35f))
         )
 
-        // 3. Main Controls Area (Maximum vertical travel for faders & switches without squeezing)
+        // 3. Main Controls Area (Comfortable vertical breathing room between header and footer)
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(start = 3.dp, end = 3.dp, top = 2.dp, bottom = 1.dp),
+                .padding(horizontal = 7.dp, vertical = 10.dp),
             contentAlignment = Alignment.Center
         ) {
             content()
@@ -2862,7 +2862,7 @@ private fun JunoParamFader(
         contentAlignment = Alignment.TopCenter,
         modifier = Modifier
             .width(44.dp)
-            .fillMaxHeight()
+            .fillMaxHeight(0.86f)
     ) {
         // Fixed-dimension Fader Body (Never shifts when MIDI Learn toggles!)
         Column(
@@ -3026,7 +3026,7 @@ private fun JunoParamFader(
             }
         }
 
-        // Floating Truly-Rounded Cartridge Badge (Zero layout shift!)
+        // Floating Truly-Rounded Cartridge Badge over the graphical fader area below the title (Zero layout shift!)
         MidiCcBalloonBadge(
             mappedCC = mappedCC,
             mappedChannel = mappedCh,
@@ -3042,22 +3042,23 @@ private fun JunoParamFader(
             },
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = (-5).dp)
+                .offset(y = 20.dp)
                 .zIndex(30f)
         )
     }
 }
 
 /**
- * Truly Rounded, Short & Compact Blue Cartridge Badge for MIDI Learn (`MidiCcBalloonBadge`):
- * - NEVER participates in layout flow (always rendered as a floating `Box` overlay)
+ * Truly Rounded, Larger & Clear Blue Cartridge Badge for MIDI Learn (`MidiCcBalloonBadge`):
+ * - NEVER participates in layout flow (always rendered as a floating `Box` overlay layer)
  * - ONLY appears when `isLearnMode == true` AND (`mappedCC != null` OR `isWaitingCC == true`)
- * - Truly rounded pill/cartridge shape (`RoundedCornerShape(50)` when single-line, `RoundedCornerShape(10.dp)` when selected)
- * - When mapped and NOT selected: shows ONLY the short MIDI CC name (`CC74`) — no channel, no `✕`, not tall!
+ * - Positioned inside the graphical area of the target fader or switch (below the parameter title)
+ * - Truly rounded pill/cartridge shape (`RoundedCornerShape(50)` when single-line, `RoundedCornerShape(12.dp)` when selected)
+ * - When mapped and NOT selected: shows ONLY the MIDI CC name (`CC74`)
  * - When selected (`isWaitingCC == true`) — and ONLY when selected:
  *   - Shows the MIDI CC name (`CC74` or `CC--`)
  *   - Line break below showing the channel (`CH1`)
- *   - Line break below showing `✕` to clear/remove mapping, with ultra-tight vertical spacing so it stays short and compact.
+ *   - Line break below showing `✕` to clear/remove mapping, with compact vertical spacing.
  */
 @Composable
 private fun MidiCcBalloonBadge(
@@ -3071,31 +3072,31 @@ private fun MidiCcBalloonBadge(
 ) {
     if (!isLearnMode || (mappedCC == null && !isWaitingCC)) return
 
-    val badgeShape = if (isWaitingCC) RoundedCornerShape(10.dp) else RoundedCornerShape(50)
+    val badgeShape = if (isWaitingCC) RoundedCornerShape(12.dp) else RoundedCornerShape(50)
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(0.dp),
+        verticalArrangement = Arrangement.spacedBy(0.5.dp),
         modifier = modifier
             .clip(badgeShape)
             .background(if (isWaitingCC) Color(0xFF0EA5E9) else Color(0xFF0284C7))
             .border(
-                width = 1.dp,
-                color = if (isWaitingCC) Color.White else Color(0xFF7DD3FC),
+                width = 1.2.dp,
+                color = if (isWaitingCC) Color.White else Color(0xFFBAE6FD),
                 shape = badgeShape
             )
             .clickable { onSelectForLearn() }
             .padding(
-                horizontal = if (isWaitingCC) 5.dp else 5.5.dp,
-                vertical = if (isWaitingCC) 1.5.dp else 1.dp
+                horizontal = if (isWaitingCC) 7.dp else 7.5.dp,
+                vertical = if (isWaitingCC) 2.5.dp else 2.dp
             )
     ) {
         // Line 1: MIDI CC Name
         Text(
             text = if (mappedCC != null) "CC$mappedCC" else "CC--",
             color = Color.White,
-            fontSize = 6.5.sp,
-            lineHeight = 7.sp,
+            fontSize = 8.sp,
+            lineHeight = 8.5.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Black,
             textAlign = TextAlign.Center,
@@ -3108,8 +3109,8 @@ private fun MidiCcBalloonBadge(
             Text(
                 text = "CH$chNum",
                 color = Color(0xFFE0F2FE),
-                fontSize = 5.8.sp,
-                lineHeight = 6.2.sp,
+                fontSize = 7.sp,
+                lineHeight = 7.5.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -3118,8 +3119,8 @@ private fun MidiCcBalloonBadge(
             Text(
                 text = "✕",
                 color = Color.White,
-                fontSize = 6.5.sp,
-                lineHeight = 6.8.sp,
+                fontSize = 8.sp,
+                lineHeight = 8.5.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center,
@@ -3213,7 +3214,7 @@ private fun JunoChorusButton(
             )
         }
 
-        // Floating Rounded MIDI Cartridge above the Chorus button (zero layout shift!)
+        // Floating Rounded MIDI Cartridge over the Chorus button graphical area (zero layout shift!)
         MidiCcBalloonBadge(
             mappedCC = mappedCC,
             mappedChannel = mappedCh,
@@ -3228,8 +3229,7 @@ private fun JunoChorusButton(
                 onNotifyUiChanged()
             },
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = 6.dp)
+                .align(Alignment.Center)
                 .zIndex(30f)
         )
     }
@@ -3298,7 +3298,7 @@ private fun JunoParamSwitchWithBadge(
             )
         }
 
-        // Floating Rounded MIDI Cartridge Overlay (Zero layout shift!)
+        // Floating Rounded MIDI Cartridge Overlay over the switch graphical area (Zero layout shift!)
         MidiCcBalloonBadge(
             mappedCC = mappedCC,
             mappedChannel = mappedCh,
@@ -3313,8 +3313,7 @@ private fun JunoParamSwitchWithBadge(
                 onNotifyUiChanged()
             },
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = (-5).dp)
+                .align(Alignment.Center)
                 .zIndex(30f)
         )
     }
@@ -3404,7 +3403,7 @@ private fun SelectorGroupBox(
             }
         }
 
-        // Floating MIDI Cartridge Overlay (Zero layout shift!)
+        // Floating MIDI Cartridge Overlay over the switch buttons below the title (Zero layout shift!)
         MidiCcBalloonBadge(
             mappedCC = mappedCC,
             mappedChannel = mappedCh,
@@ -3419,8 +3418,8 @@ private fun SelectorGroupBox(
                 onNotifyUiChanged()
             },
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = (-6).dp)
+                .align(Alignment.Center)
+                .offset(y = 5.dp)
                 .zIndex(30f)
         )
     }
