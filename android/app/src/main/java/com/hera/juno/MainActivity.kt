@@ -410,8 +410,8 @@ fun HeraJunoNativeScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(Color(0xFF080A0F))
-                                        .padding(vertical = 1.dp),
+                                        .height(14.dp)
+                                        .background(Color(0xFF080A0F)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     JunoParamSwitchWithBadge(
@@ -476,7 +476,7 @@ fun HeraJunoNativeScreen(
                                 .fillMaxHeight()
                                 .background(Color(0xFF0A0D14), RoundedCornerShape(4.dp))
                                 .border(1.dp, Color(0xFF1A2232), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 3.dp, vertical = 3.dp)
+                                .padding(horizontal = 2.5.dp, vertical = 1.5.dp)
                         ) {
                             SelectorGroupBox(
                                 param = SynthParam.DCORange,
@@ -790,6 +790,7 @@ fun HeraJunoNativeScreen(
                             activeColor = JunoGreenReady,
                             midiManager = midiManager,
                             uiRevision = rev,
+                            compact = true,
                             onToggle = { onUpdateParam(SynthParam.DelayEnabled, if (delayOn) 0f else 1f) },
                             onNotifyUiChanged = onNotifyUiChanged
                         )
@@ -847,6 +848,7 @@ fun HeraJunoNativeScreen(
                             activeColor = JunoPurple,
                             midiManager = midiManager,
                             uiRevision = rev,
+                            compact = true,
                             onToggle = { onUpdateParam(SynthParam.ReverbEnabled, if (reverbOn) 0f else 1f) },
                             onNotifyUiChanged = onNotifyUiChanged
                         )
@@ -2698,26 +2700,30 @@ private fun SynthModuleCard(
     content: @Composable () -> Unit
 ) {
     Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
+            .width(IntrinsicSize.Max)
             .fillMaxHeight()
             .clip(RoundedCornerShape(5.dp))
             .background(Color(0xFF0B0D13))
             .border(1.dp, Color(0xFF1F2533), RoundedCornerShape(5.dp))
     ) {
-        // 1. Thick Colored Top Line (like the red, orange, or blue lines on the Juno-60)
+        // 1. Thin Colored Top Line spanning 100% of the section width
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(3.dp)
+                .height(2.dp)
                 .background(accentColor)
         )
 
-        // 2. Lighter-shade Tinted Title Bar creating contrast & defining where the centered title sits
+        // 2. Ultra-Slim Full-Width Tinted Header Bar right at the top with strictly centered title
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(accentColor.copy(alpha = 0.16f))
-                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                .height(13.dp)
+                .background(accentColor.copy(alpha = 0.18f))
+                .padding(horizontal = 4.dp),
+            contentAlignment = Alignment.Center
         ) {
             Row(
                 modifier = Modifier.align(Alignment.Center),
@@ -2727,23 +2733,26 @@ private fun SynthModuleCard(
                 Text(
                     text = title,
                     color = accentColor,
-                    fontSize = 8.sp,
+                    fontSize = 6.8.sp,
+                    lineHeight = 7.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 0.6.sp,
-                    textAlign = TextAlign.Center
+                    letterSpacing = 0.5.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
                 )
                 if (titleBadge != null) {
                     Box(
                         modifier = Modifier
                             .background(Color(0xFF2E1065), RoundedCornerShape(2.dp))
                             .border(0.8.dp, Color(0xFF6D28D9), RoundedCornerShape(2.dp))
-                            .padding(horizontal = 2.5.dp, vertical = 0.2.dp)
+                            .padding(horizontal = 2.dp, vertical = 0.dp)
                     ) {
                         Text(
                             text = titleBadge,
                             color = Color(0xFFDDD6FE),
-                            fontSize = 6.sp,
+                            fontSize = 5.5.sp,
+                            lineHeight = 6.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold
                         )
@@ -2758,25 +2767,26 @@ private fun SynthModuleCard(
             }
         }
 
-        // Thin horizontal divider under the tinted title bar
+        // Crisp hairline divider under the full-width title bar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(1.dp)
-                .background(accentColor.copy(alpha = 0.32f))
+                .height(0.8.dp)
+                .background(accentColor.copy(alpha = 0.35f))
         )
 
-        // 3. Main Controls Area (Maximum vertical travel for faders; top padding gives floating MIDI cartridges room)
+        // 3. Main Controls Area (Maximum vertical travel for faders & switches without squeezing)
         Box(
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 2.dp),
+                .fillMaxWidth()
+                .padding(start = 3.dp, end = 3.dp, top = 2.dp, bottom = 1.dp),
             contentAlignment = Alignment.Center
         ) {
             content()
         }
 
-        // 4. Very Small, Thin, Centered Footer (or MAN TRIG) + Bottom Colored Bar
+        // 4. Ultra-Slim Full-Width Centered Footer Bar (or MAN TRIG) + Bottom Colored Bar
         if (bottomBar != null) {
             Box(
                 modifier = Modifier
@@ -2795,28 +2805,30 @@ private fun SynthModuleCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(12.dp)
                     .background(Color(0xFF080A0F))
-                    .padding(horizontal = 3.dp, vertical = 1.dp),
+                    .padding(horizontal = 3.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = footer,
                     color = Color(0xFF9CA3AF),
-                    fontSize = 5.8.sp,
+                    fontSize = 5.5.sp,
+                    lineHeight = 6.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.5.sp,
+                    letterSpacing = 0.4.sp,
                     textAlign = TextAlign.Center,
                     maxLines = 1
                 )
             }
         }
 
-        // 5. Colored Accent Bar repeated at the very bottom of the section cartridge
+        // 5. Colored Accent Bar repeated across 100% width at the very bottom of the section
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(2.5.dp)
+                .height(2.dp)
                 .background(accentColor)
         )
     }
@@ -3328,11 +3340,11 @@ private fun SelectorGroupBox(
     Box(contentAlignment = Alignment.TopCenter) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(1.5.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
             modifier = Modifier
                 .background(
                     if (isWaiting) Color(0xFF0A2236) else Color(0xFF0D1017),
-                    RoundedCornerShape(4.dp)
+                    RoundedCornerShape(3.5.dp)
                 )
                 .border(
                     width = if (isWaiting) 1.5.dp else 1.dp,
@@ -3341,18 +3353,19 @@ private fun SelectorGroupBox(
                         isLearnMode -> Color(0xFF0369A1)
                         else -> Color(0xFF1D2434)
                     },
-                    shape = RoundedCornerShape(4.dp)
+                    shape = RoundedCornerShape(3.5.dp)
                 )
                 .clickable(enabled = isLearnMode) {
                     midiManager.learningTargetKey = param.key
                     onNotifyUiChanged()
                 }
-                .padding(horizontal = 3.dp, vertical = 2.dp)
+                .padding(horizontal = 2.5.dp, vertical = 1.dp)
         ) {
             Text(
                 text = title,
                 color = Color(0xFF9CA3AF),
-                fontSize = 7.sp,
+                fontSize = 6.2.sp,
+                lineHeight = 6.5.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold
             )
@@ -3361,14 +3374,14 @@ private fun SelectorGroupBox(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .width(32.dp)
-                        .height(15.dp)
-                        .clip(RoundedCornerShape(2.5.dp))
+                        .width(30.dp)
+                        .height(12.5.dp)
+                        .clip(RoundedCornerShape(2.dp))
                         .background(if (isSel) Color(0xFFF59E0B) else Color(0xFF171B26))
                         .border(
                             0.8.dp,
                             if (isSel) Color(0xFFFDE68A) else Color(0xFF282F40),
-                            RoundedCornerShape(2.5.dp)
+                            RoundedCornerShape(2.dp)
                         )
                         .clickable {
                             if (isLearnMode) {
@@ -3382,7 +3395,8 @@ private fun SelectorGroupBox(
                     Text(
                         text = options[i],
                         color = if (isSel) Color.Black else Color(0xFF9CA3AF),
-                        fontSize = 7.5.sp,
+                        fontSize = 6.5.sp,
+                        lineHeight = 6.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black
                     )
