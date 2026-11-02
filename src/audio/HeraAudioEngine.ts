@@ -1095,10 +1095,14 @@ export class HeraSynthesizerEngine {
       const t = this.ctx.currentTime;
       const isEnabled = this.params.ReverbEnabled > 0.5;
 
+      this.reverbDryGain.gain.cancelScheduledValues(t);
+      this.reverbWetGain.gain.cancelScheduledValues(t);
+
       if (!isEnabled) {
         this.reverbDryGain.gain.setTargetAtTime(1.0, t, 0.025);
         this.reverbWetGain.gain.setTargetAtTime(0.0, t, 0.025);
         this.reverbCombFeedbacks.forEach((fb) => {
+          fb.gain.cancelScheduledValues(t);
           fb.gain.setTargetAtTime(0.0, t, 0.04);
         });
         return;
@@ -1120,30 +1124,40 @@ export class HeraSynthesizerEngine {
         : 0.85 + timeNorm * 0.40;
       const dampingCutoffHz = isHall ? 3400 : 6800;
 
-      // Feedback (RT60 decay): safe range 0.40 to 0.915
-      const feedbackVal = 0.40 + decayNorm * 0.515;
+      // Feedback (RT60 decay): wide musical range 0.32 (short tight room) to 0.925 (lush infinite tail)
+      const feedbackVal = 0.32 + decayNorm * 0.605;
 
       const wet = mixNorm * 0.78;
       const dry = Math.max(0.25, 1.0 - wet * 0.32);
 
-      this.reverbPreDelay.delayTime.setTargetAtTime(preDelaySec, t, 0.03);
+      if (Math.abs(this.reverbPreDelay.delayTime.value - preDelaySec) > 0.0005) {
+        this.reverbPreDelay.delayTime.cancelScheduledValues(t);
+        this.reverbPreDelay.delayTime.setTargetAtTime(preDelaySec, t, 0.025);
+      }
 
       const baseCombTimes = [0.0297, 0.0371, 0.0411, 0.0313, 0.0389, 0.0437];
       this.reverbCombDelays.forEach((delayNode, idx) => {
         const targetTime = Math.min(0.22, baseCombTimes[idx] * sizeScale);
-        delayNode.delayTime.setTargetAtTime(targetTime, t, 0.035);
+        if (Math.abs(delayNode.delayTime.value - targetTime) > 0.0004) {
+          delayNode.delayTime.cancelScheduledValues(t);
+          delayNode.delayTime.setTargetAtTime(targetTime, t, 0.03);
+        }
       });
 
       this.reverbCombFilters.forEach((filter) => {
-        filter.frequency.setTargetAtTime(dampingCutoffHz, t, 0.03);
+        if (Math.abs(filter.frequency.value - dampingCutoffHz) > 5) {
+          filter.frequency.cancelScheduledValues(t);
+          filter.frequency.setTargetAtTime(dampingCutoffHz, t, 0.025);
+        }
       });
 
       this.reverbCombFeedbacks.forEach((fb) => {
-        fb.gain.setTargetAtTime(feedbackVal, t, 0.025);
+        fb.gain.cancelScheduledValues(t);
+        fb.gain.setTargetAtTime(feedbackVal, t, 0.018);
       });
 
-      this.reverbDryGain.gain.setTargetAtTime(dry, t, 0.025);
-      this.reverbWetGain.gain.setTargetAtTime(wet, t, 0.025);
+      this.reverbDryGain.gain.setTargetAtTime(dry, t, 0.02);
+      this.reverbWetGain.gain.setTargetAtTime(wet, t, 0.02);
     } catch (err) {
       console.warn('updateReverbMode audio error caught:', err);
     }

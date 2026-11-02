@@ -63,7 +63,9 @@ export interface MidiControllerProfile {
   id: string;
   name: string;
   paramToCC: Partial<Record<keyof HeraParameters, number>>;
+  paramToChannel?: Partial<Record<keyof HeraParameters, number>>;
   actionMapping: Record<number, MidiMappableAction>;
+  actionToChannel?: Partial<Record<MidiMappableAction, number>>;
   keysChannel: number;
   effectsChannel: number;
 }
@@ -114,11 +116,13 @@ export class MidiManager {
   // 0 = OMNI (Global / All Channels 1-16), 1..16 = Specific MIDI Channel
   // keysChannel (default 1 = Channel 1): filters Note On (0x9), Note Off (0x8), Pitch Bend (0xE), AND Volume/VCO Level CCs
   private keysChannel: number = 1;
-  // effectsChannel (default 0 = OMNI or 2..16): filters Effects, Filter, LFO, Switches, Reverb, Delay & Actions
+  // effectsChannel (default 0 = OMNI or 1..16): filters Effects, Filter, LFO, Switches, Reverb, Delay & Actions
   private effectsChannel: number = 0;
 
   private paramToCC: Partial<Record<keyof HeraParameters, number>> = buildDefaultParamToCC();
+  private paramToChannel: Partial<Record<keyof HeraParameters, number>> = {};
   private actionMapping: Record<number, MidiMappableAction> = buildDefaultActionMapping();
+  private actionToChannel: Partial<Record<MidiMappableAction, number>> = {};
   private profiles: MidiControllerProfile[] = [];
   private activeProfileId: string = DEFAULT_PROFILE_ID;
 
@@ -162,13 +166,17 @@ export class MidiManager {
       // localStorage unavailable or corrupted
     }
 
+    const defaultMap = buildDefaultParamToCC();
+
     if (loadedProfiles.length === 0) {
       loadedProfiles = [
         {
           id: DEFAULT_PROFILE_ID,
           name: 'Launchkey MK4',
-          paramToCC: buildDefaultParamToCC(),
+          paramToCC: { ...defaultMap },
+          paramToChannel: {},
           actionMapping: buildDefaultActionMapping(),
+          actionToChannel: {},
           keysChannel: this.keysChannel,
           effectsChannel: this.effectsChannel,
         },
@@ -177,12 +185,35 @@ export class MidiManager {
       loadedProfiles.unshift({
         id: DEFAULT_PROFILE_ID,
         name: 'Launchkey MK4',
-        paramToCC: buildDefaultParamToCC(),
+        paramToCC: { ...defaultMap },
+        paramToChannel: {},
         actionMapping: buildDefaultActionMapping(),
+        actionToChannel: {},
         keysChannel: this.keysChannel,
         effectsChannel: this.effectsChannel,
       });
     }
+
+    // Ensure newly added synth parameters (like ReverbEnabled, ReverbType, ReverbTime, ReverbDecay, ReverbMix)
+    // have their default CC if a profile was saved before they existed and hasn't used that CC
+    loadedProfiles = loadedProfiles.map((prof) => {
+      const mergedParamToCC: Partial<Record<keyof HeraParameters, number>> = {
+        ...prof.paramToCC,
+      };
+      const usedCCs = new Set(Object.values(mergedParamToCC));
+      for (const [paramKey, defCC] of Object.entries(defaultMap)) {
+        const k = paramKey as keyof HeraParameters;
+        if (mergedParamToCC[k] === undefined && defCC !== undefined && !usedCCs.has(defCC)) {
+          mergedParamToCC[k] = defCC;
+        }
+      }
+      return {
+        ...prof,
+        paramToCC: mergedParamToCC,
+        paramToChannel: { ...(prof.paramToChannel || {}) },
+        actionToChannel: { ...(prof.actionToChannel || {}) },
+      };
+    });
 
     this.profiles = loadedProfiles;
     const active =
@@ -192,7 +223,9 @@ export class MidiManager {
 
     this.activeProfileId = active.id;
     this.paramToCC = { ...(active.paramToCC || buildDefaultParamToCC()) };
+    this.paramToChannel = { ...(active.paramToChannel || {}) };
     this.actionMapping = { ...(active.actionMapping || buildDefaultActionMapping()) };
+    this.actionToChannel = { ...(active.actionToChannel || {}) };
     if (typeof active.keysChannel === 'number') {
       this.keysChannel = active.keysChannel;
     }
@@ -210,7 +243,9 @@ export class MidiManager {
         ? {
             ...p,
             paramToCC: { ...this.paramToCC },
+            paramToChannel: { ...this.paramToChannel },
             actionMapping: { ...this.actionMapping },
+            actionToChannel: { ...this.actionToChannel },
             keysChannel: this.keysChannel,
             effectsChannel: this.effectsChannel,
           }
@@ -249,7 +284,9 @@ export class MidiManager {
     return this.profiles.map((p) => ({
       ...p,
       paramToCC: { ...p.paramToCC },
+      paramToChannel: { ...(p.paramToChannel || {}) },
       actionMapping: { ...p.actionMapping },
+      actionToChannel: { ...(p.actionToChannel || {}) },
     }));
   }
 
@@ -263,7 +300,9 @@ export class MidiManager {
 
     this.activeProfileId = target.id;
     this.paramToCC = { ...target.paramToCC };
+    this.paramToChannel = { ...(target.paramToChannel || {}) };
     this.actionMapping = { ...target.actionMapping };
+    this.actionToChannel = { ...(target.actionToChannel || {}) };
     if (typeof target.keysChannel === 'number') {
       this.keysChannel = target.keysChannel;
     }
@@ -283,7 +322,9 @@ export class MidiManager {
       id: `profile-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: trimmed,
       paramToCC: { ...this.paramToCC },
+      paramToChannel: { ...this.paramToChannel },
       actionMapping: { ...this.actionMapping },
+      actionToChannel: { ...this.actionToChannel },
       keysChannel: this.keysChannel,
       effectsChannel: this.effectsChannel,
     };
@@ -312,7 +353,18 @@ export class MidiManager {
   setKeysChannel(channel: number) {
     const clamped = Math.max(0, Math.min(16, Math.floor(channel)));
     if (this.keysChannel !== clamped) {
+      const prevKeysCh = this.keysChannel;
       this.keysChannel = clamped;
+      // Update any Keys-group parameter that was learned on the previous keysChannel
+      for (const paramKey of KEYS_CHANNEL_PARAMS) {
+        if (this.paramToChannel[paramKey] === prevKeysCh) {
+          if (clamped === 0) {
+            delete this.paramToChannel[paramKey];
+          } else {
+            this.paramToChannel[paramKey] = clamped;
+          }
+        }
+      }
       this.synth.allNotesOff();
       this.persistProfilesToStorage();
     }
@@ -325,13 +377,44 @@ export class MidiManager {
   setEffectsChannel(channel: number) {
     const clamped = Math.max(0, Math.min(16, Math.floor(channel)));
     if (this.effectsChannel !== clamped) {
+      const prevFxCh = this.effectsChannel;
       this.effectsChannel = clamped;
+      // Update any Effects-group parameter that was learned on the previous effectsChannel
+      for (const paramKey of Object.keys(this.paramToChannel) as Array<keyof HeraParameters>) {
+        if (!KEYS_CHANNEL_PARAMS.has(paramKey) && this.paramToChannel[paramKey] === prevFxCh) {
+          if (clamped === 0) {
+            delete this.paramToChannel[paramKey];
+          } else {
+            this.paramToChannel[paramKey] = clamped;
+          }
+        }
+      }
       this.persistProfilesToStorage();
     }
   }
 
   getEffectsChannel(): number {
     return this.effectsChannel;
+  }
+
+  /**
+   * Determines whether a given parameter responds to a CC message on `msgChannel` (1..16).
+   * - If the parameter was explicitly learned via MIDI Learn on a specific channel (`this.paramToChannel[param]`),
+   *   it responds on that exact learned channel AND also on its group channel (`keysChannel` or `effectsChannel`).
+   * - Otherwise, it responds on its group channel (`KEYS_CHANNEL_PARAMS` -> `keysChannel`, others -> `effectsChannel`).
+   */
+  private doesParamMatchChannel(param: keyof HeraParameters, msgChannel: number): boolean {
+    const learnedCh = this.paramToChannel[param];
+    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16) {
+      if (msgChannel === learnedCh) return true;
+    }
+
+    const isKeysParam = KEYS_CHANNEL_PARAMS.has(param);
+    if (isKeysParam) {
+      return this.keysChannel === 0 || msgChannel === this.keysChannel;
+    } else {
+      return this.effectsChannel === 0 || msgChannel === this.effectsChannel;
+    }
   }
 
   async init(
@@ -381,22 +464,43 @@ export class MidiManager {
     return this.activeLearnParam;
   }
 
-  mapCC(cc: number, param: keyof HeraParameters) {
-    const targetIsKeysGroup = KEYS_CHANNEL_PARAMS.has(param);
-    // Remove duplicate CC only within the same channel group (Keys vs Effects)
+  mapCC(cc: number, param: keyof HeraParameters, learnedChannel?: number) {
+    const effectiveChannel =
+      learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16
+        ? learnedChannel
+        : KEYS_CHANNEL_PARAMS.has(param)
+        ? this.keysChannel
+        : this.effectsChannel;
+
+    // Remove duplicate CC for any other parameter that would respond on the same MIDI channel
     for (const [p, existingCC] of Object.entries(this.paramToCC)) {
       const paramKey = p as keyof HeraParameters;
-      if (existingCC === cc && KEYS_CHANNEL_PARAMS.has(paramKey) === targetIsKeysGroup) {
+      if (paramKey === param || existingCC !== cc) continue;
+
+      if (
+        effectiveChannel === 0 ||
+        this.doesParamMatchChannel(paramKey, effectiveChannel) ||
+        KEYS_CHANNEL_PARAMS.has(paramKey) === KEYS_CHANNEL_PARAMS.has(param)
+      ) {
         delete this.paramToCC[paramKey];
+        delete this.paramToChannel[paramKey];
       }
     }
+
     this.paramToCC[param] = cc;
+    if (learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16) {
+      this.paramToChannel[param] = learnedChannel;
+    } else {
+      delete this.paramToChannel[param];
+    }
+
     this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping(), param, cc);
   }
 
   unmapParam(param: keyof HeraParameters) {
     delete this.paramToCC[param];
+    delete this.paramToChannel[param];
     this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping());
   }
@@ -404,7 +508,9 @@ export class MidiManager {
   unmapCC(cc: number) {
     for (const [p, existingCC] of Object.entries(this.paramToCC)) {
       if (existingCC === cc) {
-        delete this.paramToCC[p as keyof HeraParameters];
+        const k = p as keyof HeraParameters;
+        delete this.paramToCC[k];
+        delete this.paramToChannel[k];
       }
     }
     this.persistProfilesToStorage();
@@ -414,6 +520,11 @@ export class MidiManager {
   getCCForParam(param: keyof HeraParameters): number | null {
     const cc = this.paramToCC[param];
     return cc !== undefined ? cc : null;
+  }
+
+  getChannelForParam(param: keyof HeraParameters): number | null {
+    const ch = this.paramToChannel[param];
+    return ch !== undefined ? ch : null;
   }
 
   getParamToCCMap(): Partial<Record<keyof HeraParameters, number>> {
@@ -452,11 +563,14 @@ export class MidiManager {
     return this.activeLearnAction;
   }
 
-  mapActionCC(cc: number, action: MidiMappableAction) {
+  mapActionCC(cc: number, action: MidiMappableAction, learnedChannel?: number) {
     for (const [k, v] of Object.entries(this.actionMapping)) {
       if (v === action) delete this.actionMapping[Number(k)];
     }
     this.actionMapping[cc] = action;
+    if (learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16) {
+      this.actionToChannel[action] = learnedChannel;
+    }
     this.persistProfilesToStorage();
     this.onActionMappingChanged?.(this.getActionMapping(), action, cc);
   }
@@ -465,6 +579,7 @@ export class MidiManager {
     for (const [k, v] of Object.entries(this.actionMapping)) {
       if (v === action) delete this.actionMapping[Number(k)];
     }
+    delete this.actionToChannel[action];
     this.persistProfilesToStorage();
     this.onActionMappingChanged?.(this.getActionMapping());
   }
@@ -482,7 +597,9 @@ export class MidiManager {
 
   resetToDefaultMapping() {
     this.paramToCC = buildDefaultParamToCC();
+    this.paramToChannel = {};
     this.actionMapping = buildDefaultActionMapping();
+    this.actionToChannel = {};
     this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping());
     this.onActionMappingChanged?.(this.getActionMapping());
@@ -533,13 +650,6 @@ export class MidiManager {
       }
     }
 
-    // 3. Control Change (0xB): routed to Keys Channel for Volumes/VCO Levels, and Effects Channel for Effects/Controls
-    if (command === 0xb) {
-      if (!isKeysChannelMatch && !isEffectsChannelMatch) {
-        return;
-      }
-    }
-
     switch (command) {
       case 0x9: {
         // Note On
@@ -582,28 +692,31 @@ export class MidiManager {
         const normalized = value / 127;
         this.onMidiActivity?.(cc, value, msgChannel);
 
-        // MIDI Learn interception for Parameters (channel-aware: Volumes/VCO Levels learn on Keys channel, others on Effects channel)
+        // 1. MIDI Learn interception for Parameters:
+        // Accepts any physical fader/knob/switch CC on its incoming MIDI channel and locks onto (cc, msgChannel)
         if (this.activeLearnParam) {
           const learned = this.activeLearnParam;
-          const isKeysParam = KEYS_CHANNEL_PARAMS.has(learned);
-          if ((isKeysParam && isKeysChannelMatch) || (!isKeysParam && isEffectsChannelMatch)) {
-            this.mapCC(cc, learned);
-            this.activeLearnParam = null;
-          }
+          this.mapCC(cc, learned, msgChannel);
+          this.activeLearnParam = null;
         }
 
-        // MIDI Learn interception for Actions (prevPreset, nextPreset, lfoTrig, arpToggle, arpHold -> Effects channel)
-        if (this.activeLearnAction && isEffectsChannelMatch) {
+        // 2. MIDI Learn interception for Actions:
+        if (this.activeLearnAction) {
           const learned = this.activeLearnAction;
-          this.mapActionCC(cc, learned);
+          this.mapActionCC(cc, learned, msgChannel);
           this.activeLearnAction = null;
         }
 
-        // Check if CC triggers an Action (on Effects channel)
+        // 3. Check if CC triggers an Action (matches learned action channel or Effects channel)
         // Rule: 0 = OFF, >= 1 = ON
-        if (isEffectsChannelMatch) {
-          const targetAction = this.actionMapping[cc];
-          if (targetAction) {
+        const targetAction = this.actionMapping[cc];
+        if (targetAction) {
+          const learnedActionCh = this.actionToChannel[targetAction];
+          const actionChannelMatches =
+            (learnedActionCh !== undefined && msgChannel === learnedActionCh) ||
+            isEffectsChannelMatch;
+
+          if (actionChannelMatches) {
             if (targetAction === 'arpToggle' || targetAction === 'arpHold') {
               // Switch state directly: 0 = OFF, >= 1 = ON
               this.onActionTriggered?.(targetAction, value);
@@ -614,14 +727,14 @@ export class MidiManager {
           }
         }
 
-        // Check if CC is mapped to any synth parameter(s) matching the incoming MIDI channel group
+        // 4. Check if CC is mapped to any synth parameter(s) matching the incoming MIDI channel
         for (const [paramKey, mappedCC] of Object.entries(this.paramToCC)) {
           if (mappedCC !== cc) continue;
           const targetParam = paramKey as keyof HeraParameters;
-          const isKeysParam = KEYS_CHANNEL_PARAMS.has(targetParam);
 
-          if (isKeysParam && !isKeysChannelMatch) continue;
-          if (!isKeysParam && !isEffectsChannelMatch) continue;
+          if (!this.doesParamMatchChannel(targetParam, msgChannel)) {
+            continue;
+          }
 
           let paramValue: number = normalized;
 
@@ -672,4 +785,5 @@ export class MidiManager {
     return this.connectedDevices;
   }
 }
+
 
