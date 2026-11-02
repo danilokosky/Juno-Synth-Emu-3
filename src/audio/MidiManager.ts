@@ -8,7 +8,100 @@ export interface MidiDevice {
   state: string;
 }
 
-// Parameters that respond on the Keys MIDI Channel (Channel 1 by default: Master Volume, VCA Level, and VCO/DCO Waveform Levels)
+export type MidiSectionId =
+  | 'keys'
+  | 'lfo'
+  | 'dco'
+  | 'hpf'
+  | 'vcf'
+  | 'vca'
+  | 'env'
+  | 'chorus'
+  | 'delay'
+  | 'reverb'
+  | 'arpPresets';
+
+export type MidiSectionChannels = Record<MidiSectionId, number>;
+
+export interface MidiSectionMeta {
+  id: MidiSectionId;
+  label: string;
+  shortLabel: string;
+  description: string;
+  isKeys?: boolean;
+}
+
+export const MIDI_SECTIONS: MidiSectionMeta[] = [
+  {
+    id: 'keys',
+    label: 'Teclas & Volume Master',
+    shortLabel: 'TECLAS',
+    description: 'Notas, Pitch Bend e Volume Geral',
+    isKeys: true,
+  },
+  {
+    id: 'lfo',
+    label: 'LFO (Vibrato)',
+    shortLabel: 'LFO',
+    description: 'Rate, Vib Delay e Botão Man Trig',
+  },
+  {
+    id: 'dco',
+    label: 'DCO / VCO (Oscilador)',
+    shortLabel: 'DCO',
+    description: 'Range, PWM, LFO, Pulse, Saw, Sub e Noise',
+  },
+  {
+    id: 'hpf',
+    label: 'HPF (Filtro Passa-Alta)',
+    shortLabel: 'HPF',
+    description: 'Frequência do HPF',
+  },
+  {
+    id: 'vcf',
+    label: 'VCF (Filtro Principal)',
+    shortLabel: 'VCF',
+    description: 'Freq, Res, Env, LFO, Kybd e Bend',
+  },
+  {
+    id: 'vca',
+    label: 'VCA (Amplificador)',
+    shortLabel: 'VCA',
+    description: 'Modo ENV/GATE e VCA Level',
+  },
+  {
+    id: 'env',
+    label: 'ENV (Envelope ADSR)',
+    shortLabel: 'ENV',
+    description: 'Attack, Decay, Sustain e Release',
+  },
+  {
+    id: 'chorus',
+    label: 'Chorus BBD',
+    shortLabel: 'CHORUS',
+    description: 'Chorus I e Chorus II',
+  },
+  {
+    id: 'delay',
+    label: 'Echo Delay',
+    shortLabel: 'DELAY',
+    description: 'ON/OFF, Time, Feedback e Mix',
+  },
+  {
+    id: 'reverb',
+    label: 'Reverb Global',
+    shortLabel: 'REVERB',
+    description: 'ON/OFF, Mode, Time, Decay e Mix',
+  },
+  {
+    id: 'arpPresets',
+    label: 'Arpejador & Presets',
+    shortLabel: 'ARP/PRG',
+    description: 'Arp ON/OFF, Hold e Navegação de Presets',
+  },
+];
+
+// Parameters that default to the Keys channel (Channel 1) on fresh profiles
 export const KEYS_CHANNEL_PARAMS: ReadonlySet<keyof HeraParameters> = new Set<keyof HeraParameters>([
   'MasterVolume',   // Master Volume (Volume Geral)
   'VCADepth',       // VCA Level
@@ -18,18 +111,98 @@ export const KEYS_CHANNEL_PARAMS: ReadonlySet<keyof HeraParameters> = new Set<ke
   'DCONoiseLevel',  // VCO/DCO Noise Level
 ]);
 
+export type MidiMappableAction = 'prevPreset' | 'nextPreset' | 'lfoTrig' | 'arpToggle' | 'arpHold';
+
+export function getSectionForParam(param: keyof HeraParameters): MidiSectionId {
+  switch (param) {
+    case 'MasterVolume':
+      return 'keys';
+    case 'LFORate':
+    case 'LFODelay':
+      return 'lfo';
+    case 'DCORange':
+    case 'LFOTrigMode':
+    case 'DCOPWMMod':
+    case 'DCOPitchModDepth':
+    case 'DCOPWMDepth':
+    case 'DCOPulseLevel':
+    case 'DCOSawLevel':
+    case 'DCOSubLevel':
+    case 'DCONoiseLevel':
+      return 'dco';
+    case 'HPF':
+      return 'hpf';
+    case 'VCFCutoff':
+    case 'VCFResonance':
+    case 'VCFEnv':
+    case 'VCFLFO':
+    case 'VCFKey':
+    case 'VCFBendDepth':
+      return 'vcf';
+    case 'VCAType':
+    case 'VCADepth':
+      return 'vca';
+    case 'ENVAttack':
+    case 'ENVDecay':
+    case 'ENVSustain':
+    case 'ENVRelease':
+      return 'env';
+    case 'ChorusI':
+    case 'ChorusII':
+      return 'chorus';
+    case 'DelayEnabled':
+    case 'DelayTime':
+    case 'DelayFeedback':
+    case 'DelayMix':
+      return 'delay';
+    case 'ReverbEnabled':
+    case 'ReverbType':
+    case 'ReverbTime':
+    case 'ReverbDecay':
+    case 'ReverbMix':
+      return 'reverb';
+    default:
+      return 'vcf';
+  }
+}
+
+export function getSectionForAction(action: MidiMappableAction): MidiSectionId {
+  if (action === 'lfoTrig') return 'lfo';
+  return 'arpPresets';
+}
+
+export function formatMidiChannelShort(ch: number): string {
+  return ch === 0 ? 'OMNI' : `CH${ch}`;
+}
+
+export function buildDefaultSectionChannels(keysCh: number = 1, fxCh: number = 0): MidiSectionChannels {
+  return {
+    keys: keysCh,
+    lfo: fxCh,
+    dco: keysCh,
+    hpf: fxCh,
+    vcf: fxCh,
+    vca: keysCh,
+    env: fxCh,
+    chorus: fxCh,
+    delay: fxCh,
+    reverb: fxCh,
+    arpPresets: fxCh,
+  };
+}
+
 // Default hardware MIDI CC Mapping for physical knobs/switches/faders
 export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
   1: 'DCOPitchModDepth', // Modulation Wheel
-  7: 'MasterVolume',     // Master Volume (Keys Channel)
-  11: 'VCADepth',        // VCA Level (Keys Channel)
+  7: 'MasterVolume',     // Master Volume
+  11: 'VCADepth',        // VCA Level
   14: 'DCORange',        // DCO Range
   15: 'DCOPWMMod',       // PWM Mod Source
   16: 'DCOPWMDepth',     // PWM Depth
-  18: 'DCOPulseLevel',   // VCO/DCO Pulse Level (Keys Channel)
-  19: 'DCOSawLevel',     // VCO/DCO Saw Level (Keys Channel)
-  20: 'DCOSubLevel',     // VCO/DCO Sub Level (Keys Channel)
-  21: 'DCONoiseLevel',   // VCO/DCO Noise Level (Keys Channel)
+  18: 'DCOPulseLevel',   // VCO/DCO Pulse Level
+  19: 'DCOSawLevel',     // VCO/DCO Saw Level
+  20: 'DCOSubLevel',     // VCO/DCO Sub Level
+  21: 'DCONoiseLevel',   // VCO/DCO Noise Level
   22: 'HPF',             // HPF Cutoff
   74: 'VCFCutoff',       // Standard MIDI Brightness / Cutoff
   71: 'VCFResonance',    // Standard MIDI Resonance
@@ -57,8 +230,6 @@ export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
   93: 'ReverbDecay',     // Global Post Reverb Decay
 };
 
-export type MidiMappableAction = 'prevPreset' | 'nextPreset' | 'lfoTrig' | 'arpToggle' | 'arpHold';
-
 export interface MidiControllerProfile {
   id: string;
   name: string;
@@ -68,6 +239,7 @@ export interface MidiControllerProfile {
   actionToChannel?: Partial<Record<MidiMappableAction, number>>;
   keysChannel: number;
   effectsChannel: number;
+  sectionChannels: MidiSectionChannels;
 }
 
 const PROFILES_STORAGE_KEY = 'hera_midi_profiles_v1';
@@ -109,15 +281,15 @@ export class MidiManager {
     profiles: MidiControllerProfile[],
     activeProfileId: string,
     keysChannel: number,
-    effectsChannel: number
+    effectsChannel: number,
+    sectionChannels: MidiSectionChannels
   ) => void;
   private synth: HeraSynthesizerEngine;
 
-  // 0 = OMNI (Global / All Channels 1-16), 1..16 = Specific MIDI Channel
-  // keysChannel (default 1 = Channel 1): filters Note On (0x9), Note Off (0x8), Pitch Bend (0xE), AND Volume/VCO Level CCs
+  // 0 = OMNI (All Channels 1-16), 1..16 = Specific MIDI Channel
   private keysChannel: number = 1;
-  // effectsChannel (default 0 = OMNI or 1..16): filters Effects, Filter, LFO, Switches, Reverb, Delay & Actions
   private effectsChannel: number = 0;
+  private sectionChannels: MidiSectionChannels = buildDefaultSectionChannels(1, 0);
 
   private paramToCC: Partial<Record<keyof HeraParameters, number>> = buildDefaultParamToCC();
   private paramToChannel: Partial<Record<keyof HeraParameters, number>> = {};
@@ -167,6 +339,7 @@ export class MidiManager {
     }
 
     const defaultMap = buildDefaultParamToCC();
+    const defaultSections = buildDefaultSectionChannels(this.keysChannel, this.effectsChannel);
 
     if (loadedProfiles.length === 0) {
       loadedProfiles = [
@@ -179,6 +352,7 @@ export class MidiManager {
           actionToChannel: {},
           keysChannel: this.keysChannel,
           effectsChannel: this.effectsChannel,
+          sectionChannels: { ...defaultSections },
         },
       ];
     } else if (!loadedProfiles.some((p) => p.id === DEFAULT_PROFILE_ID)) {
@@ -191,11 +365,11 @@ export class MidiManager {
         actionToChannel: {},
         keysChannel: this.keysChannel,
         effectsChannel: this.effectsChannel,
+        sectionChannels: { ...defaultSections },
       });
     }
 
-    // Ensure newly added synth parameters (like ReverbEnabled, ReverbType, ReverbTime, ReverbDecay, ReverbMix)
-    // have their default CC if a profile was saved before they existed and hasn't used that CC
+    // Migrate and normalize all saved profiles
     loadedProfiles = loadedProfiles.map((prof) => {
       const mergedParamToCC: Partial<Record<keyof HeraParameters, number>> = {
         ...prof.paramToCC,
@@ -207,11 +381,23 @@ export class MidiManager {
           mergedParamToCC[k] = defCC;
         }
       }
+
+      const pKeysCh = typeof prof.keysChannel === 'number' ? prof.keysChannel : this.keysChannel;
+      const pFxCh = typeof prof.effectsChannel === 'number' ? prof.effectsChannel : this.effectsChannel;
+      const fallbackSections = buildDefaultSectionChannels(pKeysCh, pFxCh);
+      const mergedSections: MidiSectionChannels = {
+        ...fallbackSections,
+        ...(prof.sectionChannels || {}),
+      };
+
       return {
         ...prof,
         paramToCC: mergedParamToCC,
         paramToChannel: { ...(prof.paramToChannel || {}) },
         actionToChannel: { ...(prof.actionToChannel || {}) },
+        keysChannel: mergedSections.keys,
+        effectsChannel: pFxCh,
+        sectionChannels: mergedSections,
       };
     });
 
@@ -226,18 +412,20 @@ export class MidiManager {
     this.paramToChannel = { ...(active.paramToChannel || {}) };
     this.actionMapping = { ...(active.actionMapping || buildDefaultActionMapping()) };
     this.actionToChannel = { ...(active.actionToChannel || {}) };
-    if (typeof active.keysChannel === 'number') {
-      this.keysChannel = active.keysChannel;
-    }
-    if (typeof active.effectsChannel === 'number') {
-      this.effectsChannel = active.effectsChannel;
-    }
+    this.sectionChannels = {
+      ...buildDefaultSectionChannels(active.keysChannel ?? 1, active.effectsChannel ?? 0),
+      ...(active.sectionChannels || {}),
+    };
+    this.keysChannel = this.sectionChannels.keys;
+    this.effectsChannel = active.effectsChannel ?? 0;
 
     this.persistProfilesToStorage();
   }
 
   private persistProfilesToStorage() {
-    // Sync current state into the active profile slot first
+    this.keysChannel = this.sectionChannels.keys;
+
+    // Sync current state into the active profile slot first (Auto-Save into active profile)
     this.profiles = this.profiles.map((p) =>
       p.id === this.activeProfileId
         ? {
@@ -248,6 +436,7 @@ export class MidiManager {
             actionToChannel: { ...this.actionToChannel },
             keysChannel: this.keysChannel,
             effectsChannel: this.effectsChannel,
+            sectionChannels: { ...this.sectionChannels },
           }
         : p
     );
@@ -265,7 +454,8 @@ export class MidiManager {
       this.getProfiles(),
       this.activeProfileId,
       this.keysChannel,
-      this.effectsChannel
+      this.effectsChannel,
+      this.getSectionChannels()
     );
   }
 
@@ -274,7 +464,8 @@ export class MidiManager {
       profiles: MidiControllerProfile[],
       activeProfileId: string,
       keysChannel: number,
-      effectsChannel: number
+      effectsChannel: number,
+      sectionChannels: MidiSectionChannels
     ) => void
   ) {
     this.onProfilesChanged = cb;
@@ -287,6 +478,7 @@ export class MidiManager {
       paramToChannel: { ...(p.paramToChannel || {}) },
       actionMapping: { ...p.actionMapping },
       actionToChannel: { ...(p.actionToChannel || {}) },
+      sectionChannels: { ...p.sectionChannels },
     }));
   }
 
@@ -303,12 +495,12 @@ export class MidiManager {
     this.paramToChannel = { ...(target.paramToChannel || {}) };
     this.actionMapping = { ...target.actionMapping };
     this.actionToChannel = { ...(target.actionToChannel || {}) };
-    if (typeof target.keysChannel === 'number') {
-      this.keysChannel = target.keysChannel;
-    }
-    if (typeof target.effectsChannel === 'number') {
-      this.effectsChannel = target.effectsChannel;
-    }
+    this.sectionChannels = {
+      ...buildDefaultSectionChannels(target.keysChannel ?? 1, target.effectsChannel ?? 0),
+      ...(target.sectionChannels || {}),
+    };
+    this.keysChannel = this.sectionChannels.keys;
+    this.effectsChannel = target.effectsChannel ?? 0;
 
     this.synth.allNotesOff();
     this.persistProfilesToStorage();
@@ -327,6 +519,7 @@ export class MidiManager {
       actionToChannel: { ...this.actionToChannel },
       keysChannel: this.keysChannel,
       effectsChannel: this.effectsChannel,
+      sectionChannels: { ...this.sectionChannels },
     };
 
     this.profiles.push(newProfile);
@@ -350,47 +543,99 @@ export class MidiManager {
     this.persistProfilesToStorage();
   }
 
-  setKeysChannel(channel: number) {
+  getSectionChannels(): MidiSectionChannels {
+    return { ...this.sectionChannels };
+  }
+
+  getSectionChannel(section: MidiSectionId): number {
+    return this.sectionChannels[section] ?? 0;
+  }
+
+  setSectionChannel(section: MidiSectionId, channel: number) {
     const clamped = Math.max(0, Math.min(16, Math.floor(channel)));
-    if (this.keysChannel !== clamped) {
-      const prevKeysCh = this.keysChannel;
+    this.sectionChannels[section] = clamped;
+
+    if (section === 'keys') {
       this.keysChannel = clamped;
-      // Update any Keys-group parameter that was learned on the previous keysChannel
-      for (const paramKey of KEYS_CHANNEL_PARAMS) {
-        if (this.paramToChannel[paramKey] === prevKeysCh) {
-          if (clamped === 0) {
-            delete this.paramToChannel[paramKey];
-          } else {
-            this.paramToChannel[paramKey] = clamped;
-          }
+      this.synth.allNotesOff();
+    }
+
+    // Update any learned per-parameter channel in this section to follow the newly chosen section channel
+    for (const paramKey of Object.keys(this.paramToCC) as Array<keyof HeraParameters>) {
+      if (getSectionForParam(paramKey) === section) {
+        if (clamped === 0) {
+          delete this.paramToChannel[paramKey];
+        } else {
+          this.paramToChannel[paramKey] = clamped;
         }
       }
-      this.synth.allNotesOff();
-      this.persistProfilesToStorage();
     }
+
+    // Update any learned action channel in this section
+    for (const actionKey of Object.values(this.actionMapping)) {
+      if (getSectionForAction(actionKey) === section) {
+        if (clamped === 0) {
+          delete this.actionToChannel[actionKey];
+        } else {
+          this.actionToChannel[actionKey] = clamped;
+        }
+      }
+    }
+
+    this.persistProfilesToStorage();
+  }
+
+  setAllFxSectionChannels(channel: number) {
+    const clamped = Math.max(0, Math.min(16, Math.floor(channel)));
+    this.effectsChannel = clamped;
+
+    const fxSections: MidiSectionId[] = [
+      'lfo',
+      'dco',
+      'hpf',
+      'vcf',
+      'vca',
+      'env',
+      'chorus',
+      'delay',
+      'reverb',
+      'arpPresets',
+    ];
+    for (const sec of fxSections) {
+      this.sectionChannels[sec] = clamped;
+    }
+
+    for (const paramKey of Object.keys(this.paramToCC) as Array<keyof HeraParameters>) {
+      if (getSectionForParam(paramKey) !== 'keys') {
+        if (clamped === 0) {
+          delete this.paramToChannel[paramKey];
+        } else {
+          this.paramToChannel[paramKey] = clamped;
+        }
+      }
+    }
+
+    for (const actionKey of Object.values(this.actionMapping)) {
+      if (clamped === 0) {
+        delete this.actionToChannel[actionKey];
+      } else {
+        this.actionToChannel[actionKey] = clamped;
+      }
+    }
+
+    this.persistProfilesToStorage();
+  }
+
+  setKeysChannel(channel: number) {
+    this.setSectionChannel('keys', channel);
   }
 
   getKeysChannel(): number {
-    return this.keysChannel;
+    return this.sectionChannels.keys;
   }
 
   setEffectsChannel(channel: number) {
-    const clamped = Math.max(0, Math.min(16, Math.floor(channel)));
-    if (this.effectsChannel !== clamped) {
-      const prevFxCh = this.effectsChannel;
-      this.effectsChannel = clamped;
-      // Update any Effects-group parameter that was learned on the previous effectsChannel
-      for (const paramKey of Object.keys(this.paramToChannel) as Array<keyof HeraParameters>) {
-        if (!KEYS_CHANNEL_PARAMS.has(paramKey) && this.paramToChannel[paramKey] === prevFxCh) {
-          if (clamped === 0) {
-            delete this.paramToChannel[paramKey];
-          } else {
-            this.paramToChannel[paramKey] = clamped;
-          }
-        }
-      }
-      this.persistProfilesToStorage();
-    }
+    this.setAllFxSectionChannels(channel);
   }
 
   getEffectsChannel(): number {
@@ -399,22 +644,36 @@ export class MidiManager {
 
   /**
    * Determines whether a given parameter responds to a CC message on `msgChannel` (1..16).
-   * - If the parameter was explicitly learned via MIDI Learn on a specific channel (`this.paramToChannel[param]`),
-   *   it responds on that exact learned channel AND also on its group channel (`keysChannel` or `effectsChannel`).
-   * - Otherwise, it responds on its group channel (`KEYS_CHANNEL_PARAMS` -> `keysChannel`, others -> `effectsChannel`).
+   * Uses the configured section channel (`0` = OMNI, `1..16` = specific MIDI channel).
    */
   private doesParamMatchChannel(param: keyof HeraParameters, msgChannel: number): boolean {
-    const learnedCh = this.paramToChannel[param];
-    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16) {
-      if (msgChannel === learnedCh) return true;
+    const section = getSectionForParam(param);
+    const sectionCh = this.sectionChannels[section] ?? 0;
+    if (sectionCh >= 1 && sectionCh <= 16) {
+      return msgChannel === sectionCh;
     }
 
-    const isKeysParam = KEYS_CHANNEL_PARAMS.has(param);
-    if (isKeysParam) {
-      return this.keysChannel === 0 || msgChannel === this.keysChannel;
-    } else {
-      return this.effectsChannel === 0 || msgChannel === this.effectsChannel;
+    const learnedCh = this.paramToChannel[param];
+    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16) {
+      return msgChannel === learnedCh;
     }
+
+    return true; // OMNI
+  }
+
+  private doesActionMatchChannel(action: MidiMappableAction, msgChannel: number): boolean {
+    const section = getSectionForAction(action);
+    const sectionCh = this.sectionChannels[section] ?? 0;
+    if (sectionCh >= 1 && sectionCh <= 16) {
+      return msgChannel === sectionCh;
+    }
+
+    const learnedCh = this.actionToChannel[action];
+    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16) {
+      return msgChannel === learnedCh;
+    }
+
+    return true; // OMNI
   }
 
   async init(
@@ -465,22 +724,23 @@ export class MidiManager {
   }
 
   mapCC(cc: number, param: keyof HeraParameters, learnedChannel?: number) {
-    const effectiveChannel =
-      learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16
-        ? learnedChannel
-        : KEYS_CHANNEL_PARAMS.has(param)
-        ? this.keysChannel
-        : this.effectsChannel;
+    const targetSection = getSectionForParam(param);
+    const sectionCh = this.sectionChannels[targetSection] ?? 0;
+    const effectiveChannel = sectionCh > 0 ? sectionCh : (learnedChannel ?? 0);
 
-    // Remove duplicate CC for any other parameter that would respond on the same MIDI channel
+    // Remove duplicate CC for any other parameter that listens on the same MIDI channel / section
     for (const [p, existingCC] of Object.entries(this.paramToCC)) {
       const paramKey = p as keyof HeraParameters;
       if (paramKey === param || existingCC !== cc) continue;
 
+      const otherSection = getSectionForParam(paramKey);
+      const otherSectionCh = this.sectionChannels[otherSection] ?? 0;
+
       if (
-        effectiveChannel === 0 ||
-        this.doesParamMatchChannel(paramKey, effectiveChannel) ||
-        KEYS_CHANNEL_PARAMS.has(paramKey) === KEYS_CHANNEL_PARAMS.has(param)
+        otherSection === targetSection ||
+        otherSectionCh === effectiveChannel ||
+        otherSectionCh === 0 ||
+        effectiveChannel === 0
       ) {
         delete this.paramToCC[paramKey];
         delete this.paramToChannel[paramKey];
@@ -488,8 +748,8 @@ export class MidiManager {
     }
 
     this.paramToCC[param] = cc;
-    if (learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16) {
-      this.paramToChannel[param] = learnedChannel;
+    if (sectionCh >= 1 && sectionCh <= 16) {
+      this.paramToChannel[param] = sectionCh;
     } else {
       delete this.paramToChannel[param];
     }
@@ -522,9 +782,9 @@ export class MidiManager {
     return cc !== undefined ? cc : null;
   }
 
-  getChannelForParam(param: keyof HeraParameters): number | null {
-    const ch = this.paramToChannel[param];
-    return ch !== undefined ? ch : null;
+  getChannelForParam(param: keyof HeraParameters): number {
+    const section = getSectionForParam(param);
+    return this.sectionChannels[section] ?? 0;
   }
 
   getParamToCCMap(): Partial<Record<keyof HeraParameters, number>> {
@@ -568,8 +828,12 @@ export class MidiManager {
       if (v === action) delete this.actionMapping[Number(k)];
     }
     this.actionMapping[cc] = action;
-    if (learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16) {
-      this.actionToChannel[action] = learnedChannel;
+    const section = getSectionForAction(action);
+    const sectionCh = this.sectionChannels[section] ?? 0;
+    if (sectionCh >= 1 && sectionCh <= 16) {
+      this.actionToChannel[action] = sectionCh;
+    } else if (learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16) {
+      delete this.actionToChannel[action];
     }
     this.persistProfilesToStorage();
     this.onActionMappingChanged?.(this.getActionMapping(), action, cc);
@@ -593,6 +857,11 @@ export class MidiManager {
       if (a === action) return Number(ccStr);
     }
     return null;
+  }
+
+  getChannelForAction(action: MidiMappableAction): number {
+    const section = getSectionForAction(action);
+    return this.sectionChannels[section] ?? 0;
   }
 
   resetToDefaultMapping() {
@@ -633,8 +902,10 @@ export class MidiManager {
     const command = statusByte >> 4;
     const msgChannel = (statusByte & 0x0f) + 1; // 1..16
 
-    const isKeysChannelMatch = this.keysChannel === 0 || msgChannel === this.keysChannel;
-    const isEffectsChannelMatch = this.effectsChannel === 0 || msgChannel === this.effectsChannel;
+    const keysCh = this.sectionChannels.keys ?? 1;
+    const isKeysChannelMatch = keysCh === 0 || msgChannel === keysCh;
+    const arpPresetsCh = this.sectionChannels.arpPresets ?? 0;
+    const isArpPresetsChannelMatch = arpPresetsCh === 0 || msgChannel === arpPresetsCh;
 
     // 1. Keys / Notes Channel Filtering (Note On 0x9, Note Off 0x8, Pitch Bend 0xE)
     if (command === 0x9 || command === 0x8 || command === 0xe) {
@@ -643,9 +914,9 @@ export class MidiManager {
       }
     }
 
-    // 2. Program Change (0xC) on Effects/Controls channel
+    // 2. Program Change (0xC) on Arp & Presets section channel
     if (command === 0xc) {
-      if (!isEffectsChannelMatch) {
+      if (!isArpPresetsChannelMatch) {
         return;
       }
     }
@@ -694,38 +965,38 @@ export class MidiManager {
         const normalized = clampedCC / 100;
         this.onMidiActivity?.(cc, clampedCC, msgChannel);
 
-        // 1. MIDI Learn interception for Parameters:
-        // Accepts any physical fader/knob/switch CC on its incoming MIDI channel and locks onto (cc, msgChannel)
+        // 1. MIDI Learn interception for Parameters (respects the listening channel configured for that parameter's section):
         if (this.activeLearnParam) {
           const learned = this.activeLearnParam;
-          this.mapCC(cc, learned, msgChannel);
-          this.activeLearnParam = null;
+          const learnSection = getSectionForParam(learned);
+          const learnSectionCh = this.sectionChannels[learnSection] ?? 0;
+          if (learnSectionCh === 0 || msgChannel === learnSectionCh) {
+            this.mapCC(cc, learned, msgChannel);
+            this.activeLearnParam = null;
+          }
         }
 
-        // 2. MIDI Learn interception for Actions:
+        // 2. MIDI Learn interception for Actions (respects the listening channel configured for that action's section):
         if (this.activeLearnAction) {
           const learned = this.activeLearnAction;
-          this.mapActionCC(cc, learned, msgChannel);
-          this.activeLearnAction = null;
+          const learnSection = getSectionForAction(learned);
+          const learnSectionCh = this.sectionChannels[learnSection] ?? 0;
+          if (learnSectionCh === 0 || msgChannel === learnSectionCh) {
+            this.mapActionCC(cc, learned, msgChannel);
+            this.activeLearnAction = null;
+          }
         }
 
-        // 3. Check if CC triggers an Action (matches learned action channel or Effects channel)
+        // 3. Check if CC triggers an Action (matches that action's section channel)
         // Rule: 0 = OFF, >= 1 = ON
         const targetAction = this.actionMapping[cc];
-        if (targetAction) {
-          const learnedActionCh = this.actionToChannel[targetAction];
-          const actionChannelMatches =
-            (learnedActionCh !== undefined && msgChannel === learnedActionCh) ||
-            isEffectsChannelMatch;
-
-          if (actionChannelMatches) {
-            if (targetAction === 'arpToggle' || targetAction === 'arpHold') {
-              // Switch state directly: 0 = OFF, >= 1 = ON
-              this.onActionTriggered?.(targetAction, value);
-            } else if (value >= 1) {
-              // Momentary actions (prevPreset, nextPreset, lfoTrig) trigger when value >= 1
-              this.onActionTriggered?.(targetAction, value);
-            }
+        if (targetAction && this.doesActionMatchChannel(targetAction, msgChannel)) {
+          if (targetAction === 'arpToggle' || targetAction === 'arpHold') {
+            // Switch state directly: 0 = OFF, >= 1 = ON
+            this.onActionTriggered?.(targetAction, value);
+          } else if (value >= 1) {
+            // Momentary actions (prevPreset, nextPreset, lfoTrig) trigger when value >= 1
+            this.onActionTriggered?.(targetAction, value);
           }
         }
 
@@ -787,5 +1058,3 @@ export class MidiManager {
     return this.connectedDevices;
   }
 }
-
-

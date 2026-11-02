@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { synthEngine, ArpConfig } from '../audio/HeraAudioEngine';
 import { MidiMappableAction } from '../audio/MidiManager';
+import { MidiLearnBadge } from './MidiLearnBadge';
 import { SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface ArpeggiatorProps {
@@ -9,6 +10,7 @@ interface ArpeggiatorProps {
   selectedLearnAction?: MidiMappableAction | null;
   mappedCCArpToggle?: number | null;
   mappedCCArpHold?: number | null;
+  channelLabel?: string;
   onSelectActionForLearn?: (action: MidiMappableAction) => void;
   onUnmapAction?: (action: MidiMappableAction) => void;
   onRegisterArpActions?: (handlers: {
@@ -25,6 +27,7 @@ export const Arpeggiator: React.FC<ArpeggiatorProps> = ({
   selectedLearnAction = null,
   mappedCCArpToggle = null,
   mappedCCArpHold = null,
+  channelLabel,
   onSelectActionForLearn,
   onUnmapAction,
   onRegisterArpActions,
@@ -93,36 +96,14 @@ export const Arpeggiator: React.FC<ArpeggiatorProps> = ({
         <div className="flex items-center gap-2">
           {/* Main Arp ON/OFF Toggle (Mappable via MIDI) */}
           <div className="relative flex flex-col items-center">
-            {isMidiLearnActive && (mappedCCArpToggle !== null || selectedLearnAction === 'arpToggle') && (
-              <div className="absolute -top-4 left-1/2 -translate-x-1/2 flex items-center justify-center whitespace-nowrap z-30">
-                {mappedCCArpToggle !== null && mappedCCArpToggle !== undefined ? (
-                  <div
-                    className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border shadow select-none ${
-                      selectedLearnAction === 'arpToggle'
-                        ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
-                        : 'bg-[#0284c7] border-[#38bdf8]'
-                    }`}
-                  >
-                    <span>CC{mappedCCArpToggle}</span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onUnmapAction?.('arpToggle');
-                      }}
-                      className="text-white hover:text-red-200 font-bold text-[8px] leading-none cursor-pointer pl-0.5"
-                      title="Desmapear ARP ON/OFF"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ) : (
-                  <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
-                    MAPEAR
-                  </div>
-                )}
-              </div>
-            )}
+            <MidiLearnBadge
+              isMidiLearnActive={isMidiLearnActive}
+              isSelectedForLearn={selectedLearnAction === 'arpToggle'}
+              mappedCC={mappedCCArpToggle}
+              channelLabel={channelLabel}
+              onUnmap={() => onUnmapAction?.('arpToggle')}
+              positionClass="-top-4 left-1/2 -translate-x-1/2"
+            />
             <button
               type="button"
               onClick={(e) => {
@@ -246,36 +227,14 @@ export const Arpeggiator: React.FC<ArpeggiatorProps> = ({
 
           {/* Hold / Latch Toggle (Mappable via MIDI) */}
           <div className="relative flex items-center gap-1 border-l border-zinc-800 pl-3">
-            {isMidiLearnActive && (mappedCCArpHold !== null || selectedLearnAction === 'arpHold') && (
-              <div className="absolute -top-4 left-1/2 -translate-x-1/2 flex items-center justify-center whitespace-nowrap z-30">
-                {mappedCCArpHold !== null && mappedCCArpHold !== undefined ? (
-                  <div
-                    className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border shadow select-none ${
-                      selectedLearnAction === 'arpHold'
-                        ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
-                        : 'bg-[#0284c7] border-[#38bdf8]'
-                    }`}
-                  >
-                    <span>CC{mappedCCArpHold}</span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onUnmapAction?.('arpHold');
-                      }}
-                      className="text-white hover:text-red-200 font-bold text-[8px] leading-none cursor-pointer pl-0.5"
-                      title="Desmapear ARP HOLD"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ) : (
-                  <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
-                    MAPEAR
-                  </div>
-                )}
-              </div>
-            )}
+            <MidiLearnBadge
+              isMidiLearnActive={isMidiLearnActive}
+              isSelectedForLearn={selectedLearnAction === 'arpHold'}
+              mappedCC={mappedCCArpHold}
+              channelLabel={channelLabel}
+              onUnmap={() => onUnmapAction?.('arpHold')}
+              positionClass="-top-4 left-1/2 -translate-x-1/2"
+            />
             <button
               type="button"
               onClick={(e) => {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { MidiLearnBadge } from './MidiLearnBadge';
 
 interface SwitchOption {
   label: string;
@@ -17,6 +18,7 @@ interface ToggleSwitchProps {
   isMidiLearnActive?: boolean;
   isSelectedForLearn?: boolean;
   mappedCC?: number | null;
+  channelLabel?: string;
   onSelectForLearn?: () => void;
   onUnmap?: () => void;
 }
@@ -31,6 +33,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   isMidiLearnActive = false,
   isSelectedForLearn = false,
   mappedCC = null,
+  channelLabel,
   onSelectForLearn,
   onUnmap,
 }) => {
@@ -56,36 +59,14 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
       } ${className}`}
     >
       {/* Floating MIDI Learn Badge (position: absolute -> zero layout shift!) */}
-      {isMidiLearnActive && (mappedCC !== null || isSelectedForLearn) && (
-        <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center whitespace-nowrap pointer-events-auto">
-          {mappedCC !== null && mappedCC !== undefined ? (
-            <div
-              className={`inline-flex items-center gap-0.5 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full shadow-md border select-none ${
-                isSelectedForLearn
-                  ? 'bg-sky-500 border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse'
-                  : 'bg-[#0284c7] hover:bg-[#0369a1] border-[#38bdf8]'
-              }`}
-            >
-              <span>CC{mappedCC}</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onUnmap?.();
-                }}
-                className="text-white/90 hover:text-red-200 font-black text-[8px] leading-none cursor-pointer pl-0.5"
-                title={`Desmapear CC ${mappedCC}`}
-              >
-                ✕
-              </button>
-            </div>
-          ) : (
-            <div className="inline-flex items-center bg-[#0284c7] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-[#38bdf8] shadow-[0_0_10px_rgba(56,189,248,0.85)] animate-pulse select-none pointer-events-none">
-              MAPEAR
-            </div>
-          )}
-        </div>
-      )}
+      <MidiLearnBadge
+        isMidiLearnActive={isMidiLearnActive}
+        isSelectedForLearn={isSelectedForLearn}
+        mappedCC={mappedCC}
+        channelLabel={channelLabel}
+        onUnmap={onUnmap}
+        positionClass="-top-2.5 left-1/2 -translate-x-1/2"
+      />
 
       <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider mb-0.5 truncate max-w-[50px]">
         {label}

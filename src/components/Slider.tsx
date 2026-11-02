@@ -1,4 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
+import { MidiLearnBadge } from './MidiLearnBadge';
 
 interface SliderProps {
   label: string;
@@ -17,6 +18,7 @@ interface SliderProps {
   isMidiLearnActive?: boolean;
   isSelectedForLearn?: boolean;
   mappedCC?: number | null;
+  channelLabel?: string;
   onSelectForLearn?: () => void;
   onUnmap?: () => void;
 }
@@ -36,6 +38,7 @@ export const Slider: React.FC<SliderProps> = ({
   isMidiLearnActive = false,
   isSelectedForLearn = false,
   mappedCC = null,
+  channelLabel,
   onSelectForLearn,
   onUnmap,
 }) => {
@@ -72,7 +75,7 @@ export const Slider: React.FC<SliderProps> = ({
   );
 
   // Independent multi-touch listeners on the fader area:
-  // Each fader tracks its own touch.identifier so touching multiple faders simultaneously
+  // Each fader tracks its own touch.identifier so touching multiple faders or keys simultaneously
   // never crosses or overrides values between them!
   useEffect(() => {
     const el = faderAreaRef.current;
@@ -135,18 +138,18 @@ export const Slider: React.FC<SliderProps> = ({
     };
   }, [isMidiLearnActive, updateFromPointer]);
 
-  // Window-level pointer listeners while dragging for desktop/mouse response
+  // Window-level pointer listeners while dragging with mouse/pointer (strictly bound to activePointerIdRef)
   useEffect(() => {
-    if (!isDragging) return;
+    if (!isDragging || activePointerIdRef.current === null) return;
 
     const handleWindowPointerMove = (e: PointerEvent) => {
-      if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) return;
+      if (activePointerIdRef.current === null || e.pointerId !== activePointerIdRef.current) return;
       e.preventDefault();
       updateFromPointer(e.clientY);
     };
 
     const handleWindowPointerUp = (e: PointerEvent) => {
-      if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) return;
+      if (activePointerIdRef.current === null || e.pointerId !== activePointerIdRef.current) return;
       activePointerIdRef.current = null;
       setIsDragging(false);
       setShowTooltip(false);
@@ -252,46 +255,15 @@ export const Slider: React.FC<SliderProps> = ({
           : `${label}: ${displayString} (Duplo clique para resetar)`
       }
     >
-      {/* Floating MIDI Learn Badge (position: absolute -> zero layout shift!) */}
-      {isMidiLearnActive && (mappedCC !== null || isSelectedForLearn) && (
-        <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center whitespace-nowrap pointer-events-auto">
-          {isSelectedForLearn ? (
-            <div className="inline-flex items-center gap-0.5 bg-sky-500 text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full border border-white shadow-[0_0_10px_rgba(56,189,248,0.9)] animate-pulse select-none">
-              <span>{mappedCC !== null && mappedCC !== undefined ? `MAPEAR (CC${mappedCC})` : 'MAPEAR'}</span>
-              {mappedCC !== null && mappedCC !== undefined && (
-                <button
-                  type="button"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onUnmap?.();
-                  }}
-                  className="text-white hover:text-red-200 font-black text-[8px] leading-none cursor-pointer pl-0.5"
-                  title={`Desmapear CC ${mappedCC}`}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          ) : mappedCC !== null && mappedCC !== undefined ? (
-            <div className="inline-flex items-center gap-0.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-[7.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-full shadow-md border border-[#38bdf8] select-none">
-              <span>CC{mappedCC}</span>
-              <button
-                type="button"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onUnmap?.();
-                }}
-                className="text-white/90 hover:text-red-200 font-black text-[8px] leading-none cursor-pointer pl-0.5"
-                title={`Desmapear CC ${mappedCC}`}
-              >
-                ✕
-              </button>
-            </div>
-          ) : null}
-        </div>
-      )}
+      {/* Floating MIDI Learn Badge (compact 2-line when selected -> never exceeds fader width) */}
+      <MidiLearnBadge
+        isMidiLearnActive={isMidiLearnActive}
+        isSelectedForLearn={isSelectedForLearn}
+        mappedCC={mappedCC}
+        channelLabel={channelLabel}
+        onUnmap={onUnmap}
+        positionClass="-top-2.5 left-1/2 -translate-x-1/2"
+      />
 
       {/* Parameter Title / Label - Strictly separated from fader travel */}
       <div className="h-5 flex items-center justify-center mb-1 z-10">
@@ -306,10 +278,10 @@ export const Slider: React.FC<SliderProps> = ({
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         style={{ touchAction: 'none' }}
-        className="relative flex items-center justify-center w-8 sm:w-9 h-26 sm:h-28 px-0.5 py-2 cursor-pointer select-none active:brightness-110 touch-none"
+        className="relative flex items-center justify-center w-8.5 sm:w-9.5 h-26 sm:h-28 px-0.5 py-2 cursor-pointer select-none active:brightness-110 touch-none"
       >
         {/* Tick scale marks left side - strictly z-0 behind the fader cap */}
-        <div className="absolute left-0 top-2.5 bottom-2.5 flex flex-col justify-between items-end pr-0.5 text-[6.5px] font-mono text-zinc-500 pointer-events-none z-0">
+        <div className="absolute left-0 top-2.5 bottom-2.5 flex flex-col justify-between items-end pr-0.5 text-[6px] font-mono text-zinc-500 pointer-events-none z-0">
           <span>100</span>
           <span>50</span>
           <span>0</span>

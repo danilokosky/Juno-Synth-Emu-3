@@ -63,6 +63,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
 
   const isMouseDownRef = useRef(false);
   const heldNotesRef = useRef<Set<number>>(new Set());
+  const pointerToNoteRef = useRef<Map<number, number>>(new Map());
 
   // Number of octaves to display (3 octaves: 36 keys + top C = 37 keys)
   const baseStartMidi = 48 + octaveShift * 12; // C3 + octaveShift
@@ -80,6 +81,27 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
     setActiveNotes(new Set(heldNotesRef.current));
     synthEngine.noteOff(note);
   }, [holdSustain]);
+
+  // Global window pointerup/pointercancel safety net so keys never get stuck when sliding faders simultaneously
+  useEffect(() => {
+    const handleGlobalPointerUp = (e: PointerEvent) => {
+      const note = pointerToNoteRef.current.get(e.pointerId);
+      if (note !== undefined) {
+        pointerToNoteRef.current.delete(e.pointerId);
+        releaseNote(note);
+      }
+      if (pointerToNoteRef.current.size === 0) {
+        isMouseDownRef.current = false;
+      }
+    };
+
+    window.addEventListener('pointerup', handleGlobalPointerUp);
+    window.addEventListener('pointercancel', handleGlobalPointerUp);
+    return () => {
+      window.removeEventListener('pointerup', handleGlobalPointerUp);
+      window.removeEventListener('pointercancel', handleGlobalPointerUp);
+    };
+  }, [releaseNote]);
 
   // Handle computer keyboard events
   useEffect(() => {
@@ -357,22 +379,34 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
                     key={k.midi}
                     onPointerDown={(e) => {
                       e.preventDefault();
+                      pointerToNoteRef.current.set(e.pointerId, k.midi);
                       try {
                         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                       } catch {}
                       playNote(k.midi);
                     }}
-                    onPointerEnter={() => {
-                      if (isMouseDownRef.current) playNote(k.midi);
+                    onPointerEnter={(e) => {
+                      if (isMouseDownRef.current) {
+                        const prevNote = pointerToNoteRef.current.get(e.pointerId);
+                        if (prevNote !== undefined && prevNote !== k.midi) {
+                          releaseNote(prevNote);
+                        }
+                        pointerToNoteRef.current.set(e.pointerId, k.midi);
+                        playNote(k.midi);
+                      }
                     }}
                     onPointerUp={(e) => {
                       e.preventDefault();
+                      pointerToNoteRef.current.delete(e.pointerId);
                       try {
                         (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
                       } catch {}
                       releaseNote(k.midi);
                     }}
-                    onPointerCancel={() => releaseNote(k.midi)}
+                    onPointerCancel={(e) => {
+                      pointerToNoteRef.current.delete(e.pointerId);
+                      releaseNote(k.midi);
+                    }}
                     className={`relative flex-1 h-full rounded-b border border-zinc-300 shadow transition-colors cursor-pointer flex flex-col justify-end items-center pb-1.5 select-none ${
                       isActive
                         ? 'bg-gradient-to-b from-amber-200 via-amber-300 to-amber-400 border-amber-500 shadow-[0_0_12px_#f59e0b]'
@@ -408,22 +442,34 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
                   onPointerDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    pointerToNoteRef.current.set(e.pointerId, k.midi);
                     try {
                       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                     } catch {}
                     playNote(k.midi);
                   }}
-                  onPointerEnter={() => {
-                    if (isMouseDownRef.current) playNote(k.midi);
+                  onPointerEnter={(e) => {
+                    if (isMouseDownRef.current) {
+                      const prevNote = pointerToNoteRef.current.get(e.pointerId);
+                      if (prevNote !== undefined && prevNote !== k.midi) {
+                        releaseNote(prevNote);
+                      }
+                      pointerToNoteRef.current.set(e.pointerId, k.midi);
+                      playNote(k.midi);
+                    }
                   }}
                   onPointerUp={(e) => {
                     e.preventDefault();
+                    pointerToNoteRef.current.delete(e.pointerId);
                     try {
                       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
                     } catch {}
                     releaseNote(k.midi);
                   }}
-                  onPointerCancel={() => releaseNote(k.midi)}
+                  onPointerCancel={(e) => {
+                    pointerToNoteRef.current.delete(e.pointerId);
+                    releaseNote(k.midi);
+                  }}
                   style={{
                     left: `${leftPercent}%`,
                     width: `${widthPercent}%`,

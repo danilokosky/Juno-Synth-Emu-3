@@ -1,23 +1,152 @@
 package com.herajuno.synth
 
 import android.annotation.SuppressLint
-import android.content.pm.ActivityInfo
+import android.app.Activity
+import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.webkit.*
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.webkit.WebViewAssetLoader
+import java.io.File
+import java.io.FileOutputStream
 
 class MainActivity : ComponentActivity() {
 
     private val TAG = "HeraJuno"
     private var webView: WebView? = null
+    private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingSaveContent: String? = null
+    private var pendingSaveFilename: String? = null
+
+    // Launcher for <input type="file"> (Load Preset XML)
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val callback = fileUploadCallback
+        fileUploadCallback = null
+        if (callback == null) return@registerForActivityResult
+
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val dataUri = result.data?.data
+            val clipData = result.data?.clipData
+            val uris = mutableListOf<Uri>()
+            if (dataUri != null) {
+                uris.add(dataUri)
+            } else if (clipData != null) {
+                for (i in 0 until clipData.itemCount) {
+                    clipData.getItemAt(i)?.uri?.let { uris.add(it) }
+                }
+            }
+            callback.onReceiveValue(uris.toTypedArray())
+        } else {
+            callback.onReceiveValue(null)
+        }
+    }
+
+    // Launcher for Export / Download Preset XML (Intent.ACTION_CREATE_DOCUMENT)
+    private val createDocumentLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val content = pendingSaveContent
+        val fallbackName = pendingSaveFilename ?: "Hera_Preset.xml"
+        pendingSaveContent = null
+        pendingSaveFilename = null
+
+        if (result.resultCode == Activity.RESULT_OK && content != null) {
+            val uri = result.data?.data
+            if (uri != null) {
+                try {
+                    contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(content.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                    }
+                    Toast.makeText(this, "Preset salvo com sucesso!", Toast.LENGTH_SHORT).show()
+                    return@registerForActivityResult
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error writing to document URI", e)
+                }
+            }
+            // Fallback to Downloads if URI write failed
+            saveDirectlyToDownloads(fallbackName, content)
+        }
+    }
+
+    private fun saveDirectlyToDownloads(filename: String, content: String): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/xml")
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(content.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                    }
+                    runOnUiThread {
+                        Toast.makeText(this, "Salvo em Downloads: $filename", Toast.LENGTH_SHORT).show()
+                    }
+                    return true
+                }
+            }
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!downloadsDir.exists()) downloadsDir.mkdirs()
+            val outFile = File(downloadsDir, filename)
+            FileOutputStream(outFile).use { out ->
+                out.write(content.toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
+            runOnUiThread {
+                Toast.makeText(this, "Salvo em Downloads: $filename", Toast.LENGTH_SHORT).show()
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Fallback saveDirectlyToDownloads failed", e)
+            false
+        }
+    }
+
+    inner class AndroidHostBridge {
+        @JavascriptInterface
+        fun saveTextFile(filename: String, content: String, mimeType: String): Boolean {
+            return try {
+                pendingSaveFilename = filename
+                pendingSaveContent = content
+                runOnUiThread {
+                    try {
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = if (mimeType.isNotBlank()) mimeType else "application/xml"
+                            putExtra(Intent.EXTRA_TITLE, filename)
+                        }
+                        createDocumentLauncher.launch(intent)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "ACTION_CREATE_DOCUMENT unavailable, saving directly to Downloads", e)
+                        saveDirectlyToDownloads(filename, content)
+                    }
+                }
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in saveTextFile bridge", e)
+                saveDirectlyToDownloads(filename, content)
+            }
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,12 +189,41 @@ class MainActivity : ComponentActivity() {
                 // Enable OpenGL hardware acceleration
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
+                // Register native bridge for Preset XML Export/Download
+                addJavascriptInterface(AndroidHostBridge(), "AndroidHost")
+
                 webChromeClient = object : WebChromeClient() {
                     override fun onPermissionRequest(request: PermissionRequest?) {
                         try {
                             request?.grant(request.resources)
                         } catch (e: Exception) {
                             Log.e(TAG, "Permission request error", e)
+                        }
+                    }
+
+                    override fun onShowFileChooser(
+                        webView: WebView?,
+                        filePathCallback: ValueCallback<Array<Uri>>?,
+                        fileChooserParams: FileChooserParams?
+                    ): Boolean {
+                        return try {
+                            fileUploadCallback?.onReceiveValue(null)
+                            fileUploadCallback = filePathCallback
+
+                            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type = "*/*"
+                                putExtra(
+                                    Intent.EXTRA_MIME_TYPES,
+                                    arrayOf("text/xml", "application/xml", "application/json", "text/plain", "*/*")
+                                )
+                            }
+                            fileChooserLauncher.launch(Intent.createChooser(intent, "Carregar Preset (.XML)"))
+                            true
+                        } catch (e: Exception) {
+                            Log.e(TAG, "File chooser error", e)
+                            fileUploadCallback = null
+                            false
                         }
                     }
 

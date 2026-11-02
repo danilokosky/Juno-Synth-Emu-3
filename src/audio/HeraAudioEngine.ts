@@ -225,26 +225,31 @@ class HeraVoiceInstance {
 
     // Amplitude Envelope (Linear & musical velocity scaling)
     this.currentVelocityFactor = 0.45 + 0.55 * Math.min(1.0, Math.max(0.1, velocity / 127));
-    const voiceVolume = Math.max(0.01, params.VCADepth * this.currentVelocityFactor);
+    const vcaLevel = Math.max(0, Math.min(1, params.VCADepth));
+    const envPeak = this.currentVelocityFactor;
+
+    // Set VCA Level on dedicated voiceGain node (independent of ADSR envGain!)
+    this.holdParam(this.voiceGain.gain, t);
+    this.voiceGain.gain.setTargetAtTime(vcaLevel, t, 0.004);
 
     // Freeze current envelope voltage on audio thread (Warm Retrigger rises from current level without ever jumping to 0)
     this.holdParam(this.envGain.gain, t);
 
     if (params.VCAType === 1) {
       // Gate mode: smooth 2.5ms RC gate opening (click-free)
-      this.envGain.gain.setTargetAtTime(voiceVolume, t, 0.0025);
+      this.envGain.gain.setTargetAtTime(envPeak, t, 0.0025);
     } else {
       // ADSR Envelope mode using continuous analog RC capacitor curves (setTargetAtTime)
       const attackSec = Math.max(0.004, getAttackSec(params.ENVAttack));
       const decaySec = Math.max(0.006, getDecaySec(params.ENVDecay));
-      const sustainVal = params.ENVSustain * voiceVolume;
+      const sustainVal = params.ENVSustain * envPeak;
 
       if (params.ENVSustain >= 0.99) {
         // Full sustain (e.g., Strings 1): single uninterrupted RC charge curve to target volume
-        this.envGain.gain.setTargetAtTime(voiceVolume, t, attackSec * 0.35);
+        this.envGain.gain.setTargetAtTime(envPeak, t, attackSec * 0.35);
       } else {
         // Attack charge up to peak, then RC decay to sustain level
-        this.envGain.gain.setTargetAtTime(voiceVolume * 1.04, t, attackSec * 0.35);
+        this.envGain.gain.setTargetAtTime(envPeak * 1.04, t, attackSec * 0.35);
         this.envGain.gain.setTargetAtTime(Math.max(0.0001, sustainVal), t + attackSec, decaySec * 0.33);
       }
     }
@@ -284,10 +289,20 @@ class HeraVoiceInstance {
 
     this.pulseDelay.delayTime.setTargetAtTime(delayTime, t, 0.0015);
 
-    this.sawGain.gain.setTargetAtTime(params.DCOSawLevel * 0.24, t, 0.003);
-    this.pulseGain.gain.setTargetAtTime(params.DCOPulseLevel * 0.24, t, 0.003);
-    this.subGain.gain.setTargetAtTime(params.DCOSubLevel * 0.18, t, 0.003);
-    this.noiseGain.gain.setTargetAtTime(params.DCONoiseLevel * 0.12, t, 0.003);
+    this.updateOscillatorLevels(params);
+  }
+
+  updateOscillatorLevels(params: HeraParameters) {
+    const t = this.ctx.currentTime;
+    this.holdParam(this.sawGain.gain, t);
+    this.holdParam(this.pulseGain.gain, t);
+    this.holdParam(this.subGain.gain, t);
+    this.holdParam(this.noiseGain.gain, t);
+
+    this.sawGain.gain.setTargetAtTime(params.DCOSawLevel * 0.24, t, 0.005);
+    this.pulseGain.gain.setTargetAtTime(params.DCOPulseLevel * 0.24, t, 0.005);
+    this.subGain.gain.setTargetAtTime(params.DCOSubLevel * 0.18, t, 0.005);
+    this.noiseGain.gain.setTargetAtTime(params.DCONoiseLevel * 0.12, t, 0.005);
   }
 
   scheduleLfo(params: HeraParameters, modWheelAmount: number, t: number) {
@@ -366,6 +381,11 @@ class HeraVoiceInstance {
 
     noteCutoffHz = Math.min(20000, Math.max(16, noteCutoffHz));
 
+    if (!isNoteOn && this.released) {
+      // Do not reopen filter on voices that are already in their release phase
+      return;
+    }
+
     this.holdParam(this.vcfFilter1.frequency, t);
     this.holdParam(this.vcfFilter2.frequency, t);
 
@@ -384,16 +404,26 @@ class HeraVoiceInstance {
         this.vcfFilter2.frequency.setTargetAtTime(sustainCutoffHz, t + attackSec, decaySec * 0.33);
       }
     } else {
-      this.vcfFilter1.frequency.setTargetAtTime(sustainCutoffHz, t, 0.005);
-      this.vcfFilter2.frequency.setTargetAtTime(sustainCutoffHz, t, 0.005);
+      this.vcfFilter1.frequency.setTargetAtTime(sustainCutoffHz, t, 0.008);
+      this.vcfFilter2.frequency.setTargetAtTime(sustainCutoffHz, t, 0.008);
     }
   }
 
   updateVolume(vcaDepth: number) {
-    if (!this.active) return;
     const t = this.ctx.currentTime;
-    const voiceVolume = Math.max(0.01, vcaDepth * this.currentVelocityFactor);
-    this.envGain.gain.setTargetAtTime(voiceVolume, t, 0.02);
+    const level = Math.max(0, Math.min(1, vcaDepth));
+    this.holdParam(this.voiceGain.gain, t);
+    this.voiceGain.gain.setTargetAtTime(level, t, 0.012);
+  }
+
+  updateSustain(params: HeraParameters) {
+    if (!this.active || this.released || params.VCAType === 1) return;
+    const t = this.ctx.currentTime;
+    const attackSec = Math.max(0.004, getAttackSec(params.ENVAttack));
+    if (t - this.startTime < attackSec) return;
+    const sustainVal = Math.max(0.0001, params.ENVSustain * this.currentVelocityFactor);
+    this.holdParam(this.envGain.gain, t);
+    this.envGain.gain.setTargetAtTime(sustainVal, t, 0.015);
   }
 
   // Smoothly accelerate release when another Round-Robin voice plays the exact same note
@@ -1456,23 +1486,39 @@ export class HeraSynthesizerEngine {
       this.setMasterVolume(value as number);
     } else if (param === 'VCADepth') {
       this.voices.forEach(v => {
-        if (v.active) {
-          v.updateVolume(value as number);
-        }
+        v.updateVolume(value as number);
       });
     } else if (param.startsWith('Delay')) {
       this.updateDelayMode();
     } else if (param.startsWith('Reverb')) {
       this.updateReverbMode();
     } else if (
-      param.startsWith('VCF') ||
-      param.startsWith('ENV') ||
-      param.startsWith('DCO')
+      param === 'DCOSawLevel' ||
+      param === 'DCOPulseLevel' ||
+      param === 'DCOSubLevel' ||
+      param === 'DCONoiseLevel'
     ) {
-      // Dynamic update to active voices
       this.voices.forEach(v => {
         if (v.active) {
+          v.updateOscillatorLevels(this.params);
+        }
+      });
+    } else if (param.startsWith('DCO')) {
+      this.voices.forEach(v => {
+        if (v.active && !v.released) {
           v.updateOscillators(this.params, this.pitchBendSemitones, false);
+        }
+      });
+    } else if (param.startsWith('VCF')) {
+      this.voices.forEach(v => {
+        if (v.active && !v.released) {
+          v.updateFilter(this.params, this.pitchBendSemitones);
+        }
+      });
+    } else if (param === 'ENVSustain') {
+      this.voices.forEach(v => {
+        if (v.active && !v.released) {
+          v.updateSustain(this.params);
           v.updateFilter(this.params, this.pitchBendSemitones);
         }
       });
