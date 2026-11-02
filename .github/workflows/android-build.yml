@@ -20,25 +20,37 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK & NDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK and CMake
+      - name: Setup Android SDK, NDK 26 & CMake 3.22.1
         run: |
-          sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
+          export ANDROID_SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$ANDROID_SDK_ROOT/cmdline-tools" -name sdkmanager -type f | head -n 1)
+          fi
 
-      - name: Build Debug & Release Native APKs
+          echo "Using sdkmanager at: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.1.10909125" \
+            "cmake;3.22.1"
+
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+          validate-wrappers: false
+
+      - name: Build Debug & Release Native APKs (Kotlin + C++17 AAudio)
         working-directory: ./android
         run: |
-          chmod +x gradlew || true
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug assembleRelease --stacktrace
-          else
-            gradle assembleDebug assembleRelease --stacktrace
-          fi
+          gradle assembleDebug assembleRelease --stacktrace
 
       - name: Upload Native Debug APK
         uses: actions/upload-artifact@v4
