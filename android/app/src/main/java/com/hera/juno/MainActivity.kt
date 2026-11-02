@@ -400,62 +400,60 @@ fun HeraJunoNativeScreen(
                             .padding(horizontal = 8.dp, vertical = 5.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // SECTION 1: LFO (Rate + Vib Del + ultra-small thin centered MAN TRIG button at bottom)
+                        // SECTION 1: LFO (Rate + Vib Del faders with MAN TRIG button directly below them inside the section)
                         val manTrigActive = (paramState[SynthParam.LFOManualTrig] ?: 0f) >= 0.5f
                         SynthModuleCard(
                             title = "LFO",
-                            footer = null,
-                            accentColor = Color(0xFFEAB308),
-                            bottomBar = {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(16.dp)
-                                        .background(Color(0xFF080A0F)),
-                                    contentAlignment = Alignment.Center
+                            footer = "MODULATOR",
+                            accentColor = Color(0xFFEAB308)
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
+                                modifier = Modifier.fillMaxHeight()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                    modifier = Modifier.fillMaxHeight(0.78f)
                                 ) {
-                                    JunoParamSwitchWithBadge(
-                                        param = SynthParam.LFOManualTrig,
-                                        active = manTrigActive,
-                                        activeLabel = "MAN TRIG",
-                                        inactiveLabel = "MAN TRIG",
-                                        activeColor = JunoAmberLed,
+                                    JunoParamFader(
+                                        param = SynthParam.LFORate,
+                                        value = paramState[SynthParam.LFORate] ?: 0.6f,
+                                        capColor = JunoOrange,
                                         midiManager = midiManager,
                                         uiRevision = rev,
-                                        compact = true,
-                                        onToggle = {
-                                            onUpdateParam(SynthParam.LFOManualTrig, if (manTrigActive) 0f else 1f)
-                                        },
+                                        heightFraction = 1f,
+                                        onValueChange = { onUpdateParam(SynthParam.LFORate, it) },
+                                        onNotifyUiChanged = onNotifyUiChanged
+                                    )
+                                    JunoParamFader(
+                                        param = SynthParam.LFODelay,
+                                        value = paramState[SynthParam.LFODelay] ?: 0.0f,
+                                        capColor = JunoOrange,
+                                        midiManager = midiManager,
+                                        uiRevision = rev,
+                                        heightFraction = 1f,
+                                        onValueChange = { onUpdateParam(SynthParam.LFODelay, it) },
                                         onNotifyUiChanged = onNotifyUiChanged
                                     )
                                 }
+                                JunoParamSwitchWithBadge(
+                                    param = SynthParam.LFOManualTrig,
+                                    active = manTrigActive,
+                                    activeLabel = "MAN TRIG",
+                                    inactiveLabel = "MAN TRIG",
+                                    activeColor = JunoAmberLed,
+                                    midiManager = midiManager,
+                                    uiRevision = rev,
+                                    compact = false,
+                                    onToggle = {
+                                        onUpdateParam(SynthParam.LFOManualTrig, if (manTrigActive) 0f else 1f)
+                                    },
+                                    onNotifyUiChanged = onNotifyUiChanged
+                                )
                             }
-                        ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        modifier = Modifier.fillMaxHeight()
-                    ) {
-                        JunoParamFader(
-                            param = SynthParam.LFORate,
-                            value = paramState[SynthParam.LFORate] ?: 0.6f,
-                            capColor = JunoOrange,
-                            midiManager = midiManager,
-                            uiRevision = rev,
-                            onValueChange = { onUpdateParam(SynthParam.LFORate, it) },
-                            onNotifyUiChanged = onNotifyUiChanged
-                        )
-                        JunoParamFader(
-                            param = SynthParam.LFODelay,
-                            value = paramState[SynthParam.LFODelay] ?: 0.0f,
-                            capColor = JunoOrange,
-                            midiManager = midiManager,
-                            uiRevision = rev,
-                            onValueChange = { onUpdateParam(SynthParam.LFODelay, it) },
-                            onNotifyUiChanged = onNotifyUiChanged
-                        )
-                    }
-                }
+                        }
 
                 // SECTION 2: DCO (OSCILLATOR) - Left Selector Column (RANGE, LFO TRIG, PWM) + 6 Red Faders
                 SynthModuleCard(
@@ -752,7 +750,7 @@ fun HeraJunoNativeScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        modifier = Modifier.fillMaxHeight().padding(horizontal = 2.dp)
+                        modifier = Modifier.fillMaxHeight()
                     ) {
                         JunoChorusButton(
                             param = SynthParam.ChorusI,
@@ -2775,12 +2773,12 @@ private fun SynthModuleCard(
                 .background(accentColor.copy(alpha = 0.35f))
         )
 
-        // 3. Main Controls Area (Comfortable vertical breathing room between header and footer)
+        // 3. Main Controls Area (Double horizontal padding at start/end compared to inter-fader spacing + comfortable vertical breathing room)
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 7.dp, vertical = 10.dp),
+                .padding(horizontal = 15.dp, vertical = 10.dp),
             contentAlignment = Alignment.Center
         ) {
             content()
@@ -2849,6 +2847,7 @@ private fun JunoParamFader(
     capColor: Color,
     midiManager: MidiControllerManager,
     uiRevision: Int,
+    heightFraction: Float = 0.86f,
     onValueChange: (Float) -> Unit,
     onNotifyUiChanged: () -> Unit
 ) {
@@ -2862,7 +2861,7 @@ private fun JunoParamFader(
         contentAlignment = Alignment.TopCenter,
         modifier = Modifier
             .width(44.dp)
-            .fillMaxHeight(0.86f)
+            .fillMaxHeight(heightFraction)
     ) {
         // Fixed-dimension Fader Body (Never shifts when MIDI Learn toggles!)
         Column(
