@@ -281,7 +281,7 @@ object PresetRepository {
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 if (eventType == XmlPullParser.START_TAG) {
                     when (parser.name) {
-                        "HeraPreset", "Preset", "preset" -> {
+                        "HeraPreset", "Preset", "preset", "PROGRAM", "program" -> {
                             val n = parser.getAttributeValue(null, "name")
                             if (!n.isNullOrBlank()) presetName = n
                         }
@@ -328,6 +328,17 @@ object PresetRepository {
         val current = loadUserPresets(context).toMutableList()
         current.removeAll { it.name.equals(preset.name, ignoreCase = true) }
         current.add(preset.copy(isUserPreset = true))
+        val xmlSet = current.map { serializePresetToXml(it.name, it.values) }.toSet()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet(KEY_USER_PRESETS_XML, xmlSet)
+            .apply()
+        return loadUserPresets(context)
+    }
+
+    fun deleteUserPreset(context: Context, presetName: String): List<HeraPreset> {
+        val current = loadUserPresets(context).toMutableList()
+        current.removeAll { it.name.equals(presetName, ignoreCase = true) }
         val xmlSet = current.map { serializePresetToXml(it.name, it.values) }.toSet()
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
