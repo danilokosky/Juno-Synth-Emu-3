@@ -310,103 +310,127 @@ fun HeraJunoNativeScreen(
                 .background(Brush.horizontalGradient(listOf(JunoWoodDark, JunoWoodLight, JunoWoodDark)))
         )
 
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .verticalScroll(mainVerticalScroll)
         ) {
-            // 1. TOP ROLAND HEADER BAR (Branding + Voices + Scope + Distinct MIDI & Master Controls)
-            TopHeaderBar(
-                activeVoiceCount = activeVoiceCount,
-                waveformSamples = waveformSamples,
-                waveformTick = waveformTick,
-                masterVolume = paramState[SynthParam.MasterVolume] ?: 0.8f,
-                isMasterMuted = isMasterMuted,
-                onToggleMasterMute = {
-                    val currentVol = paramState[SynthParam.MasterVolume] ?: 0.8f
-                    if (!isMasterMuted) {
-                        preMuteMasterVolume = if (currentVol > 0.01f) currentVol else 0.8f
-                        isMasterMuted = true
-                        onUpdateParam(SynthParam.MasterVolume, 0f)
-                    } else {
-                        isMasterMuted = false
-                        onUpdateParam(SynthParam.MasterVolume, preMuteMasterVolume)
-                    }
-                },
-                onMasterVolumeChange = {
-                    isMasterMuted = it <= 0.001f
-                    onUpdateParam(SynthParam.MasterVolume, it)
-                },
-                midiManager = midiManager,
-                uiRevision = rev,
-                keysChannel = keysCh,
-                profileName = activeProfile.name,
-                mappedCount = mappedCount,
-                isMidiLearn = midiManager.isMidiLearnActive,
-                learningTargetKey = midiManager.learningTargetKey,
-                onToggleMidiLearn = {
-                    midiManager.isMidiLearnActive = !midiManager.isMidiLearnActive
-                    if (!midiManager.isMidiLearnActive) {
-                        midiManager.learningTargetKey = null
-                    }
-                    onNotifyUiChanged()
-                },
-                onNotifyUiChanged = onNotifyUiChanged,
-                onOpenChannelsModal = { showChannelsDialog = true },
-                onOpenProfileModal = { showProfileDialog = true },
-                showKeyboard = showKeyboard,
-                onToggleKeyboard = { showKeyboard = !showKeyboard },
-                onPanic = {
-                    holdSustain = false
-                    onPanicAllNotesOff()
-                }
-            )
+            val firstScreenHeight = maxHeight.coerceAtLeast(260.dp)
 
-            // 1B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Top Separator)
-            JunoRainbowSeparator()
-
-            // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Desktop-grade tight proportions, never squished)
-            val rackScrollState = rememberScrollState()
-            Row(
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(228.dp)
-                    .background(Color(0xFF11131A))
-                    .horizontalScroll(rackScrollState)
-                    .padding(horizontal = 6.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    .fillMaxSize()
+                    .verticalScroll(mainVerticalScroll)
             ) {
-                // SECTION 1: LFO (Rate + Vib Del + bottom MAN TRIG button, matching authentic Juno-60)
-                val manTrigActive = (paramState[SynthParam.LFOManualTrig] ?: 0f) >= 0.5f
-                SynthModuleCard(
-                    title = "LFO",
-                    footer = null,
-                    accentColor = Color(0xFFEAB308),
-                    bottomBar = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF0B0D13))
-                                .padding(vertical = 3.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            JunoParamSwitchWithBadge(
-                                param = SynthParam.LFOManualTrig,
-                                active = manTrigActive,
-                                activeLabel = "MAN TRIG",
-                                inactiveLabel = "MAN TRIG",
-                                activeColor = JunoAmberLed,
-                                midiManager = midiManager,
-                                uiRevision = rev,
-                                onToggle = {
-                                    onUpdateParam(SynthParam.LFOManualTrig, if (manTrigActive) 0f else 1f)
-                                },
-                                onNotifyUiChanged = onNotifyUiChanged
-                            )
-                        }
-                    }
+                // FIRST SCREEN VIEWPORT: ONLY HEADER + MAIN SYNTHESIZER FADERS RACK FILLING 100% OF THE SCREEN
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(firstScreenHeight)
                 ) {
+                    // 1. TOP ROLAND HEADER BAR (Branding with VOICES next to JUNO-60 + Scope + Distinct MIDI & Master Controls)
+                    TopHeaderBar(
+                        activeVoiceCount = activeVoiceCount,
+                        waveformSamples = waveformSamples,
+                        waveformTick = waveformTick,
+                        masterVolume = paramState[SynthParam.MasterVolume] ?: 0.8f,
+                        isMasterMuted = isMasterMuted,
+                        onToggleMasterMute = {
+                            val currentVol = paramState[SynthParam.MasterVolume] ?: 0.8f
+                            if (!isMasterMuted) {
+                                preMuteMasterVolume = if (currentVol > 0.01f) currentVol else 0.8f
+                                isMasterMuted = true
+                                onUpdateParam(SynthParam.MasterVolume, 0f)
+                            } else {
+                                isMasterMuted = false
+                                onUpdateParam(SynthParam.MasterVolume, preMuteMasterVolume)
+                            }
+                        },
+                        onMasterVolumeChange = {
+                            isMasterMuted = it <= 0.001f
+                            onUpdateParam(SynthParam.MasterVolume, it)
+                        },
+                        midiManager = midiManager,
+                        uiRevision = rev,
+                        keysChannel = keysCh,
+                        profileName = activeProfile.name,
+                        isProfileExpanded = showProfileDialog,
+                        mappedCount = mappedCount,
+                        isMidiLearn = midiManager.isMidiLearnActive,
+                        learningTargetKey = midiManager.learningTargetKey,
+                        onToggleMidiLearn = {
+                            midiManager.isMidiLearnActive = !midiManager.isMidiLearnActive
+                            if (!midiManager.isMidiLearnActive) {
+                                midiManager.learningTargetKey = null
+                            }
+                            onNotifyUiChanged()
+                        },
+                        onNotifyUiChanged = onNotifyUiChanged,
+                        onOpenChannelsModal = { showChannelsDialog = true },
+                        onToggleProfileExpanded = { showProfileDialog = !showProfileDialog },
+                        showKeyboard = showKeyboard,
+                        onToggleKeyboard = { showKeyboard = !showKeyboard },
+                        onPanic = {
+                            holdSustain = false
+                            onPanicAllNotesOff()
+                        }
+                    )
+
+                    // 1A. INLINE EXPANDABLE MIDI PROFILE DRAWER (Expands downwards instead of opening a pop-up!)
+                    if (showProfileDialog) {
+                        MidiProfileInlineDrawer(
+                            midiManager = midiManager,
+                            uiRevision = rev,
+                            onNotifyUiChanged = onNotifyUiChanged,
+                            onCollapse = { showProfileDialog = false }
+                        )
+                    }
+
+                    // 1B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Top Separator)
+                    JunoRainbowSeparator()
+
+                    // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Fills the rest of the first screen height!)
+                    val rackScrollState = rememberScrollState()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .background(Color(0xFF11131A))
+                            .horizontalScroll(rackScrollState)
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        // SECTION 1: LFO (Rate + Vib Del + ultra-small thin centered MAN TRIG button at bottom)
+                        val manTrigActive = (paramState[SynthParam.LFOManualTrig] ?: 0f) >= 0.5f
+                        SynthModuleCard(
+                            title = "LFO",
+                            footer = null,
+                            accentColor = Color(0xFFEAB308),
+                            bottomBar = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF080A0F))
+                                        .padding(vertical = 1.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    JunoParamSwitchWithBadge(
+                                        param = SynthParam.LFOManualTrig,
+                                        active = manTrigActive,
+                                        activeLabel = "MAN TRIG",
+                                        inactiveLabel = "MAN TRIG",
+                                        activeColor = JunoAmberLed,
+                                        midiManager = midiManager,
+                                        uiRevision = rev,
+                                        compact = true,
+                                        onToggle = {
+                                            onUpdateParam(SynthParam.LFOManualTrig, if (manTrigActive) 0f else 1f)
+                                        },
+                                        onNotifyUiChanged = onNotifyUiChanged
+                                    )
+                                }
+                            }
+                        ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -874,27 +898,42 @@ fun HeraJunoNativeScreen(
                 }
             }
 
-            // 2B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Separating Synth Rack & Keyboard Section)
+            // END OF FIRST SCREEN VIEWPORT (Header + Synth Fader Rack fill 100% of first screen!)
+            }
+
+            // 2B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Separating Synth Rack & Below-the-Fold Keyboard/Voicing Section)
             JunoRainbowSeparator()
 
-            // 3. KEYBOARD & PERFORMANCE SECTION (VOICING / TIMBRES + ARPEGGIATOR + PIANO KEYBOARD)
+            // 3. BELOW-THE-FOLD KEYBOARD & PERFORMANCE SECTION (Appears when scrolling down: Slim Voicing Bar + Inline Timbres + Arpeggiator + Piano Keyboard)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF090B10))
                     .border(1.dp, Color(0xFF1A202E))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                // 3A. VOICING / TIMBRES BAR (Preset Bank/Patch + Save + Export XML + Import XML + Timbres Browser)
+                // 3A. ULTRA-SLIM VOICING / PATCH BAR + INLINE EXPANDABLE TIMBRES BROWSER (No pop-up!)
                 VoicingPresetBar(
                     presetIndex = currentPresetIndex,
                     preset = currentPreset,
-                    totalPresets = allPresets.size,
+                    allPresets = allPresets,
                     userPresetCount = userPresets.size,
+                    isTimbresExpanded = showPresetsDialog,
                     onPrevPreset = { applyPreset(currentPresetIndex - 1) },
                     onNextPreset = { applyPreset(currentPresetIndex + 1) },
-                    onOpenPresetList = { showPresetsDialog = true },
+                    onToggleTimbresExpanded = { showPresetsDialog = !showPresetsDialog },
+                    onSelectPreset = { idx ->
+                        applyPreset(idx)
+                    },
+                    onDeleteUserPreset = { presetToDelete ->
+                        userPresets = PresetRepository.deleteUserPreset(context, presetToDelete.name)
+                        val newAll = PresetRepository.FACTORY_PRESETS + userPresets
+                        if (currentPresetIndex >= newAll.size) {
+                            currentPresetIndex = 0
+                        }
+                        Toast.makeText(context, "Timbre removido: ${presetToDelete.name}", Toast.LENGTH_SHORT).show()
+                    },
                     onSaveUserPreset = { showSavePresetDialog = true },
                     onExportPreset = {
                         val safeName = currentPreset.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
@@ -905,7 +944,7 @@ fun HeraJunoNativeScreen(
                     }
                 )
 
-                // 3B. ARPEGGIATOR BAR (Inside Keyboard Section, matching web Arpeggiator drawer)
+                // 3B. ARPEGGIATOR BAR (Inside Keyboard Section)
                 ArpeggiatorKeyboardBar(
                     arpEnabled = arpEnabled,
                     onToggleArp = {
@@ -996,7 +1035,7 @@ fun HeraJunoNativeScreen(
                                     ) {
                                         Text("+", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                                     }
-                                 }
+                                }
 
                                 Box(
                                     contentAlignment = Alignment.Center,
@@ -1106,6 +1145,7 @@ fun HeraJunoNativeScreen(
                     }
                 }
             }
+            }
         }
 
         // Right Vintage Walnut / Rosewood Side Cheek
@@ -1127,37 +1167,7 @@ fun HeraJunoNativeScreen(
         )
     }
 
-    // MODAL 2: MIDI PROFILE SELECTOR
-    if (showProfileDialog) {
-        MidiProfileDialog(
-            midiManager = midiManager,
-            onNotifyUiChanged = onNotifyUiChanged,
-            onDismiss = { showProfileDialog = false }
-        )
-    }
-
-    // MODAL 3: VOICING / TIMBRES PRESET BROWSER (with Search, Categories & User Preset Delete)
-    if (showPresetsDialog) {
-        PresetBrowserDialog(
-            presets = allPresets,
-            currentIndex = currentPresetIndex,
-            onSelectPreset = { idx ->
-                applyPreset(idx)
-                showPresetsDialog = false
-            },
-            onDeleteUserPreset = { presetToDelete ->
-                userPresets = PresetRepository.deleteUserPreset(context, presetToDelete.name)
-                val newAll = PresetRepository.FACTORY_PRESETS + userPresets
-                if (currentPresetIndex >= newAll.size) {
-                    currentPresetIndex = 0
-                }
-                Toast.makeText(context, "Timbre removido: ${presetToDelete.name}", Toast.LENGTH_SHORT).show()
-            },
-            onDismiss = { showPresetsDialog = false }
-        )
-    }
-
-    // MODAL 4: SAVE USER VOICING / PRESET
+    // MODAL 2: SAVE USER VOICING / PRESET
     if (showSavePresetDialog) {
         SavePresetDialog(
             initialName = "${currentPreset.name.removeSuffix(" (Custom)")} (Custom)",
@@ -1189,7 +1199,7 @@ private fun JunoRainbowSeparator() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(4.dp)
+            .height(3.dp)
     ) {
         Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFFDC2626)))
         Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFFD97706)))
@@ -1292,13 +1302,14 @@ private fun AtariCartridgeBadgeIcon(modifier: Modifier = Modifier) {
 }
 
 /**
- * Compact, Desktop-Grade Roland Header Bar (No artificial emoji icons, sleek typographic buttons):
- * - App Branding (Atari Cartridge Juno Icon + HERA + JUNO-60 red badge + Subtitle description)
- * - 6-Voice Polyphony LED Bezel + 60fps CRT Oscilloscope
+ * Compact, Desktop-Grade Roland Header Bar:
+ * - App Branding: Atari Cartridge Icon + HERA + JUNO-60 red badge + VOICES indicator placed directly next to JUNO-60
+ *   (with the subtitle description stretched cleanly underneath)
+ * - Real-time 60fps CRT Oscilloscope
  * - Visually Differentiated Control Deck:
- *   1. MIDI Routing & Profile Sub-Panel (MIDI LED + CANAIS T:CHxx + Divider + PERFIL)
+ *   1. MIDI Routing & Profile Sub-Panel (MIDI LED + CANAIS T:CHxx + Divider + inline expandable PERFIL)
  *   2. MIDI LEARN Button with mapped count pill
- *   3. Master Volume Control (VOL/MUTE chip + Slider + Digital readout + floating MIDI Learn cartridge)
+ *   3. Master Volume Control (VOL/MUTE chip + Slider + Digital readout + floating rounded MIDI cartridge)
  *   4. TECLADO & PANIC buttons
  */
 @Composable
@@ -1314,13 +1325,14 @@ private fun TopHeaderBar(
     uiRevision: Int,
     keysChannel: Int,
     profileName: String,
+    isProfileExpanded: Boolean,
     mappedCount: Int,
     isMidiLearn: Boolean,
     learningTargetKey: String?,
     onToggleMidiLearn: () -> Unit,
     onNotifyUiChanged: () -> Unit,
     onOpenChannelsModal: () -> Unit,
-    onOpenProfileModal: () -> Unit,
+    onToggleProfileExpanded: () -> Unit,
     showKeyboard: Boolean,
     onToggleKeyboard: () -> Unit,
     onPanic: () -> Unit
@@ -1335,16 +1347,16 @@ private fun TopHeaderBar(
                 )
             )
             .horizontalScroll(headerScroll)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // LEFT: Complete App Branding (Icon + Title + JUNO-60 Badge + Description)
+        // LEFT: App Branding (HERA + JUNO-60 + VOICES right next to JUNO-60, and stretched description below) + CRT Oscilloscope
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            AtariCartridgeBadgeIcon(modifier = Modifier.size(32.dp))
+            AtariCartridgeBadgeIcon(modifier = Modifier.size(30.dp))
 
             Column(verticalArrangement = Arrangement.Center) {
                 Row(
@@ -1354,10 +1366,10 @@ private fun TopHeaderBar(
                     Text(
                         text = "HERA",
                         color = Color(0xFFF3F4F6),
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
-                        letterSpacing = 1.5.sp
+                        letterSpacing = 1.4.sp
                     )
                     Box(
                         modifier = Modifier
@@ -1368,70 +1380,67 @@ private fun TopHeaderBar(
                         Text(
                             text = "JUNO-60",
                             color = Color.White,
-                            fontSize = 8.sp,
+                            fontSize = 7.5.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.8.sp
+                            letterSpacing = 0.7.sp
                         )
                     }
+
+                    // 6-Voice Polyphony Indicator adapted right next to "JUNO-60"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .background(Color(0xFF080A0E), RoundedCornerShape(3.dp))
+                            .border(1.dp, Color(0xFF1E2330), RoundedCornerShape(3.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                    ) {
+                        Text(
+                            text = "VOICES",
+                            color = Color(0xFF9CA3AF),
+                            fontSize = 6.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.6.sp
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            for (v in 0 until 6) {
+                                val lit = v < activeVoiceCount
+                                Box(
+                                    modifier = Modifier
+                                        .size(5.dp)
+                                        .clip(CircleShape)
+                                        .background(if (lit) JunoRed else Color(0xFF232734))
+                                        .border(
+                                            0.5.dp,
+                                            if (lit) Color(0xFFFCA5A5) else Color(0xFF374151),
+                                            CircleShape
+                                        )
+                                )
+                            }
+                        }
+                    }
                 }
+
+                // Subtitle stretched slightly underneath so it aligns cleanly with HERA JUNO-60 + VOICES
                 Text(
                     text = "POLYPHONIC SYNTHESIZER • 6 VOICES • STEREO BBD CHORUS",
                     color = Color(0xFF9CA3AF),
-                    fontSize = 7.sp,
+                    fontSize = 6.5.sp,
                     fontFamily = FontFamily.Monospace,
-                    letterSpacing = 0.4.sp
+                    letterSpacing = 0.65.sp
                 )
             }
-        }
 
-        Spacer(Modifier.width(10.dp))
-
-        // CENTER-LEFT: 6-Voice Polyphony Indicator Box + Real-Time CRT Oscilloscope
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // 6-Voice Indicator Bezel
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .background(Color(0xFF080A0E), RoundedCornerShape(4.dp))
-                    .border(1.dp, Color(0xFF1E2330), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = "VOICES",
-                    color = Color(0xFF6B7280),
-                    fontSize = 7.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.8.sp
-                )
-                Spacer(Modifier.height(2.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(3.5.dp)) {
-                    for (v in 0 until 6) {
-                        val lit = v < activeVoiceCount
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(if (lit) JunoRed else Color(0xFF232734))
-                                .border(
-                                    0.5.dp,
-                                    if (lit) Color(0xFFFCA5A5) else Color(0xFF374151),
-                                    CircleShape
-                                )
-                        )
-                    }
-                }
-            }
-
-            // Real-time 60fps CRT Oscilloscope
+            // Real-time 60fps CRT Oscilloscope next to branding
             Box(
                 modifier = Modifier
-                    .width(96.dp)
-                    .height(28.dp)
+                    .width(86.dp)
+                    .height(26.dp)
                     .background(Color(0xFF05100C), RoundedCornerShape(4.dp))
                     .border(1.dp, Color(0xFF1B4332), RoundedCornerShape(4.dp))
                     .padding(2.dp)
@@ -1465,7 +1474,7 @@ private fun TopHeaderBar(
             }
         }
 
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(8.dp))
 
         // RIGHT: Sleek Desktop Control Deck Container
         Row(
@@ -1474,7 +1483,7 @@ private fun TopHeaderBar(
             modifier = Modifier
                 .background(Color(0xFF07090D), RoundedCornerShape(5.dp))
                 .border(1.dp, Color(0xFF1E2432), RoundedCornerShape(5.dp))
-                .padding(horizontal = 6.dp, vertical = 3.dp)
+                .padding(horizontal = 6.dp, vertical = 2.5.dp)
         ) {
             // GROUP 1: MIDI Channels & Profile Selector Sub-Panel
             Row(
@@ -1483,7 +1492,7 @@ private fun TopHeaderBar(
                 modifier = Modifier
                     .background(Color(0xFF0C0F16), RoundedCornerShape(4.dp))
                     .border(1.dp, Color(0xFF212838), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 // MIDI Status Indicator
                 Row(
@@ -1492,14 +1501,14 @@ private fun TopHeaderBar(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
+                            .size(5.5.dp)
                             .clip(CircleShape)
                             .background(JunoGreenReady)
                     )
                     Text(
                         text = "MIDI",
                         color = Color(0xFF9CA3AF),
-                        fontSize = 8.sp,
+                        fontSize = 7.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
@@ -1514,12 +1523,12 @@ private fun TopHeaderBar(
                         .background(Color(0xFF141B26))
                         .border(1.dp, Color(0xFF0284C7), RoundedCornerShape(3.dp))
                         .clickable { onOpenChannelsModal() }
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                        .padding(horizontal = 5.dp, vertical = 1.5.dp)
                 ) {
                     Text(
                         text = "CANAIS",
                         color = Color(0xFF7DD3FC),
-                        fontSize = 8.5.sp,
+                        fontSize = 8.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -1527,12 +1536,12 @@ private fun TopHeaderBar(
                         modifier = Modifier
                             .background(Color(0xFF090C12), RoundedCornerShape(2.dp))
                             .border(1.dp, Color(0xFF262E40), RoundedCornerShape(2.dp))
-                            .padding(horizontal = 3.5.dp, vertical = 0.5.dp)
+                            .padding(horizontal = 3.dp, vertical = 0.5.dp)
                     ) {
                         Text(
                             text = "T:${if (keysChannel == 0) "OMNI" else "CH$keysChannel"}",
                             color = JunoAmberLed,
-                            fontSize = 7.5.sp,
+                            fontSize = 7.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold
                         )
@@ -1540,7 +1549,7 @@ private fun TopHeaderBar(
                     Text(
                         text = "▾",
                         color = Color(0xFF38BDF8),
-                        fontSize = 8.sp,
+                        fontSize = 7.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1549,11 +1558,11 @@ private fun TopHeaderBar(
                 Box(
                     modifier = Modifier
                         .width(1.dp)
-                        .height(14.dp)
+                        .height(13.dp)
                         .background(Color(0xFF232A3A))
                 )
 
-                // PERFIL Selector (Label + Emerald Dropdown Pill)
+                // PERFIL Selector (Expands downwards inline instead of opening a pop-up!)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -1561,7 +1570,7 @@ private fun TopHeaderBar(
                     Text(
                         text = "PERFIL:",
                         color = JunoGreenReady,
-                        fontSize = 8.sp,
+                        fontSize = 7.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -1570,23 +1579,27 @@ private fun TopHeaderBar(
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                         modifier = Modifier
                             .clip(RoundedCornerShape(3.dp))
-                            .background(Color(0xFF111D1A))
-                            .border(1.dp, Color(0xFF059669), RoundedCornerShape(3.dp))
-                            .clickable { onOpenProfileModal() }
-                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                            .background(if (isProfileExpanded) Color(0xFF0F2922) else Color(0xFF111D1A))
+                            .border(
+                                1.dp,
+                                if (isProfileExpanded) Color(0xFF34D399) else Color(0xFF059669),
+                                RoundedCornerShape(3.dp)
+                            )
+                            .clickable { onToggleProfileExpanded() }
+                            .padding(horizontal = 5.dp, vertical = 1.5.dp)
                     ) {
                         Text(
                             text = profileName,
                             color = Color(0xFF6EE7B7),
-                            fontSize = 8.5.sp,
+                            fontSize = 8.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 1
                         )
                         Text(
-                            text = "▾",
+                            text = if (isProfileExpanded) "▴" else "▾",
                             color = JunoGreenReady,
-                            fontSize = 8.sp,
+                            fontSize = 7.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -1611,12 +1624,12 @@ private fun TopHeaderBar(
                         shape = RoundedCornerShape(4.dp)
                     )
                     .clickable { onToggleMidiLearn() }
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
             ) {
                 Text(
                     text = learnLabel,
                     color = if (isMidiLearn) Color.White else Color(0xFFE5E7EB),
-                    fontSize = 8.5.sp,
+                    fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold
                 )
@@ -1629,14 +1642,14 @@ private fun TopHeaderBar(
                     Text(
                         text = mappedCount.toString(),
                         color = if (isMidiLearn) Color(0xFF7DD3FC) else Color(0xFF9CA3AF),
-                        fontSize = 8.sp,
+                        fontSize = 7.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black
                     )
                 }
             }
 
-            // GROUP 3: Master Volume (With Floating Zero-Layout-Shift MIDI Cartridge)
+            // GROUP 3: Master Volume (With Floating Zero-Layout-Shift Rounded MIDI Cartridge)
             val revIgnore = uiRevision
             val volMappedCC = remember(revIgnore) { midiManager.getMappedCC(SynthParam.MasterVolume.key) }
             val volMappedCh = remember(revIgnore) { midiManager.getMappedChannel(SynthParam.MasterVolume.key) }
@@ -1664,7 +1677,7 @@ private fun TopHeaderBar(
                             midiManager.learningTargetKey = SynthParam.MasterVolume.key
                             onNotifyUiChanged()
                         }
-                        .padding(horizontal = 5.dp, vertical = 2.5.dp)
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -1678,12 +1691,12 @@ private fun TopHeaderBar(
                                     onToggleMasterMute()
                                 }
                             }
-                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                            .padding(horizontal = 3.5.dp, vertical = 1.dp)
                     ) {
                         Text(
                             text = if (isMasterMuted || masterVolume <= 0.001f) "MUTE" else "VOL",
                             color = if (isMasterMuted) Color(0xFFFCA5A5) else Color(0xFF9CA3AF),
-                            fontSize = 7.5.sp,
+                            fontSize = 7.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold
                         )
@@ -1692,7 +1705,7 @@ private fun TopHeaderBar(
                         value = if (isMasterMuted) 0f else masterVolume,
                         accentColor = JunoAmberLed,
                         springCenter = false,
-                        width = 52.dp,
+                        width = 48.dp,
                         onChange = {
                             if (isMidiLearn) {
                                 midiManager.learningTargetKey = SynthParam.MasterVolume.key
@@ -1706,13 +1719,13 @@ private fun TopHeaderBar(
                     Text(
                         text = "${((if (isMasterMuted) 0f else masterVolume) * 100).roundToInt()}",
                         color = JunoAmberLed,
-                        fontSize = 8.5.sp,
+                        fontSize = 8.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
                 }
 
-                // Floating MIDI Cartridge Overlay (Zero layout shift!)
+                // Floating Rounded MIDI Cartridge Overlay (Zero layout shift!)
                 MidiCcBalloonBadge(
                     mappedCC = volMappedCC,
                     mappedChannel = volMappedCh,
@@ -1728,12 +1741,12 @@ private fun TopHeaderBar(
                     },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .offset(y = (-6).dp)
+                        .offset(y = (-5).dp)
                         .zIndex(30f)
                 )
             }
 
-            // GROUP 4: Keyboard Visibility Toggle & Panic Button (Clean typographic buttons)
+            // GROUP 4: Keyboard Visibility Toggle & Panic Button
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1749,12 +1762,12 @@ private fun TopHeaderBar(
                             RoundedCornerShape(4.dp)
                         )
                         .clickable { onToggleKeyboard() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                        .padding(horizontal = 5.5.dp, vertical = 2.5.dp)
                 ) {
                     Text(
                         text = if (showKeyboard) "TECLADO ▲" else "TECLADO ▼",
                         color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
-                        fontSize = 8.5.sp,
+                        fontSize = 8.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -1767,12 +1780,12 @@ private fun TopHeaderBar(
                         .background(Color(0xFF221014))
                         .border(1.dp, Color(0xFF881B1B), RoundedCornerShape(4.dp))
                         .clickable { onPanic() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                        .padding(horizontal = 5.5.dp, vertical = 2.5.dp)
                 ) {
                     Text(
                         text = "PANIC",
                         color = Color(0xFFFCA5A5),
-                        fontSize = 8.5.sp,
+                        fontSize = 8.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -1783,24 +1796,146 @@ private fun TopHeaderBar(
 }
 
 /**
- * VOICING / TIMBRES Section inside the Keyboard/Performance area (Compact, icon-free pro layout):
- * - Authentic Roland 7-Segment LED BANK and PATCH display
- * - Voicing/Timbre Name + FACTORY/USER Badge
- * - Prev (◀) & Next (▶) buttons
- * - SALVAR (Save User Voicing)
- * - DOWNLOAD XML (Export .XML / .hera Voicing)
- * - UPLOAD XML (Import .XML / .hera Voicing)
- * - TIMBRES Browser button
+ * Inline Downward-Expanding MIDI Profile Drawer (No modal pop-up!):
+ * Expands directly below the TopHeaderBar when "PERFIL" ("Launchkey MK4") is clicked.
+ */
+@Composable
+private fun MidiProfileInlineDrawer(
+    midiManager: MidiControllerManager,
+    uiRevision: Int,
+    onNotifyUiChanged: () -> Unit,
+    onCollapse: () -> Unit
+) {
+    val revIgnore = uiRevision
+    val activeId = remember(revIgnore) { midiManager.activeProfileId }
+    val scroll = rememberScrollState()
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF0A1114))
+            .border(1.dp, Color(0xFF059669))
+            .horizontalScroll(scroll)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                text = "SELECIONAR PERFIL MIDI:",
+                color = JunoGreenReady,
+                fontSize = 7.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.ExtraBold
+            )
+
+            for (prof in midiManager.profiles) {
+                val isSelected = prof.id == activeId
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isSelected) Color(0xFF0F2922) else Color(0xFF131822))
+                        .border(
+                            1.dp,
+                            if (isSelected) JunoGreenReady else Color(0xFF263042),
+                            RoundedCornerShape(4.dp)
+                        )
+                        .clickable {
+                            midiManager.selectProfile(prof.id)
+                            onNotifyUiChanged()
+                            onCollapse()
+                        }
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = prof.name,
+                        color = if (isSelected) Color(0xFF6EE7B7) else Color(0xFFE5E7EB),
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "(${prof.paramToCC.size}CC)",
+                        color = if (isSelected) JunoGreenReady else Color(0xFF9CA3AF),
+                        fontSize = 7.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.width(10.dp))
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0xFF231115))
+                    .border(1.dp, JunoRed, RoundedCornerShape(3.dp))
+                    .clickable {
+                        midiManager.resetActiveProfileToFactory()
+                        onNotifyUiChanged()
+                    }
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
+            ) {
+                Text(
+                    text = "RESTAURAR PADRÃO",
+                    color = Color(0xFFFCA5A5),
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0xFF161B26))
+                    .border(1.dp, Color(0xFF2E3648), RoundedCornerShape(3.dp))
+                    .clickable { onCollapse() }
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
+            ) {
+                Text(
+                    text = "FECHAR ▲",
+                    color = Color(0xFFD1D5DB),
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+/**
+ * ULTRA-SLIM VOICING / PATCH BAR & INLINE EXPANDABLE TIMBRES BROWSER:
+ * - Drastically reduced thickness
+ * - Removed "VOICING" word and "FACTORY" label; shows only the preset name next to BANK and PATCH
+ *   (or "Factory #xx" if the voice has no name)
+ * - Buttons: "◀", "▶", "SALVAR", "↓ DOWNLOAD", "↑ UPLOAD", and "TIMBRES"
+ * - Pressing "TIMBRES" expands the window downwards inline within the Timbres section (no pop-up!),
+ *   showing all banks and patches in order.
  */
 @Composable
 private fun VoicingPresetBar(
     presetIndex: Int,
     preset: HeraPreset,
-    totalPresets: Int,
+    allPresets: List<HeraPreset>,
     userPresetCount: Int,
+    isTimbresExpanded: Boolean,
     onPrevPreset: () -> Unit,
     onNextPreset: () -> Unit,
-    onOpenPresetList: () -> Unit,
+    onToggleTimbresExpanded: () -> Unit,
+    onSelectPreset: (Int) -> Unit,
+    onDeleteUserPreset: (HeraPreset) -> Unit,
     onSaveUserPreset: () -> Unit,
     onExportPreset: () -> Unit,
     onImportPreset: () -> Unit
@@ -1809,255 +1944,413 @@ private fun VoicingPresetBar(
     val patchNumber = (presetIndex % 7) + 1
     val barScroll = rememberScrollState()
 
-    Row(
+    val displayVoiceName = remember(preset, presetIndex) {
+        val trimmed = preset.name.trim()
+        if (trimmed.isEmpty() || trimmed.equals("Unnamed", ignoreCase = true) || trimmed.equals("Sem Nome", ignoreCase = true)) {
+            "Factory #${(presetIndex + 1).toString().padStart(2, '0')}"
+        } else {
+            trimmed
+        }
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF10131B), RoundedCornerShape(5.dp))
-            .border(1.dp, Color(0xFF23293A), RoundedCornerShape(5.dp))
-            .horizontalScroll(barScroll)
-            .padding(horizontal = 6.dp, vertical = 3.5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+            .background(Color(0xFF10131B), RoundedCornerShape(4.dp))
+            .border(1.dp, Color(0xFF23293A), RoundedCornerShape(4.dp))
     ) {
-        // LEFT: Authentic Roland 7-Segment LED Bezel Slot Display (BANK + PATCH + VOICING NAME)
+        // Slim Single-Line Voicing & Patch Header Row
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
-                .background(Color(0xFF07090D), RoundedCornerShape(4.dp))
-                .border(1.dp, Color(0xFF1D2230), RoundedCornerShape(4.dp))
-                .clickable { onOpenPresetList() }
-                .padding(horizontal = 6.dp, vertical = 2.5.dp)
+                .fillMaxWidth()
+                .horizontalScroll(barScroll)
+                .padding(horizontal = 5.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // BANK 7-Segment Slot
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "BANK",
-                    color = Color(0xFF6B7280),
-                    fontSize = 6.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .background(Color(0xFF160205), RoundedCornerShape(3.dp))
-                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(3.dp))
-                ) {
-                    Text(
-                        text = if (preset.isUserPreset) "U" else bankNumber.toString(),
-                        color = Color(0xFFEF4444),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-            }
-
-            // PATCH 7-Segment Slot
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "PATCH",
-                    color = Color(0xFF6B7280),
-                    fontSize = 6.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .background(Color(0xFF160205), RoundedCornerShape(3.dp))
-                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(3.dp))
-                ) {
-                    Text(
-                        text = patchNumber.toString(),
-                        color = Color(0xFFEF4444),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-            }
-
-            // Vertical Divider
-            Box(
+            // LEFT: Ultra-slim BANK + PATCH + Voice Name
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
                 modifier = Modifier
-                    .width(1.dp)
-                    .height(22.dp)
-                    .background(Color(0xFF202636))
-            )
-
-            // VOICING / TIMBRE Name & Badge
-            Column(
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.widthIn(min = 130.dp, max = 195.dp)
+                    .background(Color(0xFF07090D), RoundedCornerShape(3.dp))
+                    .border(1.dp, Color(0xFF1D2230), RoundedCornerShape(3.dp))
+                    .clickable { onToggleTimbresExpanded() }
+                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
             ) {
+                // BANK inline LED
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
                 ) {
                     Text(
-                        text = "VOICING",
-                        color = Color(0xFF9CA3AF),
-                        fontSize = 7.sp,
+                        text = "BANK",
+                        color = Color(0xFF6B7280),
+                        fontSize = 6.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
                     Box(
+                        contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .background(
-                                if (preset.isUserPreset) Color(0xFF082F49) else Color(0xFF1A202E),
-                                RoundedCornerShape(2.dp)
-                            )
-                            .padding(horizontal = 3.5.dp, vertical = 0.5.dp)
+                            .size(width = 16.dp, height = 15.dp)
+                            .background(Color(0xFF160205), RoundedCornerShape(2.dp))
+                            .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.dp))
                     ) {
                         Text(
-                            text = if (preset.isUserPreset) "USER" else "FACTORY #${presetIndex.toString().padStart(2, '0')}",
-                            color = if (preset.isUserPreset) Color(0xFF38BDF8) else Color(0xFF9CA3AF),
-                            fontSize = 6.5.sp,
+                            text = if (preset.isUserPreset) "U" else bankNumber.toString(),
+                            color = Color(0xFFEF4444),
+                            fontSize = 9.sp,
                             fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.Black
                         )
                     }
                 }
+
+                // PATCH inline LED
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
+                ) {
+                    Text(
+                        text = "PATCH",
+                        color = Color(0xFF6B7280),
+                        fontSize = 6.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(width = 16.dp, height = 15.dp)
+                            .background(Color(0xFF160205), RoundedCornerShape(2.dp))
+                            .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.dp))
+                    ) {
+                        Text(
+                            text = patchNumber.toString(),
+                            color = Color(0xFFEF4444),
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+
+                // Thin Divider
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(13.dp)
+                        .background(Color(0xFF202636))
+                )
+
+                // Voice Name only (No "VOICING" or "FACTORY" label!)
                 Text(
-                    text = preset.name,
+                    text = displayVoiceName,
                     color = JunoAmberLed,
-                    fontSize = 11.sp,
+                    fontSize = 9.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-
-        Spacer(Modifier.width(8.dp))
-
-        // RIGHT: Compact Typographic Navigation & Save / Download / Upload / Timbres Buttons
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            // Prev Timbre
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF181C28))
-                    .border(1.dp, Color(0xFF2D3548), RoundedCornerShape(4.dp))
-                    .clickable { onPrevPreset() }
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
-            ) {
-                Text("◀", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
-            }
-
-            // Next Timbre
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF181C28))
-                    .border(1.dp, Color(0xFF2D3548), RoundedCornerShape(4.dp))
-                    .clickable { onNextPreset() }
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
-            ) {
-                Text("▶", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
-            }
-
-            // SALVAR Voicing
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF21190D))
-                    .border(1.dp, JunoAmberLed, RoundedCornerShape(4.dp))
-                    .clickable { onSaveUserPreset() }
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = "SALVAR",
-                    color = JunoAmberLed,
-                    fontSize = 8.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(min = 110.dp, max = 185.dp)
                 )
             }
 
-            // DOWNLOAD XML
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF0D1E18))
-                    .border(1.dp, JunoGreenReady, RoundedCornerShape(4.dp))
-                    .clickable { onExportPreset() }
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = "DOWNLOAD XML",
-                    color = Color(0xFF6EE7B7),
-                    fontSize = 8.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
+            Spacer(Modifier.width(6.dp))
 
-            // UPLOAD XML
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF0D1B29))
-                    .border(1.dp, JunoCyanLearn, RoundedCornerShape(4.dp))
-                    .clickable { onImportPreset() }
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = "UPLOAD XML",
-                    color = Color(0xFF7DD3FC),
-                    fontSize = 8.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-
-            // TIMBRES Browser Button
+            // RIGHT: Slim Navigation & Save / ↓ Download / ↑ Upload / Timbres Buttons
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF241B0D))
-                    .border(1.dp, Color(0xFFF59E0B), RoundedCornerShape(4.dp))
-                    .clickable { onOpenPresetList() }
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                horizontalArrangement = Arrangement.spacedBy(3.5.dp)
             ) {
-                Text(
-                    text = "TIMBRES ($totalPresets)",
-                    color = Color(0xFFFBBF24),
-                    fontSize = 8.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                if (userPresetCount > 0) {
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFF090C12), RoundedCornerShape(2.dp))
-                            .padding(horizontal = 3.dp, vertical = 0.5.dp)
-                    ) {
+                // Prev Timbre
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF181C28))
+                        .border(1.dp, Color(0xFF2D3548), RoundedCornerShape(3.dp))
+                        .clickable { onPrevPreset() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text("◀", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold)
+                }
+
+                // Next Timbre
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF181C28))
+                        .border(1.dp, Color(0xFF2D3548), RoundedCornerShape(3.dp))
+                        .clickable { onNextPreset() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text("▶", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold)
+                }
+
+                // SALVAR
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF21190D))
+                        .border(1.dp, JunoAmberLed, RoundedCornerShape(3.dp))
+                        .clickable { onSaveUserPreset() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "SALVAR",
+                        color = JunoAmberLed,
+                        fontSize = 7.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+
+                // ↓ DOWNLOAD (without "XML")
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF0D1E18))
+                        .border(1.dp, JunoGreenReady, RoundedCornerShape(3.dp))
+                        .clickable { onExportPreset() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "↓ DOWNLOAD",
+                        color = Color(0xFF6EE7B7),
+                        fontSize = 7.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+
+                // ↑ UPLOAD (without "XML")
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF0D1B29))
+                        .border(1.dp, JunoCyanLearn, RoundedCornerShape(3.dp))
+                        .clickable { onImportPreset() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "↑ UPLOAD",
+                        color = Color(0xFF7DD3FC),
+                        fontSize = 7.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+
+                // TIMBRES Inline Expand Button (Expands downwards instead of opening a pop-up!)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.5.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (isTimbresExpanded) Color(0xFF33240D) else Color(0xFF241B0D))
+                        .border(
+                            1.dp,
+                            if (isTimbresExpanded) Color(0xFFFDE68A) else Color(0xFFF59E0B),
+                            RoundedCornerShape(3.dp)
+                        )
+                        .clickable { onToggleTimbresExpanded() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "TIMBRES (${allPresets.size})",
+                        color = Color(0xFFFBBF24),
+                        fontSize = 7.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    if (userPresetCount > 0) {
                         Text(
-                            text = "+$userPresetCount USER",
+                            text = "+$userPresetCount",
                             color = JunoCyanLearn,
                             fontSize = 7.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
                     }
+                    Text(
+                        text = if (isTimbresExpanded) "▴" else "▾",
+                        color = Color(0xFFFBBF24),
+                        fontSize = 7.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-                Text("▾", color = Color(0xFFFBBF24), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // INLINE DOWNWARD EXPANSION FOR TIMBRES (All Banks & Patches in Order, No Pop-up!)
+        if (isTimbresExpanded) {
+            var selectedBankFilter by remember { mutableIntStateOf(0) } // 0 = TODOS EM ORDEM, 1..8 = BANK 1..8, 9 = USER
+            val bankTabsScroll = rememberScrollState()
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF0A0D14))
+                    .border(1.dp, Color(0xFF242B3D))
+                    .padding(horizontal = 6.dp, vertical = 5.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Top Bank Selector Bar (All Banks in Order: TODOS, BANK 1 .. BANK 8, USER)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(bankTabsScroll),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    val totalFactoryBanks = ((PresetRepository.FACTORY_PRESETS.size + 6) / 7).coerceAtLeast(1)
+                    val bankOptions = buildList {
+                        add(0 to "TODOS (${allPresets.size})")
+                        for (b in 1..totalFactoryBanks) {
+                            add(b to "BANK $b")
+                        }
+                        if (userPresetCount > 0) {
+                            add(99 to "USER ($userPresetCount)")
+                        }
+                    }
+
+                    for ((bankId, label) in bankOptions) {
+                        val isSel = selectedBankFilter == bankId
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (isSel) JunoAmberLed else Color(0xFF151924))
+                                .border(
+                                    1.dp,
+                                    if (isSel) Color(0xFFFDE68A) else Color(0xFF262E40),
+                                    RoundedCornerShape(3.dp)
+                                )
+                                .clickable { selectedBankFilter = bankId }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSel) Color.Black else Color(0xFFD1D5DB),
+                                fontSize = 7.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+                }
+
+                // Ordered Grid/List of Banks and Patches (4 columns per row for clean desktop browser look)
+                val filteredIndices = remember(allPresets, selectedBankFilter) {
+                    allPresets.indices.filter { idx ->
+                        val p = allPresets[idx]
+                        val bNum = (idx / 7) + 1
+                        when (selectedBankFilter) {
+                            0 -> true
+                            99 -> p.isUserPreset
+                            else -> !p.isUserPreset && bNum == selectedBankFilter
+                        }
+                    }
+                }
+
+                val rows = filteredIndices.chunked(4)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    for (rowIndices in rows) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            for (idx in rowIndices) {
+                                val p = allPresets[idx]
+                                val isCurrent = idx == presetIndex
+                                val bNum = (idx / 7) + 1
+                                val pNum = (idx % 7) + 1
+                                val patchCode = if (p.isUserPreset) "U-$pNum" else "$bNum-$pNum"
+                                val itemName = p.name.trim().ifEmpty {
+                                    "Factory #${(idx + 1).toString().padStart(2, '0')}"
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (isCurrent) Color(0xFF2B2112) else Color(0xFF131722))
+                                        .border(
+                                            1.dp,
+                                            if (isCurrent) JunoAmberLed else Color(0xFF22293A),
+                                            RoundedCornerShape(3.dp)
+                                        )
+                                        .clickable { onSelectPreset(idx) }
+                                        .padding(horizontal = 5.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color(0xFF180407), RoundedCornerShape(2.dp))
+                                                .border(0.8.dp, Color(0xFF450A0A), RoundedCornerShape(2.dp))
+                                                .padding(horizontal = 3.dp, vertical = 0.5.dp)
+                                        ) {
+                                            Text(
+                                                text = patchCode,
+                                                color = Color(0xFFEF4444),
+                                                fontSize = 7.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Black
+                                            )
+                                        }
+                                        Text(
+                                            text = itemName,
+                                            color = if (isCurrent) JunoAmberLed else Color(0xFFE5E7EB),
+                                            fontSize = 8.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    if (p.isUserPreset) {
+                                        Box(
+                                            modifier = Modifier
+                                                .padding(start = 3.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(Color(0xFF2B1216))
+                                                .border(0.8.dp, JunoRed, RoundedCornerShape(2.dp))
+                                                .clickable { onDeleteUserPreset(p) }
+                                                .padding(horizontal = 3.5.dp, vertical = 0.5.dp)
+                                        ) {
+                                            Text(
+                                                text = "✕",
+                                                color = Color(0xFFFCA5A5),
+                                                fontSize = 7.sp,
+                                                fontWeight = FontWeight.Black
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            // Fill empty columns in last row so grid cells stay aligned
+                            val remaining = 4 - rowIndices.size
+                            for (emptyIdx in 0 until remaining) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -2097,7 +2390,7 @@ private fun ArpeggiatorKeyboardBar(
             .background(Color(0xFF0C0E14), RoundedCornerShape(5.dp))
             .border(1.dp, Color(0xFF202534), RoundedCornerShape(5.dp))
             .horizontalScroll(arpScroll)
-            .padding(horizontal = 6.dp, vertical = 3.5.dp),
+            .padding(horizontal = 6.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -2117,12 +2410,12 @@ private fun ArpeggiatorKeyboardBar(
                         RoundedCornerShape(3.dp)
                     )
                     .clickable { onToggleArp() }
-                    .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                    .padding(horizontal = 7.dp, vertical = 2.dp)
             ) {
                 Text(
                     text = if (arpEnabled) "ARP ON" else "ARP OFF",
                     color = if (arpEnabled) Color.Black else Color(0xFF9CA3AF),
-                    fontSize = 8.5.sp,
+                    fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Black
                 )
@@ -2138,7 +2431,7 @@ private fun ArpeggiatorKeyboardBar(
                 Text(
                     text = modeNames.getOrElse(arpMode) { "UP" },
                     color = Color(0xFFD1D5DB),
-                    fontSize = 8.sp,
+                    fontSize = 7.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
@@ -2153,7 +2446,7 @@ private fun ArpeggiatorKeyboardBar(
                 Text(
                     text = "$arpRange ${if (arpRange == 1) "OCT" else "OCTS"}",
                     color = Color(0xFFD1D5DB),
-                    fontSize = 8.sp,
+                    fontSize = 7.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
@@ -2168,7 +2461,7 @@ private fun ArpeggiatorKeyboardBar(
                 Text(
                     text = "${arpBpm.roundToInt()} BPM",
                     color = JunoAmberLed,
-                    fontSize = 8.sp,
+                    fontSize = 7.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold
                 )
@@ -2184,7 +2477,7 @@ private fun ArpeggiatorKeyboardBar(
                     Text(
                         text = "MODO:",
                         color = Color(0xFF6B7280),
-                        fontSize = 7.5.sp,
+                        fontSize = 7.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
@@ -2205,7 +2498,7 @@ private fun ArpeggiatorKeyboardBar(
                             Text(
                                 text = modeNames[i],
                                 color = if (sel) Color.Black else Color(0xFF9CA3AF),
-                                fontSize = 7.5.sp,
+                                fontSize = 7.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.ExtraBold
                             )
@@ -2222,7 +2515,7 @@ private fun ArpeggiatorKeyboardBar(
                     Text(
                         text = "OITAVAS:",
                         color = Color(0xFF6B7280),
-                        fontSize = 7.5.sp,
+                        fontSize = 7.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
@@ -2243,7 +2536,7 @@ private fun ArpeggiatorKeyboardBar(
                             Text(
                                 text = "${r}x",
                                 color = if (sel) Color.Black else Color(0xFF9CA3AF),
-                                fontSize = 7.5.sp,
+                                fontSize = 7.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.ExtraBold
                             )
@@ -2260,7 +2553,7 @@ private fun ArpeggiatorKeyboardBar(
                     Text(
                         text = "DIV:",
                         color = Color(0xFF6B7280),
-                        fontSize = 7.5.sp,
+                        fontSize = 7.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
@@ -2281,7 +2574,7 @@ private fun ArpeggiatorKeyboardBar(
                             Text(
                                 text = label,
                                 color = if (sel) Color.Black else Color(0xFF9CA3AF),
-                                fontSize = 7.5.sp,
+                                fontSize = 7.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.ExtraBold
                             )
@@ -2306,7 +2599,7 @@ private fun ArpeggiatorKeyboardBar(
                     Text(
                         text = if (holdSustain) "HOLD ON" else "HOLD OFF",
                         color = if (holdSustain) Color.Black else Color(0xFF9CA3AF),
-                        fontSize = 7.5.sp,
+                        fontSize = 7.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -2321,7 +2614,7 @@ private fun ArpeggiatorKeyboardBar(
                     Text(
                         text = "BPM:",
                         color = Color(0xFF6B7280),
-                        fontSize = 7.5.sp,
+                        fontSize = 7.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
@@ -2355,7 +2648,7 @@ private fun ArpeggiatorKeyboardBar(
                 Text(
                     text = if (arpExpanded) "AJUSTES ▲" else "AJUSTES ▼",
                     color = Color(0xFFD1D5DB),
-                    fontSize = 7.5.sp,
+                    fontSize = 7.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
@@ -2376,7 +2669,7 @@ private fun ArpeggiatorKeyboardBar(
                 Text(
                     text = if (showKeyboard) "OCULTAR TECLAS ▲" else "MOSTRAR TECLAS ▼",
                     color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
-                    fontSize = 7.5.sp,
+                    fontSize = 7.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
@@ -2386,10 +2679,13 @@ private fun ArpeggiatorKeyboardBar(
 }
 
 /**
- * Authentic Juno-60 Section Rack Card with:
- * - Bold 3.5dp colored top accent bar
- * - Matching colored monospace header title (and optional purple GLOBAL badge)
- * - Clean headroom for floating MIDI Learn cartridges so layout never shifts
+ * Authentic Juno-60 Section Rack Card (`LFO`, `DCO`, `HPF`, `VCF`, `VCA`, `ENV`, `CHORUS`, `ECHO DELAY`, `REVERB`):
+ * - Thick colored top line (`3.dp`, `accentColor`)
+ * - Below that: a lighter/tinted colored contrast bar (`accentColor.copy(alpha = 0.16f)`) defining the title zone,
+ *   with the section title ALWAYS centered and keeping `accentColor`
+ * - Extra vertical room for faders
+ * - Very small, thin, centered footer (or `MAN TRIG` at bottom of `LFO`)
+ * - Bottom colored bar (`2.5.dp`, `accentColor`) below the footer text at the bottom of the cartridge
  */
 @Composable
 private fun SynthModuleCard(
@@ -2404,83 +2700,88 @@ private fun SynthModuleCard(
     Column(
         modifier = Modifier
             .fillMaxHeight()
-            .background(Color(0xFF0B0D13), RoundedCornerShape(5.dp))
+            .clip(RoundedCornerShape(5.dp))
+            .background(Color(0xFF0B0D13))
             .border(1.dp, Color(0xFF1F2533), RoundedCornerShape(5.dp))
     ) {
-        // Top Colored Header Strip (Authentic Juno-60 section stripe)
+        // 1. Thick Colored Top Line (like the red, orange, or blue lines on the Juno-60)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(3.5.dp)
+                .height(3.dp)
                 .background(accentColor)
         )
-        // Header Row
-        Row(
+
+        // 2. Lighter-shade Tinted Title Bar creating contrast & defining where the centered title sits
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = if (headerRight != null) Arrangement.SpaceBetween else Arrangement.Center
+                .background(accentColor.copy(alpha = 0.16f))
+                .padding(horizontal = 5.dp, vertical = 1.5.dp)
         ) {
             Row(
+                modifier = Modifier.align(Alignment.Center),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
                     text = title,
                     color = accentColor,
-                    fontSize = 9.5.sp,
+                    fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 0.8.sp
+                    letterSpacing = 0.6.sp,
+                    textAlign = TextAlign.Center
                 )
                 if (titleBadge != null) {
                     Box(
                         modifier = Modifier
-                            .background(Color(0xFF2E1065), RoundedCornerShape(3.dp))
-                            .border(1.dp, Color(0xFF6D28D9), RoundedCornerShape(3.dp))
-                            .padding(horizontal = 3.5.dp, vertical = 0.5.dp)
+                            .background(Color(0xFF2E1065), RoundedCornerShape(2.dp))
+                            .border(0.8.dp, Color(0xFF6D28D9), RoundedCornerShape(2.dp))
+                            .padding(horizontal = 2.5.dp, vertical = 0.2.dp)
                     ) {
                         Text(
                             text = titleBadge,
                             color = Color(0xFFDDD6FE),
-                            fontSize = 7.sp,
+                            fontSize = 6.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold
                         )
                     }
                 }
             }
+
             if (headerRight != null) {
-                Spacer(Modifier.width(6.dp))
-                headerRight()
+                Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                    headerRight()
+                }
             }
         }
 
-        // Thin horizontal divider under section title
+        // Thin horizontal divider under the tinted title bar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(Color(0xFF181D29))
+                .background(accentColor.copy(alpha = 0.32f))
         )
 
-        // Main Controls Area (Top padding gives floating MIDI cartridges room without shifting faders)
+        // 3. Main Controls Area (Maximum vertical travel for faders; top padding gives floating MIDI cartridges room)
         Box(
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 3.dp),
+                .padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 2.dp),
             contentAlignment = Alignment.Center
         ) {
             content()
         }
 
-        // Bottom Footer or Custom Bottom Action Bar
+        // 4. Very Small, Thin, Centered Footer (or MAN TRIG) + Bottom Colored Bar
         if (bottomBar != null) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(1.dp)
+                    .height(0.8.dp)
                     .background(Color(0xFF181D29))
             )
             bottomBar()
@@ -2488,26 +2789,36 @@ private fun SynthModuleCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(1.dp)
+                    .height(0.8.dp)
                     .background(Color(0xFF181D29))
             )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF080A0F))
-                    .padding(vertical = 2.5.dp),
+                    .padding(horizontal = 3.dp, vertical = 1.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = footer,
-                    color = Color(0xFF6B7280),
-                    fontSize = 7.sp,
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 5.8.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.7.sp
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
                 )
             }
         }
+
+        // 5. Colored Accent Bar repeated at the very bottom of the section cartridge
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.5.dp)
+                .background(accentColor)
+        )
     }
 }
 
@@ -2515,9 +2826,9 @@ private fun SynthModuleCard(
  * Sleek Desktop-Grade Vertical Juno-60 Fader (`44.dp` wide):
  * - Fixed geometry: turning MIDI Learn ON/OFF or selecting a fader NEVER alters fader height or position!
  * - Luminous cyan halo/aura (`Color(0xFF38BDF8)`) when selected for MIDI Learn
- * - Floating rounded blue cartridge (`MidiCcBalloonBadge`) overlaid at the top edge ONLY when mapped or selected
+ * - Floating truly-rounded blue cartridge (`MidiCcBalloonBadge`) overlaid at the top edge ONLY when mapped or selected
  * - Authentic `100`, `50`, `0` scale markings on the left and 3 tick lines on the right
- * - Ribbed colored Juno fader cap + Amber digital readout box at bottom
+ * - Smaller digital readout box at bottom to give the fader track even more vertical travel
  */
 @Composable
 private fun JunoParamFader(
@@ -2563,13 +2874,13 @@ private fun JunoParamFader(
                     midiManager.learningTargetKey = param.key
                     onNotifyUiChanged()
                 }
-                .padding(vertical = 3.dp, horizontal = 2.dp)
+                .padding(top = 2.dp, bottom = 1.5.dp, start = 2.dp, end = 2.dp)
         ) {
             // Parameter Title Label (Fixed position at top of slot)
             Text(
                 text = param.label,
                 color = Color(0xFFE5E7EB),
-                fontSize = 8.sp,
+                fontSize = 7.5.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1
@@ -2612,24 +2923,24 @@ private fun JunoParamFader(
                         )
                     }
             ) {
-                // Left 100 / 50 / 0 Scale Labels (matching reference screenshot)
+                // Left 100 / 50 / 0 Scale Labels
                 Column(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .fillMaxHeight()
-                        .padding(vertical = 8.dp, horizontal = 1.dp),
+                        .padding(vertical = 6.dp, horizontal = 1.dp),
                     verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.End
                 ) {
-                    Text("100", color = Color(0xFF4B5563), fontSize = 5.5.sp, fontFamily = FontFamily.Monospace)
-                    Text("50", color = Color(0xFF4B5563), fontSize = 5.5.sp, fontFamily = FontFamily.Monospace)
-                    Text("0", color = Color(0xFF4B5563), fontSize = 5.5.sp, fontFamily = FontFamily.Monospace)
+                    Text("100", color = Color(0xFF4B5563), fontSize = 5.sp, fontFamily = FontFamily.Monospace)
+                    Text("50", color = Color(0xFF4B5563), fontSize = 5.sp, fontFamily = FontFamily.Monospace)
+                    Text("0", color = Color(0xFF4B5563), fontSize = 5.sp, fontFamily = FontFamily.Monospace)
                 }
 
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
-                    val padY = 9.dp.toPx()
+                    val padY = 7.dp.toPx()
                     val usableH = (h - padY * 2f).coerceAtLeast(10f)
                     val centerX = w * 0.52f
 
@@ -2658,7 +2969,7 @@ private fun JunoParamFader(
                     val norm = currentVal.coerceIn(0f, 1f)
                     val capY = padY + usableH * (1f - norm)
                     val capW = 21.dp.toPx()
-                    val capH = 13.dp.toPx()
+                    val capH = 12.dp.toPx()
 
                     drawRoundRect(
                         color = capColor,
@@ -2684,26 +2995,26 @@ private fun JunoParamFader(
                 }
             }
 
-            // Compact Digital Readout Box (0 .. 100)
+            // Smaller Digital Readout Box at bottom (0 .. 100) to maximize fader travel
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .widthIn(min = 24.dp)
-                    .background(Color(0xFF07090D), RoundedCornerShape(3.dp))
-                    .border(1.dp, Color(0xFF1B2230), RoundedCornerShape(3.dp))
-                    .padding(horizontal = 4.dp, vertical = 0.5.dp)
+                    .widthIn(min = 19.dp)
+                    .background(Color(0xFF07090D), RoundedCornerShape(2.dp))
+                    .border(0.8.dp, Color(0xFF1B2230), RoundedCornerShape(2.dp))
+                    .padding(horizontal = 2.5.dp, vertical = 0.dp)
             ) {
                 Text(
                     text = "${(value * 100f).roundToInt().coerceIn(0, 100)}",
                     color = JunoAmberLed,
-                    fontSize = 8.sp,
+                    fontSize = 6.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
             }
         }
 
-        // Floating Rounded Cartridge Badge (Zero layout shift: floats above the top border of the fader!)
+        // Floating Truly-Rounded Cartridge Badge (Zero layout shift!)
         MidiCcBalloonBadge(
             mappedCC = mappedCC,
             mappedChannel = mappedCh,
@@ -2719,20 +3030,22 @@ private fun JunoParamFader(
             },
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = (-6).dp)
+                .offset(y = (-5).dp)
                 .zIndex(30f)
         )
     }
 }
 
 /**
- * Floating Rounded Blue Cartridge Badge for MIDI Learn (`MidiCcBalloonBadge`):
- * - NEVER participates in layout flow (always rendered as a floating `Box` overlay with negative Y offset)
+ * Truly Rounded, Short & Compact Blue Cartridge Badge for MIDI Learn (`MidiCcBalloonBadge`):
+ * - NEVER participates in layout flow (always rendered as a floating `Box` overlay)
  * - ONLY appears when `isLearnMode == true` AND (`mappedCC != null` OR `isWaitingCC == true`)
- *   (Unmapped, unselected controls stay completely clean without a balloon!)
- * - Line 1: `MAPEAR` (when selected) and/or `CCxx` (when mapped)
- * - Line 2: Mandatory line break for Channel (`CHxx`) below `CCxx`
- * - Line 3: Mandatory line break for cancel/unmap button (`✕`) at the bottom
+ * - Truly rounded pill/cartridge shape (`RoundedCornerShape(50)` when single-line, `RoundedCornerShape(10.dp)` when selected)
+ * - When mapped and NOT selected: shows ONLY the short MIDI CC name (`CC74`) — no channel, no `✕`, not tall!
+ * - When selected (`isWaitingCC == true`) — and ONLY when selected:
+ *   - Shows the MIDI CC name (`CC74` or `CC--`)
+ *   - Line break below showing the channel (`CH1`)
+ *   - Line break below showing `✕` to clear/remove mapping, with ultra-tight vertical spacing so it stays short and compact.
  */
 @Composable
 private fun MidiCcBalloonBadge(
@@ -2746,91 +3059,60 @@ private fun MidiCcBalloonBadge(
 ) {
     if (!isLearnMode || (mappedCC == null && !isWaitingCC)) return
 
+    val badgeShape = if (isWaitingCC) RoundedCornerShape(10.dp) else RoundedCornerShape(50)
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(0.dp),
         modifier = modifier
-            .widthIn(min = 28.dp, max = 38.dp)
-            .clip(RoundedCornerShape(5.dp))
+            .clip(badgeShape)
             .background(if (isWaitingCC) Color(0xFF0EA5E9) else Color(0xFF0284C7))
             .border(
                 width = 1.dp,
-                color = if (isWaitingCC) Color.White else Color(0xFF38BDF8),
-                shape = RoundedCornerShape(5.dp)
+                color = if (isWaitingCC) Color.White else Color(0xFF7DD3FC),
+                shape = badgeShape
             )
             .clickable { onSelectForLearn() }
-            .padding(horizontal = 3.dp, vertical = 1.5.dp)
+            .padding(
+                horizontal = if (isWaitingCC) 5.dp else 5.5.dp,
+                vertical = if (isWaitingCC) 1.5.dp else 1.dp
+            )
     ) {
+        // Line 1: MIDI CC Name
+        Text(
+            text = if (mappedCC != null) "CC$mappedCC" else "CC--",
+            color = Color.White,
+            fontSize = 6.5.sp,
+            lineHeight = 7.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            maxLines = 1
+        )
+
+        // ONLY when selected: show Channel on a line break below, and below that the '✕'
         if (isWaitingCC) {
+            val chNum = if (mappedChannel != null && mappedChannel in 1..16) mappedChannel else 1
             Text(
-                text = "MAPEAR",
-                color = Color.White,
-                fontSize = 6.5.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Center,
-                maxLines = 1
-            )
-            if (mappedCC != null) {
-                Box(
-                    modifier = Modifier
-                        .padding(vertical = 0.5.dp)
-                        .fillMaxWidth()
-                        .height(0.5.dp)
-                        .background(Color(0x55FFFFFF))
-                )
-            }
-        }
-
-        if (mappedCC != null) {
-            Text(
-                text = "CC$mappedCC",
-                color = Color.White,
-                fontSize = 7.5.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold,
-                textAlign = TextAlign.Center,
-                maxLines = 1
-            )
-        }
-
-        // Mandatory line break for Channel below CC
-        if (mappedCC != null && mappedChannel != null && mappedChannel in 1..16) {
-            Text(
-                text = "CH$mappedChannel",
+                text = "CH$chNum",
                 color = Color(0xFFE0F2FE),
-                fontSize = 6.5.sp,
+                fontSize = 5.8.sp,
+                lineHeight = 6.2.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 maxLines = 1
             )
-        }
-
-        // Mandatory line break for '✕' cancel button below text
-        if (mappedCC != null) {
-            Box(
-                modifier = Modifier
-                    .padding(top = 0.5.dp)
-                    .fillMaxWidth()
-                    .height(0.5.dp)
-                    .background(Color(0x44FFFFFF))
+            Text(
+                text = "✕",
+                color = Color.White,
+                fontSize = 6.5.sp,
+                lineHeight = 6.8.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.clickable { onClearMapping() }
             )
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onClearMapping() }
-                    .padding(top = 0.5.dp)
-            ) {
-                Text(
-                    text = "✕",
-                    color = Color.White,
-                    fontSize = 7.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center
-                )
-            }
         }
     }
 }
@@ -2919,7 +3201,7 @@ private fun JunoChorusButton(
             )
         }
 
-        // Floating MIDI Cartridge above the Chorus button (zero layout shift!)
+        // Floating Rounded MIDI Cartridge above the Chorus button (zero layout shift!)
         MidiCcBalloonBadge(
             mappedCC = mappedCC,
             mappedChannel = mappedCh,
@@ -2935,7 +3217,7 @@ private fun JunoChorusButton(
             },
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = 8.dp)
+                .offset(y = 6.dp)
                 .zIndex(30f)
         )
     }
@@ -2950,6 +3232,7 @@ private fun JunoParamSwitchWithBadge(
     activeColor: Color,
     midiManager: MidiControllerManager,
     uiRevision: Int,
+    compact: Boolean = false,
     onToggle: () -> Unit,
     onNotifyUiChanged: () -> Unit
 ) {
@@ -2963,23 +3246,23 @@ private fun JunoParamSwitchWithBadge(
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(3.dp))
+                .clip(RoundedCornerShape(if (compact) 2.dp else 3.dp))
                 .background(
                     when {
                         isWaiting -> Color(0xFF0A2236)
                         active -> activeColor
-                        else -> Color(0xFF181C26)
+                        else -> Color(0xFF151922)
                     }
                 )
                 .border(
-                    width = if (isWaiting) 1.5.dp else 1.dp,
+                    width = if (isWaiting) 1.2.dp else 0.8.dp,
                     color = when {
                         isWaiting -> Color(0xFF38BDF8)
                         isLearnMode -> Color(0xFF0369A1)
                         active -> Color.White
-                        else -> Color(0xFF2D3446)
+                        else -> Color(0xFF2B3244)
                     },
-                    shape = RoundedCornerShape(3.dp)
+                    shape = RoundedCornerShape(if (compact) 2.dp else 3.dp)
                 )
                 .clickable {
                     if (isLearnMode) {
@@ -2989,18 +3272,21 @@ private fun JunoParamSwitchWithBadge(
                         onToggle()
                     }
                 }
-                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                .padding(
+                    horizontal = if (compact) 4.dp else 4.5.dp,
+                    vertical = if (compact) 0.5.dp else 1.dp
+                )
         ) {
             Text(
                 text = if (active) activeLabel else inactiveLabel,
-                color = if (active) Color.White else Color(0xFF9CA3AF),
-                fontSize = 7.5.sp,
+                color = if (active) Color.Black else Color(0xFF9CA3AF),
+                fontSize = if (compact) 6.sp else 6.8.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.ExtraBold
             )
         }
 
-        // Floating MIDI Cartridge Overlay (Zero layout shift!)
+        // Floating Rounded MIDI Cartridge Overlay (Zero layout shift!)
         MidiCcBalloonBadge(
             mappedCC = mappedCC,
             mappedChannel = mappedCh,
@@ -3016,7 +3302,7 @@ private fun JunoParamSwitchWithBadge(
             },
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = (-6).dp)
+                .offset(y = (-5).dp)
                 .zIndex(30f)
         )
     }
