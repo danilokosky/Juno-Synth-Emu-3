@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -362,39 +363,53 @@ fun HeraJunoNativeScreen(
                 }
             )
 
-            // Signature Roland Juno-60 5-Color Metallic Accent Stripe
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(5.dp)
-            ) {
-                Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFFDC2626)))
-                Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFFD97706)))
-                Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFFEAB308)))
-                Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFF06B6D4)))
-                Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFF2563EB)))
-            }
+            // 1B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Top Separator)
+            JunoRainbowSeparator()
 
-            // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Fixed comfortable height - never squished!)
+            // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Desktop-grade tight proportions, never squished)
             val rackScrollState = rememberScrollState()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(258.dp)
-                    .background(JunoPanelBg)
+                    .height(228.dp)
+                    .background(Color(0xFF11131A))
                     .horizontalScroll(rackScrollState)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 6.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                // SECTION 1: LFO
+                // SECTION 1: LFO (Rate + Vib Del + bottom MAN TRIG button, matching authentic Juno-60)
+                val manTrigActive = (paramState[SynthParam.LFOManualTrig] ?: 0f) >= 0.5f
                 SynthModuleCard(
                     title = "LFO",
-                    footer = "VIBRATO OSC",
-                    accentColor = Color(0xFFEAB308)
+                    footer = null,
+                    accentColor = Color(0xFFEAB308),
+                    bottomBar = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF0B0D13))
+                                .padding(vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            JunoParamSwitchWithBadge(
+                                param = SynthParam.LFOManualTrig,
+                                active = manTrigActive,
+                                activeLabel = "MAN TRIG",
+                                inactiveLabel = "MAN TRIG",
+                                activeColor = JunoAmberLed,
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                onToggle = {
+                                    onUpdateParam(SynthParam.LFOManualTrig, if (manTrigActive) 0f else 1f)
+                                },
+                                onNotifyUiChanged = onNotifyUiChanged
+                            )
+                        }
+                    }
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         JunoParamFader(
@@ -415,36 +430,10 @@ fun HeraJunoNativeScreen(
                             onValueChange = { onUpdateParam(SynthParam.LFODelay, it) },
                             onNotifyUiChanged = onNotifyUiChanged
                         )
-                        Column(
-                            verticalArrangement = Arrangement.SpaceBetween,
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.fillMaxHeight().padding(vertical = 4.dp)
-                        ) {
-                            SelectorGroupBox(
-                                title = "LFO TRIG",
-                                options = listOf("MAN", "AUTO"),
-                                selectedIndex = (paramState[SynthParam.LFOTrigMode] ?: 1f).roundToInt().coerceIn(0, 1),
-                                onSelect = { onUpdateParam(SynthParam.LFOTrigMode, it.toFloat()) }
-                            )
-                            val manTrigActive = (paramState[SynthParam.LFOManualTrig] ?: 0f) >= 0.5f
-                            JunoParamSwitchWithBadge(
-                                param = SynthParam.LFOManualTrig,
-                                active = manTrigActive,
-                                activeLabel = "MAN TRIG",
-                                inactiveLabel = "MAN TRIG",
-                                activeColor = JunoAmberLed,
-                                midiManager = midiManager,
-                                uiRevision = rev,
-                                onToggle = {
-                                    onUpdateParam(SynthParam.LFOManualTrig, if (manTrigActive) 0f else 1f)
-                                },
-                                onNotifyUiChanged = onNotifyUiChanged
-                            )
-                        }
                     }
                 }
 
-                // SECTION 2: DCO (OSCILLATOR)
+                // SECTION 2: DCO (OSCILLATOR) - Left Selector Column (RANGE, LFO TRIG, PWM) + 6 Red Faders
                 SynthModuleCard(
                     title = "DCO (OSCILLATOR)",
                     footer = "POLYBLEP ANALOG WAVEFORMS",
@@ -452,25 +441,48 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
+                        // Compact 3-Switch Column (RANGE, LFO TRIG, PWM)
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.SpaceBetween,
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.fillMaxHeight().padding(vertical = 2.dp)
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .background(Color(0xFF0A0D14), RoundedCornerShape(4.dp))
+                                .border(1.dp, Color(0xFF1A2232), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 3.dp, vertical = 3.dp)
                         ) {
                             SelectorGroupBox(
+                                param = SynthParam.DCORange,
                                 title = "RANGE",
                                 options = listOf("16'", "8'", "4'"),
                                 selectedIndex = (paramState[SynthParam.DCORange] ?: 1f).roundToInt().coerceIn(0, 2),
-                                onSelect = { onUpdateParam(SynthParam.DCORange, it.toFloat()) }
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                onSelect = { onUpdateParam(SynthParam.DCORange, it.toFloat()) },
+                                onNotifyUiChanged = onNotifyUiChanged
                             )
                             SelectorGroupBox(
+                                param = SynthParam.LFOTrigMode,
+                                title = "LFO TRIG",
+                                options = listOf("MAN", "AUTO"),
+                                selectedIndex = (paramState[SynthParam.LFOTrigMode] ?: 1f).roundToInt().coerceIn(0, 1),
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                onSelect = { onUpdateParam(SynthParam.LFOTrigMode, it.toFloat()) },
+                                onNotifyUiChanged = onNotifyUiChanged
+                            )
+                            SelectorGroupBox(
+                                param = SynthParam.DCOPWMMod,
                                 title = "PWM",
                                 options = listOf("MAN", "LFO", "ENV"),
                                 selectedIndex = (paramState[SynthParam.DCOPWMMod] ?: 1f).roundToInt().coerceIn(0, 2),
-                                onSelect = { onUpdateParam(SynthParam.DCOPWMMod, it.toFloat()) }
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                onSelect = { onUpdateParam(SynthParam.DCOPWMMod, it.toFloat()) },
+                                onNotifyUiChanged = onNotifyUiChanged
                             )
                         }
 
@@ -535,7 +547,7 @@ fun HeraJunoNativeScreen(
                 SynthModuleCard(
                     title = "HPF",
                     footer = "4-WAY",
-                    accentColor = JunoBlue
+                    accentColor = Color(0xFF06B6D4)
                 ) {
                     JunoParamFader(
                         param = SynthParam.HPF,
@@ -552,11 +564,11 @@ fun HeraJunoNativeScreen(
                 SynthModuleCard(
                     title = "VCF (FILTER)",
                     footer = "24dB/OCT RESONANT OTA",
-                    accentColor = JunoBlue
+                    accentColor = Color(0xFF22D3EE)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         JunoParamFader(
@@ -624,14 +636,18 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         SelectorGroupBox(
+                            param = SynthParam.VCAType,
                             title = "TYPE",
                             options = listOf("ENV", "GATE"),
                             selectedIndex = (paramState[SynthParam.VCAType] ?: 0f).roundToInt().coerceIn(0, 1),
-                            onSelect = { onUpdateParam(SynthParam.VCAType, it.toFloat()) }
+                            midiManager = midiManager,
+                            uiRevision = rev,
+                            onSelect = { onUpdateParam(SynthParam.VCAType, it.toFloat()) },
+                            onNotifyUiChanged = onNotifyUiChanged
                         )
                         JunoParamFader(
                             param = SynthParam.VCADepth,
@@ -649,11 +665,11 @@ fun HeraJunoNativeScreen(
                 SynthModuleCard(
                     title = "ENV (ADSR)",
                     footer = "EXPONENTIAL ADSR",
-                    accentColor = JunoOrange
+                    accentColor = Color(0xFFFBBF24)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         JunoParamFader(
@@ -702,7 +718,7 @@ fun HeraJunoNativeScreen(
                     c1 && c2 -> "I+II (ROTARY)"
                     c1 -> "I (LUSH)"
                     c2 -> "II (CREAMY)"
-                    else -> "BBD OFF"
+                    else -> "OFF"
                 }
                 SynthModuleCard(
                     title = "CHORUS",
@@ -711,8 +727,8 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxHeight().padding(horizontal = 4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier.fillMaxHeight().padding(horizontal = 2.dp)
                     ) {
                         JunoChorusButton(
                             param = SynthParam.ChorusI,
@@ -757,7 +773,7 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         JunoParamFader(
@@ -794,7 +810,8 @@ fun HeraJunoNativeScreen(
                 val reverbOn = (paramState[SynthParam.ReverbEnabled] ?: 0f) >= 0.5f
                 val reverbTypeIdx = (paramState[SynthParam.ReverbType] ?: 0f).roundToInt().coerceIn(0, 1)
                 SynthModuleCard(
-                    title = "REVERB GLOBAL",
+                    title = "REVERB",
+                    titleBadge = "GLOBAL",
                     footer = if (!reverbOn) "POST-FX BYPASS" else if (reverbTypeIdx == 0) "POST-FX STUDIO PLATE" else "POST-FX CONCERT HALL",
                     accentColor = JunoPurple,
                     headerRight = {
@@ -813,14 +830,18 @@ fun HeraJunoNativeScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxHeight()
                     ) {
                         SelectorGroupBox(
+                            param = SynthParam.ReverbType,
                             title = "MODE",
                             options = listOf("PLATE", "HALL"),
                             selectedIndex = reverbTypeIdx,
-                            onSelect = { onUpdateParam(SynthParam.ReverbType, it.toFloat()) }
+                            midiManager = midiManager,
+                            uiRevision = rev,
+                            onSelect = { onUpdateParam(SynthParam.ReverbType, it.toFloat()) },
+                            onNotifyUiChanged = onNotifyUiChanged
                         )
                         JunoParamFader(
                             param = SynthParam.ReverbTime,
@@ -853,16 +874,19 @@ fun HeraJunoNativeScreen(
                 }
             }
 
+            // 2B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Separating Synth Rack & Keyboard Section)
+            JunoRainbowSeparator()
+
             // 3. KEYBOARD & PERFORMANCE SECTION (VOICING / TIMBRES + ARPEGGIATOR + PIANO KEYBOARD)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF090B10))
-                    .border(1.dp, Color(0xFF1F2433))
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .border(1.dp, Color(0xFF1A202E))
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // 3A. VOICING / TIMBRES BAR (Preset Bank/Patch + Save + Download XML + Upload XML + Timbres Browser)
+                // 3A. VOICING / TIMBRES BAR (Preset Bank/Patch + Save + Export XML + Import XML + Timbres Browser)
                 VoicingPresetBar(
                     presetIndex = currentPresetIndex,
                     preset = currentPreset,
@@ -913,20 +937,20 @@ fun HeraJunoNativeScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(172.dp)
-                            .background(Color(0xFF0A0C10), RoundedCornerShape(6.dp))
-                            .border(1.dp, Color(0xFF222634), RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            .height(162.dp)
+                            .background(Color(0xFF0A0C10), RoundedCornerShape(5.dp))
+                            .border(1.dp, Color(0xFF1F2432), RoundedCornerShape(5.dp))
+                            .padding(horizontal = 5.dp, vertical = 5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         // Left Bender / Mod Wheel / Octave / Hold Panel
                         Column(
                             modifier = Modifier
-                                .width(136.dp)
+                                .width(126.dp)
                                 .fillMaxHeight()
-                                .background(Color(0xFF12151E), RoundedCornerShape(6.dp))
-                                .border(1.dp, Color(0xFF282E40), RoundedCornerShape(6.dp))
-                                .padding(6.dp),
+                                .background(Color(0xFF11141C), RoundedCornerShape(5.dp))
+                                .border(1.dp, Color(0xFF242A3A), RoundedCornerShape(5.dp))
+                                .padding(5.dp),
                             verticalArrangement = Arrangement.SpaceBetween,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
@@ -938,26 +962,26 @@ fun HeraJunoNativeScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                                     modifier = Modifier
-                                        .background(Color(0xFF090B10), RoundedCornerShape(4.dp))
-                                        .border(1.dp, Color(0xFF252C3D), RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        .background(Color(0xFF080A0E), RoundedCornerShape(3.dp))
+                                        .border(1.dp, Color(0xFF222838), RoundedCornerShape(3.dp))
+                                        .padding(horizontal = 3.dp, vertical = 1.5.dp)
                                 ) {
                                     Box(
                                         contentAlignment = Alignment.Center,
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(Color(0xFF1B202E))
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF181D2A))
                                             .clickable { baseOctave = (baseOctave - 1).coerceIn(1, 5) }
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .padding(horizontal = 5.dp, vertical = 1.dp)
                                     ) {
-                                        Text("-", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text("-", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                                     }
                                     Text(
                                         text = "C$baseOctave",
                                         color = JunoAmberLed,
-                                        fontSize = 10.sp,
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         fontFamily = FontFamily.Monospace,
                                         modifier = Modifier.padding(horizontal = 2.dp)
@@ -965,36 +989,36 @@ fun HeraJunoNativeScreen(
                                     Box(
                                         contentAlignment = Alignment.Center,
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(Color(0xFF1B202E))
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF181D2A))
                                             .clickable { baseOctave = (baseOctave + 1).coerceIn(1, 5) }
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .padding(horizontal = 5.dp, vertical = 1.dp)
                                     ) {
-                                        Text("+", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text("+", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                                     }
-                                }
+                                 }
 
                                 Box(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(if (holdSustain) JunoAmberLed else Color(0xFF181C28))
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (holdSustain) JunoAmberLed else Color(0xFF161A25))
                                         .border(
                                             1.dp,
-                                            if (holdSustain) Color(0xFFFDE68A) else Color(0xFF2D3548),
-                                            RoundedCornerShape(4.dp)
+                                            if (holdSustain) Color(0xFFFDE68A) else Color(0xFF293042),
+                                            RoundedCornerShape(3.dp)
                                         )
                                         .clickable {
                                             val next = !holdSustain
                                             holdSustain = next
                                             if (!next) onPanicAllNotesOff()
                                         }
-                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = "HOLD",
                                         color = if (holdSustain) Color.Black else Color(0xFF9CA3AF),
-                                        fontSize = 8.5.sp,
+                                        fontSize = 8.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         fontFamily = FontFamily.Monospace
                                     )
@@ -1007,11 +1031,11 @@ fun HeraJunoNativeScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("PITCH BEND", color = Color(0xFF9CA3AF), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+                                    Text("PITCH BEND", color = Color(0xFF9CA3AF), fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
                                     Text(
                                         text = if (kotlin.math.abs(pitchBendUi) < 0.02f) "CTR" else "${(pitchBendUi * 100).roundToInt()}%",
                                         color = JunoRed,
-                                        fontSize = 8.5.sp,
+                                        fontSize = 7.5.sp,
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1021,7 +1045,7 @@ fun HeraJunoNativeScreen(
                                     value = (pitchBendUi + 1f) * 0.5f,
                                     accentColor = JunoRed,
                                     springCenter = true,
-                                    width = 120.dp,
+                                    width = 112.dp,
                                     onChange = { norm ->
                                         pitchBendUi = (norm * 2f - 1f).coerceIn(-1f, 1f)
                                         NativeSynthBridge.setPitchBend(pitchBendUi, modWheelUi)
@@ -1039,11 +1063,11 @@ fun HeraJunoNativeScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("MOD / LFO", color = Color(0xFF9CA3AF), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+                                    Text("MOD / LFO", color = Color(0xFF9CA3AF), fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
                                     Text(
                                         text = "${(modWheelUi * 100).roundToInt()}%",
                                         color = JunoOrange,
-                                        fontSize = 8.5.sp,
+                                        fontSize = 7.5.sp,
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1053,7 +1077,7 @@ fun HeraJunoNativeScreen(
                                     value = modWheelUi,
                                     accentColor = JunoOrange,
                                     springCenter = false,
-                                    width = 120.dp,
+                                    width = 112.dp,
                                     onChange = { norm ->
                                         modWheelUi = norm.coerceIn(0f, 1f)
                                         NativeSynthBridge.setPitchBend(pitchBendUi, modWheelUi)
@@ -1157,6 +1181,25 @@ fun HeraJunoNativeScreen(
 }
 
 /**
+ * Signature Roland Juno-60 5-Segment Rainbow Metallic Stripe
+ * Used to separate the Header from the Synth Rack and the Synth Rack from the Keyboard/Voicing section.
+ */
+@Composable
+private fun JunoRainbowSeparator() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(4.dp)
+    ) {
+        Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFFDC2626)))
+        Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFFD97706)))
+        Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFFEAB308)))
+        Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFF06B6D4)))
+        Box(Modifier.weight(1f).fillMaxHeight().background(Color(0xFF2563EB)))
+    }
+}
+
+/**
  * Custom Native Canvas Icon reproducing the Atari Cartridge + Synthwave Sun + Roland Juno-60 Hero Icon
  * from the web version's AtariCartridgeIcon.tsx.
  */
@@ -1164,9 +1207,9 @@ fun HeraJunoNativeScreen(
 private fun AtariCartridgeBadgeIcon(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(7.dp))
+            .clip(RoundedCornerShape(6.dp))
             .background(Color(0xFF0E1016))
-            .border(1.dp, Color(0xFF323846), RoundedCornerShape(7.dp))
+            .border(1.dp, Color(0xFF323846), RoundedCornerShape(6.dp))
             .padding(2.dp)
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -1180,7 +1223,7 @@ private fun AtariCartridgeBadgeIcon(modifier: Modifier = Modifier) {
                 ),
                 topLeft = Offset.Zero,
                 size = Size(w, h),
-                cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
             )
 
             // Retrowave Sun
@@ -1249,15 +1292,14 @@ private fun AtariCartridgeBadgeIcon(modifier: Modifier = Modifier) {
 }
 
 /**
- * Decluttered Top Roland Header Bar with:
- * - Complete App Branding (Atari Cartridge Juno Icon + HERA + JUNO-60 red badge + Subtitle description)
- * - 6-Voice Polyphony LED Bezel
- * - 60fps CRT Oscilloscope
- * - Visually Differentiated Control Sections:
- *   1. MIDI Routing & Profile Container (MIDI LED + CANAIS + Divider + PERFIL)
- *   2. Prominent MIDI LEARN Button with mapped count pill
- *   3. Master Volume Control (Mute toggle + Slider + Digital readout + MIDI Learn support)
- *   4. Keyboard Toggle & Panic buttons
+ * Compact, Desktop-Grade Roland Header Bar (No artificial emoji icons, sleek typographic buttons):
+ * - App Branding (Atari Cartridge Juno Icon + HERA + JUNO-60 red badge + Subtitle description)
+ * - 6-Voice Polyphony LED Bezel + 60fps CRT Oscilloscope
+ * - Visually Differentiated Control Deck:
+ *   1. MIDI Routing & Profile Sub-Panel (MIDI LED + CANAIS T:CHxx + Divider + PERFIL)
+ *   2. MIDI LEARN Button with mapped count pill
+ *   3. Master Volume Control (VOL/MUTE chip + Slider + Digital readout + floating MIDI Learn cartridge)
+ *   4. TECLADO & PANIC buttons
  */
 @Composable
 private fun TopHeaderBar(
@@ -1289,90 +1331,90 @@ private fun TopHeaderBar(
             .fillMaxWidth()
             .background(
                 Brush.horizontalGradient(
-                    listOf(Color(0xFF090A0F), Color(0xFF12151E), Color(0xFF090A0F))
+                    listOf(Color(0xFF090A0F), Color(0xFF11141C), Color(0xFF090A0F))
                 )
             )
             .horizontalScroll(headerScroll)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         // LEFT: Complete App Branding (Icon + Title + JUNO-60 Badge + Description)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            AtariCartridgeBadgeIcon(modifier = Modifier.size(38.dp))
+            AtariCartridgeBadgeIcon(modifier = Modifier.size(32.dp))
 
             Column(verticalArrangement = Arrangement.Center) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Text(
                         text = "HERA",
                         color = Color(0xFFF3F4F6),
-                        fontSize = 17.sp,
+                        fontSize = 15.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
-                        letterSpacing = 2.sp
+                        letterSpacing = 1.5.sp
                     )
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(3.dp))
                             .background(Color(0xFFDC2626))
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
                     ) {
                         Text(
                             text = "JUNO-60",
                             color = Color.White,
-                            fontSize = 9.sp,
+                            fontSize = 8.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 1.sp
+                            letterSpacing = 0.8.sp
                         )
                     }
                 }
                 Text(
                     text = "POLYPHONIC SYNTHESIZER • 6 VOICES • STEREO BBD CHORUS",
                     color = Color(0xFF9CA3AF),
-                    fontSize = 8.sp,
+                    fontSize = 7.sp,
                     fontFamily = FontFamily.Monospace,
-                    letterSpacing = 0.5.sp
+                    letterSpacing = 0.4.sp
                 )
             }
         }
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
 
         // CENTER-LEFT: 6-Voice Polyphony Indicator Box + Real-Time CRT Oscilloscope
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // 6-Voice Indicator Bezel
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .background(Color(0xFF080A0E), RoundedCornerShape(5.dp))
-                    .border(1.dp, Color(0xFF1F2433), RoundedCornerShape(5.dp))
-                    .padding(horizontal = 7.dp, vertical = 4.dp)
+                    .background(Color(0xFF080A0E), RoundedCornerShape(4.dp))
+                    .border(1.dp, Color(0xFF1E2330), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 3.dp)
             ) {
                 Text(
                     text = "VOICES",
                     color = Color(0xFF6B7280),
-                    fontSize = 7.5.sp,
+                    fontSize = 7.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
+                    letterSpacing = 0.8.sp
                 )
-                Spacer(Modifier.height(3.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Spacer(Modifier.height(2.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(3.5.dp)) {
                     for (v in 0 until 6) {
                         val lit = v < activeVoiceCount
                         Box(
                             modifier = Modifier
-                                .size(7.dp)
+                                .size(6.dp)
                                 .clip(CircleShape)
                                 .background(if (lit) JunoRed else Color(0xFF232734))
                                 .border(
@@ -1388,10 +1430,10 @@ private fun TopHeaderBar(
             // Real-time 60fps CRT Oscilloscope
             Box(
                 modifier = Modifier
-                    .width(110.dp)
-                    .height(34.dp)
-                    .background(Color(0xFF05100C), RoundedCornerShape(5.dp))
-                    .border(1.dp, Color(0xFF1B4332), RoundedCornerShape(5.dp))
+                    .width(96.dp)
+                    .height(28.dp)
+                    .background(Color(0xFF05100C), RoundedCornerShape(4.dp))
+                    .border(1.dp, Color(0xFF1B4332), RoundedCornerShape(4.dp))
                     .padding(2.dp)
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
@@ -1416,81 +1458,81 @@ private fun TopHeaderBar(
                         drawPath(
                             path = path,
                             color = Color(0xFF34D399),
-                            style = Stroke(width = 2f, cap = StrokeCap.Round)
+                            style = Stroke(width = 1.8f, cap = StrokeCap.Round)
                         )
                     }
                 }
             }
         }
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
 
-        // RIGHT: Distinct Control Deck Container (Matching Web Header Control Box)
+        // RIGHT: Sleek Desktop Control Deck Container
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
-                .background(Color(0xFF07090D), RoundedCornerShape(6.dp))
-                .border(1.dp, Color(0xFF1F2533), RoundedCornerShape(6.dp))
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .background(Color(0xFF07090D), RoundedCornerShape(5.dp))
+                .border(1.dp, Color(0xFF1E2432), RoundedCornerShape(5.dp))
+                .padding(horizontal = 6.dp, vertical = 3.dp)
         ) {
             // GROUP 1: MIDI Channels & Profile Selector Sub-Panel
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
                 modifier = Modifier
-                    .background(Color(0xFF0D1017), RoundedCornerShape(5.dp))
-                    .border(1.dp, Color(0xFF232A3B), RoundedCornerShape(5.dp))
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                    .background(Color(0xFF0C0F16), RoundedCornerShape(4.dp))
+                    .border(1.dp, Color(0xFF212838), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
             ) {
                 // MIDI Status Indicator
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(7.dp)
+                            .size(6.dp)
                             .clip(CircleShape)
                             .background(JunoGreenReady)
                     )
                     Text(
                         text = "MIDI",
                         color = Color(0xFF9CA3AF),
-                        fontSize = 9.sp,
+                        fontSize = 8.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                // CANAIS Button (Sky-Blue Styled with Amber T:CH badge)
+                // CANAIS Button (Sleek Sky-Blue with Amber T:CH badge)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF131B29))
-                        .border(1.dp, Color(0xFF0284C7), RoundedCornerShape(4.dp))
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF141B26))
+                        .border(1.dp, Color(0xFF0284C7), RoundedCornerShape(3.dp))
                         .clickable { onOpenChannelsModal() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "≡ CANAIS",
+                        text = "CANAIS",
                         color = Color(0xFF7DD3FC),
-                        fontSize = 9.5.sp,
+                        fontSize = 8.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Box(
                         modifier = Modifier
-                            .background(Color(0xFF090C12), RoundedCornerShape(3.dp))
-                            .border(1.dp, Color(0xFF283044), RoundedCornerShape(3.dp))
-                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                            .background(Color(0xFF090C12), RoundedCornerShape(2.dp))
+                            .border(1.dp, Color(0xFF262E40), RoundedCornerShape(2.dp))
+                            .padding(horizontal = 3.5.dp, vertical = 0.5.dp)
                     ) {
                         Text(
                             text = "T:${if (keysChannel == 0) "OMNI" else "CH$keysChannel"}",
                             color = JunoAmberLed,
-                            fontSize = 8.5.sp,
+                            fontSize = 7.5.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold
                         )
@@ -1498,7 +1540,7 @@ private fun TopHeaderBar(
                     Text(
                         text = "▾",
                         color = Color(0xFF38BDF8),
-                        fontSize = 9.sp,
+                        fontSize = 8.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1507,36 +1549,36 @@ private fun TopHeaderBar(
                 Box(
                     modifier = Modifier
                         .width(1.dp)
-                        .height(18.dp)
-                        .background(Color(0xFF262E40))
+                        .height(14.dp)
+                        .background(Color(0xFF232A3A))
                 )
 
                 // PERFIL Selector (Label + Emerald Dropdown Pill)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Text(
                         text = "PERFIL:",
                         color = JunoGreenReady,
-                        fontSize = 8.5.sp,
+                        fontSize = 8.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xFF101F1B))
-                            .border(1.dp, Color(0xFF059669), RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Color(0xFF111D1A))
+                            .border(1.dp, Color(0xFF059669), RoundedCornerShape(3.dp))
                             .clickable { onOpenProfileModal() }
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = profileName,
                             color = Color(0xFF6EE7B7),
-                            fontSize = 9.5.sp,
+                            fontSize = 8.5.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 1
@@ -1544,166 +1586,175 @@ private fun TopHeaderBar(
                         Text(
                             text = "▾",
                             color = JunoGreenReady,
-                            fontSize = 9.sp,
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
 
-            // GROUP 2: Visually Distinct MIDI LEARN Button with Mapped Counter Pill
+            // GROUP 2: Clean Typographic MIDI LEARN Button with Mapped Counter Pill
             val learnLabel = when {
                 !isMidiLearn -> "MIDI LEARN"
-                learningTargetKey != null -> "AGUARDANDO CC..."
-                else -> "TOQUE NO CONTROLE"
+                learningTargetKey != null -> "AGUARDANDO CC"
+                else -> "MIDI LEARN"
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(if (isMidiLearn) Color(0xFF0284C7) else Color(0xFF1F2430))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isMidiLearn) Color(0xFF0284C7) else Color(0xFF1C202B))
                     .border(
-                        width = if (isMidiLearn) 1.5.dp else 1.dp,
-                        color = if (isMidiLearn) Color(0xFF7DD3FC) else Color(0xFF374151),
-                        shape = RoundedCornerShape(5.dp)
+                        width = 1.dp,
+                        color = if (isMidiLearn) Color(0xFF7DD3FC) else Color(0xFF32394A),
+                        shape = RoundedCornerShape(4.dp)
                     )
                     .clickable { onToggleMidiLearn() }
-                    .padding(horizontal = 9.dp, vertical = 4.dp)
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
-                Text(
-                    text = "🎚",
-                    fontSize = 10.sp,
-                    color = if (isMidiLearn) Color.White else Color(0xFF38BDF8)
-                )
                 Text(
                     text = learnLabel,
                     color = if (isMidiLearn) Color.White else Color(0xFFE5E7EB),
-                    fontSize = 10.sp,
+                    fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold
                 )
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
-                        .background(if (isMidiLearn) Color(0xFF082F49) else Color(0xFF111827))
-                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                        .background(if (isMidiLearn) Color(0xFF082F49) else Color(0xFF11151E))
+                        .padding(horizontal = 4.dp, vertical = 0.5.dp)
                 ) {
                     Text(
                         text = mappedCount.toString(),
                         color = if (isMidiLearn) Color(0xFF7DD3FC) else Color(0xFF9CA3AF),
-                        fontSize = 9.sp,
+                        fontSize = 8.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black
                     )
                 }
             }
 
-            // GROUP 3: Master Volume (Mappable when MIDI Learn is ON + Mute Toggle + Slider)
+            // GROUP 3: Master Volume (With Floating Zero-Layout-Shift MIDI Cartridge)
             val revIgnore = uiRevision
             val volMappedCC = remember(revIgnore) { midiManager.getMappedCC(SynthParam.MasterVolume.key) }
             val volMappedCh = remember(revIgnore) { midiManager.getMappedChannel(SynthParam.MasterVolume.key) }
             val isVolWaiting = isMidiLearn && midiManager.learningTargetKey == SynthParam.MasterVolume.key
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                modifier = Modifier
-                    .background(
-                        if (isVolWaiting) Color(0xFF0C2538) else Color(0xFF121620),
-                        RoundedCornerShape(5.dp)
-                    )
-                    .border(
-                        width = if (isVolWaiting) 1.5.dp else 1.dp,
-                        color = when {
-                            isVolWaiting -> JunoCyanLearn
-                            isMidiLearn -> Color(0xFF0369A1)
-                            else -> Color(0xFF283044)
-                        },
-                        shape = RoundedCornerShape(5.dp)
-                    )
-                    .clickable(enabled = isMidiLearn) {
-                        midiManager.learningTargetKey = SynthParam.MasterVolume.key
-                        onNotifyUiChanged()
-                    }
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
-            ) {
-                if (isMidiLearn) {
-                    Box(modifier = Modifier.width(56.dp)) {
-                        MidiCcBalloonBadge(
-                            mappedCC = volMappedCC,
-                            mappedChannel = volMappedCh,
-                            isLearnMode = true,
-                            isWaitingCC = isVolWaiting,
-                            onSelectForLearn = {
-                                midiManager.learningTargetKey = SynthParam.MasterVolume.key
-                                onNotifyUiChanged()
+            Box(contentAlignment = Alignment.TopCenter) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .background(
+                            if (isVolWaiting) Color(0xFF0B253A) else Color(0xFF11151E),
+                            RoundedCornerShape(4.dp)
+                        )
+                        .border(
+                            width = if (isVolWaiting) 1.5.dp else 1.dp,
+                            color = when {
+                                isVolWaiting -> Color(0xFF38BDF8)
+                                isMidiLearn -> Color(0xFF0369A1)
+                                else -> Color(0xFF252C3D)
                             },
-                            onClearMapping = {
-                                midiManager.clearMappingForParam(SynthParam.MasterVolume.key)
-                                onNotifyUiChanged()
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .clickable(enabled = isMidiLearn) {
+                            midiManager.learningTargetKey = SynthParam.MasterVolume.key
+                            onNotifyUiChanged()
+                        }
+                        .padding(horizontal = 5.dp, vertical = 2.5.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (isMasterMuted) Color(0xFF3B1219) else Color(0xFF1B202E))
+                            .clickable {
+                                if (isMidiLearn) {
+                                    midiManager.learningTargetKey = SynthParam.MasterVolume.key
+                                    onNotifyUiChanged()
+                                } else {
+                                    onToggleMasterMute()
+                                }
                             }
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = if (isMasterMuted || masterVolume <= 0.001f) "MUTE" else "VOL",
+                            color = if (isMasterMuted) Color(0xFFFCA5A5) else Color(0xFF9CA3AF),
+                            fontSize = 7.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.ExtraBold
                         )
                     }
+                    HorizontalTouchStrip(
+                        value = if (isMasterMuted) 0f else masterVolume,
+                        accentColor = JunoAmberLed,
+                        springCenter = false,
+                        width = 52.dp,
+                        onChange = {
+                            if (isMidiLearn) {
+                                midiManager.learningTargetKey = SynthParam.MasterVolume.key
+                                onNotifyUiChanged()
+                            } else {
+                                onMasterVolumeChange(it)
+                            }
+                        },
+                        onRelease = {}
+                    )
+                    Text(
+                        text = "${((if (isMasterMuted) 0f else masterVolume) * 100).roundToInt()}",
+                        color = JunoAmberLed,
+                        fontSize = 8.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold
+                    )
                 }
-                Text(
-                    text = if (isMasterMuted || masterVolume <= 0.001f) "🔇" else "🔊",
-                    fontSize = 11.sp,
-                    modifier = Modifier.clickable {
-                        if (isMidiLearn) {
-                            midiManager.learningTargetKey = SynthParam.MasterVolume.key
-                            onNotifyUiChanged()
-                        } else {
-                            onToggleMasterMute()
-                        }
-                    }
-                )
-                HorizontalTouchStrip(
-                    value = if (isMasterMuted) 0f else masterVolume,
-                    accentColor = JunoAmberLed,
-                    springCenter = false,
-                    width = 64.dp,
-                    onChange = {
-                        if (isMidiLearn) {
-                            midiManager.learningTargetKey = SynthParam.MasterVolume.key
-                            onNotifyUiChanged()
-                        } else {
-                            onMasterVolumeChange(it)
-                        }
+
+                // Floating MIDI Cartridge Overlay (Zero layout shift!)
+                MidiCcBalloonBadge(
+                    mappedCC = volMappedCC,
+                    mappedChannel = volMappedCh,
+                    isLearnMode = isMidiLearn,
+                    isWaitingCC = isVolWaiting,
+                    onSelectForLearn = {
+                        midiManager.learningTargetKey = SynthParam.MasterVolume.key
+                        onNotifyUiChanged()
                     },
-                    onRelease = {}
-                )
-                Text(
-                    text = "${((if (isMasterMuted) 0f else masterVolume) * 100).roundToInt()}",
-                    color = JunoAmberLed,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
+                    onClearMapping = {
+                        midiManager.clearMappingForParam(SynthParam.MasterVolume.key)
+                        onNotifyUiChanged()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .offset(y = (-6).dp)
+                        .zIndex(30f)
                 )
             }
 
-            // GROUP 4: Keyboard Visibility Toggle & Panic Button
+            // GROUP 4: Keyboard Visibility Toggle & Panic Button (Clean typographic buttons)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(if (showKeyboard) Color(0xFF271B0C) else Color(0xFF161922))
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (showKeyboard) Color(0xFF261A0B) else Color(0xFF161922))
                         .border(
                             1.dp,
-                            if (showKeyboard) JunoOrange else Color(0xFF2E3548),
-                            RoundedCornerShape(5.dp)
+                            if (showKeyboard) JunoOrange else Color(0xFF2B3244),
+                            RoundedCornerShape(4.dp)
                         )
                         .clickable { onToggleKeyboard() }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
                     Text(
-                        text = if (showKeyboard) "🎹 TECLADO ▲" else "🎹 TECLADO ▼",
+                        text = if (showKeyboard) "TECLADO ▲" else "TECLADO ▼",
                         color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
-                        fontSize = 9.5.sp,
+                        fontSize = 8.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -1712,16 +1763,16 @@ private fun TopHeaderBar(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(Color(0xFF241014))
-                        .border(1.dp, Color(0xFF991B1B), RoundedCornerShape(5.dp))
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF221014))
+                        .border(1.dp, Color(0xFF881B1B), RoundedCornerShape(4.dp))
                         .clickable { onPanic() }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
                     Text(
                         text = "PANIC",
                         color = Color(0xFFFCA5A5),
-                        fontSize = 9.5.sp,
+                        fontSize = 8.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -1732,13 +1783,13 @@ private fun TopHeaderBar(
 }
 
 /**
- * VOICING / TIMBRES Section inside the Keyboard/Performance area (matching Web PresetManager):
+ * VOICING / TIMBRES Section inside the Keyboard/Performance area (Compact, icon-free pro layout):
  * - Authentic Roland 7-Segment LED BANK and PATCH display
- * - Voicing/Timbre Name + Category/User Badge
+ * - Voicing/Timbre Name + FACTORY/USER Badge
  * - Prev (◀) & Next (▶) buttons
  * - SALVAR (Save User Voicing)
- * - DOWNLOAD (Export .XML / .hera Voicing)
- * - UPLOAD (Import .XML / .hera Voicing)
+ * - DOWNLOAD XML (Export .XML / .hera Voicing)
+ * - UPLOAD XML (Import .XML / .hera Voicing)
  * - TIMBRES Browser button
  */
 @Composable
@@ -1761,43 +1812,43 @@ private fun VoicingPresetBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF12151E), RoundedCornerShape(6.dp))
-            .border(1.dp, Color(0xFF282F42), RoundedCornerShape(6.dp))
+            .background(Color(0xFF10131B), RoundedCornerShape(5.dp))
+            .border(1.dp, Color(0xFF23293A), RoundedCornerShape(5.dp))
             .horizontalScroll(barScroll)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = 6.dp, vertical = 3.5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         // LEFT: Authentic Roland 7-Segment LED Bezel Slot Display (BANK + PATCH + VOICING NAME)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
-                .background(Color(0xFF07090D), RoundedCornerShape(5.dp))
-                .border(1.dp, Color(0xFF1F2433), RoundedCornerShape(5.dp))
+                .background(Color(0xFF07090D), RoundedCornerShape(4.dp))
+                .border(1.dp, Color(0xFF1D2230), RoundedCornerShape(4.dp))
                 .clickable { onOpenPresetList() }
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(horizontal = 6.dp, vertical = 2.5.dp)
         ) {
             // BANK 7-Segment Slot
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "BANK",
-                    color = Color(0xFF9CA3AF),
-                    fontSize = 7.sp,
+                    color = Color(0xFF6B7280),
+                    fontSize = 6.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(24.dp)
-                        .background(Color(0xFF160205), RoundedCornerShape(4.dp))
-                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(4.dp))
+                        .size(20.dp)
+                        .background(Color(0xFF160205), RoundedCornerShape(3.dp))
+                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(3.dp))
                 ) {
                     Text(
                         text = if (preset.isUserPreset) "U" else bankNumber.toString(),
                         color = Color(0xFFEF4444),
-                        fontSize = 13.sp,
+                        fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black
                     )
@@ -1808,22 +1859,22 @@ private fun VoicingPresetBar(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "PATCH",
-                    color = Color(0xFF9CA3AF),
-                    fontSize = 7.sp,
+                    color = Color(0xFF6B7280),
+                    fontSize = 6.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(24.dp)
-                        .background(Color(0xFF160205), RoundedCornerShape(4.dp))
-                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(4.dp))
+                        .size(20.dp)
+                        .background(Color(0xFF160205), RoundedCornerShape(3.dp))
+                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(3.dp))
                 ) {
                     Text(
                         text = patchNumber.toString(),
                         color = Color(0xFFEF4444),
-                        fontSize = 13.sp,
+                        fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black
                     )
@@ -1834,38 +1885,38 @@ private fun VoicingPresetBar(
             Box(
                 modifier = Modifier
                     .width(1.dp)
-                    .height(26.dp)
-                    .background(Color(0xFF222838))
+                    .height(22.dp)
+                    .background(Color(0xFF202636))
             )
 
             // VOICING / TIMBRE Name & Badge
             Column(
                 verticalArrangement = Arrangement.Center,
-                modifier = Modifier.widthIn(min = 140.dp, max = 210.dp)
+                modifier = Modifier.widthIn(min = 130.dp, max = 195.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "VOICING / TIMBRE",
+                        text = "VOICING",
                         color = Color(0xFF9CA3AF),
-                        fontSize = 7.5.sp,
+                        fontSize = 7.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
                     Box(
                         modifier = Modifier
                             .background(
-                                if (preset.isUserPreset) Color(0xFF082F49) else Color(0xFF1F2433),
-                                RoundedCornerShape(3.dp)
+                                if (preset.isUserPreset) Color(0xFF082F49) else Color(0xFF1A202E),
+                                RoundedCornerShape(2.dp)
                             )
-                            .padding(horizontal = 4.dp, vertical = 0.5.dp)
+                            .padding(horizontal = 3.5.dp, vertical = 0.5.dp)
                     ) {
                         Text(
                             text = if (preset.isUserPreset) "USER" else "FACTORY #${presetIndex.toString().padStart(2, '0')}",
                             color = if (preset.isUserPreset) Color(0xFF38BDF8) else Color(0xFF9CA3AF),
-                            fontSize = 7.sp,
+                            fontSize = 6.5.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold
                         )
@@ -1874,7 +1925,7 @@ private fun VoicingPresetBar(
                 Text(
                     text = preset.name,
                     color = JunoAmberLed,
-                    fontSize = 13.sp,
+                    fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
@@ -1883,143 +1934,137 @@ private fun VoicingPresetBar(
             }
         }
 
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(8.dp))
 
-        // RIGHT: Voicing Navigation & Save / Download / Upload / Timbres Action Buttons
+        // RIGHT: Compact Typographic Navigation & Save / Download / Upload / Timbres Buttons
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // Prev Timbre
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF1B202E))
-                    .border(1.dp, Color(0xFF323B4E), RoundedCornerShape(5.dp))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF181C28))
+                    .border(1.dp, Color(0xFF2D3548), RoundedCornerShape(4.dp))
                     .clickable { onPrevPreset() }
-                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
-                Text("◀", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                Text("◀", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
             }
 
             // Next Timbre
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF1B202E))
-                    .border(1.dp, Color(0xFF323B4E), RoundedCornerShape(5.dp))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF181C28))
+                    .border(1.dp, Color(0xFF2D3548), RoundedCornerShape(4.dp))
                     .clickable { onNextPreset() }
-                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
-                Text("▶", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                Text("▶", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
             }
 
-            // SALVAR Voicing (Save User Preset)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            // SALVAR Voicing
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF231B0E))
-                    .border(1.dp, JunoAmberLed, RoundedCornerShape(5.dp))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF21190D))
+                    .border(1.dp, JunoAmberLed, RoundedCornerShape(4.dp))
                     .clickable { onSaveUserPreset() }
-                    .padding(horizontal = 9.dp, vertical = 5.dp)
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
-                Text("💾", fontSize = 10.sp)
                 Text(
                     text = "SALVAR",
                     color = JunoAmberLed,
-                    fontSize = 10.sp,
+                    fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold
                 )
             }
 
-            // DOWNLOAD (Export Voicing XML)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            // DOWNLOAD XML
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF0D211B))
-                    .border(1.dp, JunoGreenReady, RoundedCornerShape(5.dp))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF0D1E18))
+                    .border(1.dp, JunoGreenReady, RoundedCornerShape(4.dp))
                     .clickable { onExportPreset() }
-                    .padding(horizontal = 9.dp, vertical = 5.dp)
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
-                Text("⬇", color = JunoGreenReady, fontSize = 10.sp, fontWeight = FontWeight.Black)
                 Text(
                     text = "DOWNLOAD XML",
                     color = Color(0xFF6EE7B7),
-                    fontSize = 10.sp,
+                    fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold
                 )
             }
 
-            // UPLOAD (Import Voicing XML)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            // UPLOAD XML
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF0E1E2E))
-                    .border(1.dp, JunoCyanLearn, RoundedCornerShape(5.dp))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF0D1B29))
+                    .border(1.dp, JunoCyanLearn, RoundedCornerShape(4.dp))
                     .clickable { onImportPreset() }
-                    .padding(horizontal = 9.dp, vertical = 5.dp)
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
-                Text("⬆", color = JunoCyanLearn, fontSize = 10.sp, fontWeight = FontWeight.Black)
                 Text(
                     text = "UPLOAD XML",
                     color = Color(0xFF7DD3FC),
-                    fontSize = 10.sp,
+                    fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold
                 )
             }
 
-            // TIMBRES / PRESETS Browser Button
+            // TIMBRES Browser Button
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF291F0E))
-                    .border(1.dp, Color(0xFFF59E0B), RoundedCornerShape(5.dp))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF241B0D))
+                    .border(1.dp, Color(0xFFF59E0B), RoundedCornerShape(4.dp))
                     .clickable { onOpenPresetList() }
-                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
                 Text(
                     text = "TIMBRES ($totalPresets)",
                     color = Color(0xFFFBBF24),
-                    fontSize = 10.sp,
+                    fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold
                 )
                 if (userPresetCount > 0) {
                     Box(
                         modifier = Modifier
-                            .background(Color(0xFF090C12), RoundedCornerShape(3.dp))
-                            .padding(horizontal = 4.dp, vertical = 0.5.dp)
+                            .background(Color(0xFF090C12), RoundedCornerShape(2.dp))
+                            .padding(horizontal = 3.dp, vertical = 0.5.dp)
                     ) {
                         Text(
                             text = "+$userPresetCount USER",
                             color = JunoCyanLearn,
-                            fontSize = 8.sp,
+                            fontSize = 7.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
-                Text("▾", color = Color(0xFFFBBF24), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("▾", color = Color(0xFFFBBF24), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
 /**
- * Arpeggiator Bar inside the Keyboard Section (matching Web Arpeggiator.tsx):
+ * Compact Arpeggiator Bar inside the Keyboard Section (matching Web Arpeggiator.tsx):
  * Houses ARP ON/OFF, Mode (UP, U/D, DOWN), Range (1, 2, 3 Oct), Division (1/4, 1/8, 1/16),
  * HOLD toggle, and BPM control.
  */
@@ -2046,381 +2091,433 @@ private fun ArpeggiatorKeyboardBar(
     val rateLabels = listOf("1/4" to 4, "1/8" to 8, "1/16" to 16)
     val arpScroll = rememberScrollState()
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF0D0F16), RoundedCornerShape(6.dp))
-            .border(1.dp, Color(0xFF232838), RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+            .background(Color(0xFF0C0E14), RoundedCornerShape(5.dp))
+            .border(1.dp, Color(0xFF202534), RoundedCornerShape(5.dp))
+            .horizontalScroll(arpScroll)
+            .padding(horizontal = 6.dp, vertical = 3.5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Top compact line
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(arpScroll),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            // Main ARP ON/OFF Button
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(if (arpEnabled) Color(0xFFFBBF24) else Color(0xFF161A24))
+                    .border(
+                        1.dp,
+                        if (arpEnabled) Color(0xFFFDE68A) else Color(0xFF2D3446),
+                        RoundedCornerShape(3.dp)
+                    )
+                    .clickable { onToggleArp() }
+                    .padding(horizontal = 7.dp, vertical = 2.5.dp)
             ) {
-                // Main ARP ON/OFF Button
+                Text(
+                    text = if (arpEnabled) "ARP ON" else "ARP OFF",
+                    color = if (arpEnabled) Color.Black else Color(0xFF9CA3AF),
+                    fontSize = 8.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black
+                )
+            }
+
+            // Quick Status Badges
+            Box(
+                modifier = Modifier
+                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
+                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
+            ) {
+                Text(
+                    text = modeNames.getOrElse(arpMode) { "UP" },
+                    color = Color(0xFFD1D5DB),
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
+                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
+            ) {
+                Text(
+                    text = "$arpRange ${if (arpRange == 1) "OCT" else "OCTS"}",
+                    color = Color(0xFFD1D5DB),
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
+                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
+            ) {
+                Text(
+                    text = "${arpBpm.roundToInt()} BPM",
+                    color = JunoAmberLed,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            if (arpExpanded) {
+                // Inline Mode Selector
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
+                    modifier = Modifier.padding(start = 3.dp)
+                ) {
+                    Text(
+                        text = "MODO:",
+                        color = Color(0xFF6B7280),
+                        fontSize = 7.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                    for (i in modeNames.indices) {
+                        val sel = arpMode == i
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (sel) JunoAmberLed else Color(0xFF151924))
+                                .border(
+                                    1.dp,
+                                    if (sel) Color(0xFFFDE68A) else Color(0xFF272E40),
+                                    RoundedCornerShape(3.dp)
+                                )
+                                .clickable { onSelectArpMode(i) }
+                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                        ) {
+                            Text(
+                                text = modeNames[i],
+                                color = if (sel) Color.Black else Color(0xFF9CA3AF),
+                                fontSize = 7.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+                }
+
+                // Inline Range Selector (Octaves)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
+                    modifier = Modifier.padding(start = 3.dp)
+                ) {
+                    Text(
+                        text = "OITAVAS:",
+                        color = Color(0xFF6B7280),
+                        fontSize = 7.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                    for (r in 1..3) {
+                        val sel = arpRange == r
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (sel) JunoAmberLed else Color(0xFF151924))
+                                .border(
+                                    1.dp,
+                                    if (sel) Color(0xFFFDE68A) else Color(0xFF272E40),
+                                    RoundedCornerShape(3.dp)
+                                )
+                                .clickable { onSelectArpRange(r) }
+                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                        ) {
+                            Text(
+                                text = "${r}x",
+                                color = if (sel) Color.Black else Color(0xFF9CA3AF),
+                                fontSize = 7.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+                }
+
+                // Inline Rate Division Selector
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
+                    modifier = Modifier.padding(start = 3.dp)
+                ) {
+                    Text(
+                        text = "DIV:",
+                        color = Color(0xFF6B7280),
+                        fontSize = 7.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                    for ((label, divVal) in rateLabels) {
+                        val sel = arpRateDiv == divVal
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (sel) Color(0xFF38BDF8) else Color(0xFF151924))
+                                .border(
+                                    1.dp,
+                                    if (sel) Color(0xFFBAE6FD) else Color(0xFF272E40),
+                                    RoundedCornerShape(3.dp)
+                                )
+                                .clickable { onSelectArpRateDiv(divVal) }
+                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (sel) Color.Black else Color(0xFF9CA3AF),
+                                fontSize = 7.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+                }
+
+                // HOLD Toggle
                 Box(
-                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (arpEnabled) Color(0xFFFBBF24) else Color(0xFF171B26))
+                        .padding(start = 3.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (holdSustain) JunoAmberLed else Color(0xFF151924))
                         .border(
                             1.dp,
-                            if (arpEnabled) Color(0xFFFDE68A) else Color(0xFF32394E),
-                            RoundedCornerShape(4.dp)
+                            if (holdSustain) Color(0xFFFDE68A) else Color(0xFF272E40),
+                            RoundedCornerShape(3.dp)
                         )
-                        .clickable { onToggleArp() }
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                        .clickable { onToggleHold() }
+                        .padding(horizontal = 5.5.dp, vertical = 1.5.dp)
                 ) {
                     Text(
-                        text = if (arpEnabled) "ARP ON" else "ARP OFF",
-                        color = if (arpEnabled) Color.Black else Color(0xFF9CA3AF),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-
-                // Quick Status Badges
-                Box(
-                    modifier = Modifier
-                        .background(Color(0xFF141822), RoundedCornerShape(4.dp))
-                        .border(1.dp, Color(0xFF242B3D), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = modeNames.getOrElse(arpMode) { "UP" },
-                        color = Color(0xFFD1D5DB),
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .background(Color(0xFF141822), RoundedCornerShape(4.dp))
-                        .border(1.dp, Color(0xFF242B3D), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "$arpRange ${if (arpRange == 1) "OCT" else "OCTS"}",
-                        color = Color(0xFFD1D5DB),
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .background(Color(0xFF141822), RoundedCornerShape(4.dp))
-                        .border(1.dp, Color(0xFF242B3D), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "${arpBpm.roundToInt()} BPM",
-                        color = JunoAmberLed,
-                        fontSize = 9.sp,
+                        text = if (holdSustain) "HOLD ON" else "HOLD OFF",
+                        color = if (holdSustain) Color.Black else Color(0xFF9CA3AF),
+                        fontSize = 7.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
                 }
 
-                if (arpExpanded) {
-                    // Inline Mode Selector
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        modifier = Modifier.padding(start = 4.dp)
-                    ) {
-                        Text(
-                            text = "MODO:",
-                            color = Color(0xFF6B7280),
-                            fontSize = 8.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                        for (i in modeNames.indices) {
-                            val sel = arpMode == i
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (sel) JunoAmberLed else Color(0xFF161A25))
-                                    .border(
-                                        1.dp,
-                                        if (sel) Color(0xFFFDE68A) else Color(0xFF293042),
-                                        RoundedCornerShape(4.dp)
-                                    )
-                                    .clickable { onSelectArpMode(i) }
-                                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
-                            ) {
-                                Text(
-                                    text = modeNames[i],
-                                    color = if (sel) Color.Black else Color(0xFF9CA3AF),
-                                    fontSize = 8.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
-                    }
-
-                    // Inline Range Selector (Octaves)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        modifier = Modifier.padding(start = 4.dp)
-                    ) {
-                        Text(
-                            text = "OITAVAS:",
-                            color = Color(0xFF6B7280),
-                            fontSize = 8.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                        for (r in 1..3) {
-                            val sel = arpRange == r
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (sel) JunoAmberLed else Color(0xFF161A25))
-                                    .border(
-                                        1.dp,
-                                        if (sel) Color(0xFFFDE68A) else Color(0xFF293042),
-                                        RoundedCornerShape(4.dp)
-                                    )
-                                    .clickable { onSelectArpRange(r) }
-                                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
-                            ) {
-                                Text(
-                                    text = "${r}x",
-                                    color = if (sel) Color.Black else Color(0xFF9CA3AF),
-                                    fontSize = 8.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
-                    }
-
-                    // Inline Rate Division Selector
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        modifier = Modifier.padding(start = 4.dp)
-                    ) {
-                        Text(
-                            text = "DIV:",
-                            color = Color(0xFF6B7280),
-                            fontSize = 8.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                        for ((label, divVal) in rateLabels) {
-                            val sel = arpRateDiv == divVal
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (sel) Color(0xFF38BDF8) else Color(0xFF161A25))
-                                    .border(
-                                        1.dp,
-                                        if (sel) Color(0xFFBAE6FD) else Color(0xFF293042),
-                                        RoundedCornerShape(4.dp)
-                                    )
-                                    .clickable { onSelectArpRateDiv(divVal) }
-                                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
-                            ) {
-                                Text(
-                                    text = label,
-                                    color = if (sel) Color.Black else Color(0xFF9CA3AF),
-                                    fontSize = 8.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
-                    }
-
-                    // HOLD Toggle
-                    Box(
-                        modifier = Modifier
-                            .padding(start = 4.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (holdSustain) JunoAmberLed else Color(0xFF161A25))
-                            .border(
-                                1.dp,
-                                if (holdSustain) Color(0xFFFDE68A) else Color(0xFF293042),
-                                RoundedCornerShape(4.dp)
-                            )
-                            .clickable { onToggleHold() }
-                            .padding(horizontal = 7.dp, vertical = 2.5.dp)
-                    ) {
-                        Text(
-                            text = if (holdSustain) "HOLD ON" else "HOLD OFF",
-                            color = if (holdSustain) Color.Black else Color(0xFF9CA3AF),
-                            fontSize = 8.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-
-                    // BPM Horizontal Slider
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(start = 4.dp)
-                    ) {
-                        Text(
-                            text = "BPM:",
-                            color = Color(0xFF6B7280),
-                            fontSize = 8.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                        HorizontalTouchStrip(
-                            value = ((arpBpm - 40f) / 200f).coerceIn(0f, 1f),
-                            accentColor = JunoAmberLed,
-                            springCenter = false,
-                            width = 76.dp,
-                            onChange = { norm -> onArpBpmChange(40f + norm * 200f) },
-                            onRelease = {}
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.width(8.dp))
-
-            // Right side: Collapse/Expand Arpeggiator & Show/Hide Keyboard Keys
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF151924))
-                        .border(1.dp, Color(0xFF2B3346), RoundedCornerShape(4.dp))
-                        .clickable { onToggleExpanded() }
-                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                // BPM Horizontal Slider
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier.padding(start = 3.dp)
                 ) {
                     Text(
-                        text = if (arpExpanded) "ARP AJUSTES ▲" else "ARP AJUSTES ▼",
-                        color = Color(0xFFD1D5DB),
-                        fontSize = 8.5.sp,
+                        text = "BPM:",
+                        color = Color(0xFF6B7280),
+                        fontSize = 7.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (showKeyboard) Color(0xFF1D1710) else Color(0xFF151924))
-                        .border(
-                            1.dp,
-                            if (showKeyboard) JunoOrange else Color(0xFF2B3346),
-                            RoundedCornerShape(4.dp)
-                        )
-                        .clickable { onToggleKeyboard() }
-                        .padding(horizontal = 7.dp, vertical = 3.dp)
-                ) {
-                    Text(
-                        text = if (showKeyboard) "OCULTAR TECLAS ▲" else "MOSTRAR TECLAS ▼",
-                        color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
-                        fontSize = 8.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
+                    HorizontalTouchStrip(
+                        value = ((arpBpm - 40f) / 200f).coerceIn(0f, 1f),
+                        accentColor = JunoAmberLed,
+                        springCenter = false,
+                        width = 64.dp,
+                        onChange = { norm -> onArpBpmChange(40f + norm * 200f) },
+                        onRelease = {}
                     )
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun SynthModuleCard(
-    title: String,
-    footer: String,
-    accentColor: Color,
-    headerRight: (@Composable () -> Unit)? = null,
-    content: @Composable () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxHeight()
-            .background(Color(0xFF12151C), RoundedCornerShape(6.dp))
-            .border(1.dp, JunoSectionBorder, RoundedCornerShape(6.dp))
-    ) {
-        // Top Colored Header Strip
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(3.dp)
-                .background(accentColor)
-        )
+        Spacer(Modifier.width(6.dp))
+
+        // Right side: Collapse/Expand Arpeggiator & Show/Hide Keyboard Keys
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = title,
-                color = accentColor,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.8.sp
-            )
-            if (headerRight != null) {
-                Spacer(Modifier.width(8.dp))
-                headerRight()
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0xFF141822))
+                    .border(1.dp, Color(0xFF283042), RoundedCornerShape(3.dp))
+                    .clickable { onToggleExpanded() }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (arpExpanded) "AJUSTES ▲" else "AJUSTES ▼",
+                    color = Color(0xFFD1D5DB),
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
             }
-        }
 
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            content()
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF0D0F14))
-                .padding(vertical = 3.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = footer,
-                color = Color(0xFF6B7280),
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.8.sp
-            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(if (showKeyboard) Color(0xFF1D1710) else Color(0xFF141822))
+                    .border(
+                        1.dp,
+                        if (showKeyboard) JunoOrange else Color(0xFF283042),
+                        RoundedCornerShape(3.dp)
+                    )
+                    .clickable { onToggleKeyboard() }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (showKeyboard) "OCULTAR TECLAS ▲" else "MOSTRAR TECLAS ▼",
+                    color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
 
 /**
- * Vertical Juno-60 Fader with:
- * - 0..100 LED digital readout
- * - MIDI Learn badge ONLY visible when MIDI Learn mode is active (`if (isLearnMode)`)
- * - Line-break for Channel (CHxx) and line-break below text for clear button (✕)
- * - Safe horizontal margin so adjacent fader balloons never touch
+ * Authentic Juno-60 Section Rack Card with:
+ * - Bold 3.5dp colored top accent bar
+ * - Matching colored monospace header title (and optional purple GLOBAL badge)
+ * - Clean headroom for floating MIDI Learn cartridges so layout never shifts
+ */
+@Composable
+private fun SynthModuleCard(
+    title: String,
+    footer: String?,
+    accentColor: Color,
+    titleBadge: String? = null,
+    headerRight: (@Composable () -> Unit)? = null,
+    bottomBar: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxHeight()
+            .background(Color(0xFF0B0D13), RoundedCornerShape(5.dp))
+            .border(1.dp, Color(0xFF1F2533), RoundedCornerShape(5.dp))
+    ) {
+        // Top Colored Header Strip (Authentic Juno-60 section stripe)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.5.dp)
+                .background(accentColor)
+        )
+        // Header Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (headerRight != null) Arrangement.SpaceBetween else Arrangement.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = title,
+                    color = accentColor,
+                    fontSize = 9.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.8.sp
+                )
+                if (titleBadge != null) {
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF2E1065), RoundedCornerShape(3.dp))
+                            .border(1.dp, Color(0xFF6D28D9), RoundedCornerShape(3.dp))
+                            .padding(horizontal = 3.5.dp, vertical = 0.5.dp)
+                    ) {
+                        Text(
+                            text = titleBadge,
+                            color = Color(0xFFDDD6FE),
+                            fontSize = 7.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+            }
+            if (headerRight != null) {
+                Spacer(Modifier.width(6.dp))
+                headerRight()
+            }
+        }
+
+        // Thin horizontal divider under section title
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color(0xFF181D29))
+        )
+
+        // Main Controls Area (Top padding gives floating MIDI cartridges room without shifting faders)
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 3.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            content()
+        }
+
+        // Bottom Footer or Custom Bottom Action Bar
+        if (bottomBar != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color(0xFF181D29))
+            )
+            bottomBar()
+        } else if (footer != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color(0xFF181D29))
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF080A0F))
+                    .padding(vertical = 2.5.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = footer,
+                    color = Color(0xFF6B7280),
+                    fontSize = 7.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.7.sp
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Sleek Desktop-Grade Vertical Juno-60 Fader (`44.dp` wide):
+ * - Fixed geometry: turning MIDI Learn ON/OFF or selecting a fader NEVER alters fader height or position!
+ * - Luminous cyan halo/aura (`Color(0xFF38BDF8)`) when selected for MIDI Learn
+ * - Floating rounded blue cartridge (`MidiCcBalloonBadge`) overlaid at the top edge ONLY when mapped or selected
+ * - Authentic `100`, `50`, `0` scale markings on the left and 3 tick lines on the right
+ * - Ribbed colored Juno fader cap + Amber digital readout box at bottom
  */
 @Composable
 private fun JunoParamFader(
@@ -2438,172 +2535,204 @@ private fun JunoParamFader(
     val isLearnMode = midiManager.isMidiLearnActive
     val isSelectedTarget = isLearnMode && midiManager.learningTargetKey == param.key
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
+        contentAlignment = Alignment.TopCenter,
         modifier = Modifier
-            .width(58.dp)
+            .width(44.dp)
             .fillMaxHeight()
-            .padding(horizontal = 3.dp)
-            .background(
-                color = if (isSelectedTarget) Color(0xFF0C2538) else Color(0xFF0E1117),
-                shape = RoundedCornerShape(6.dp)
-            )
-            .border(
-                width = if (isSelectedTarget) 1.5.dp else 1.dp,
-                color = when {
-                    isSelectedTarget -> JunoCyanLearn
-                    isLearnMode -> Color(0xFF0369A1)
-                    else -> Color(0xFF1F2637)
-                },
-                shape = RoundedCornerShape(6.dp)
-            )
-            .padding(vertical = 4.dp, horizontal = 2.dp)
     ) {
-        // MIDI CC / Channel Multi-line Badge ONLY when MIDI Learn is active!
-        if (isLearnMode) {
-            MidiCcBalloonBadge(
-                mappedCC = mappedCC,
-                mappedChannel = mappedCh,
-                isLearnMode = true,
-                isWaitingCC = isSelectedTarget,
-                onSelectForLearn = {
+        // Fixed-dimension Fader Body (Never shifts when MIDI Learn toggles!)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    color = if (isSelectedTarget) Color(0xFF0A2236) else Color(0xFF0A0D13),
+                    shape = RoundedCornerShape(4.dp)
+                )
+                .border(
+                    width = if (isSelectedTarget) 1.5.dp else 1.dp,
+                    color = when {
+                        isSelectedTarget -> Color(0xFF38BDF8)
+                        isLearnMode -> Color(0xFF0369A1)
+                        else -> Color(0xFF162232)
+                    },
+                    shape = RoundedCornerShape(4.dp)
+                )
+                .clickable(enabled = isLearnMode) {
                     midiManager.learningTargetKey = param.key
                     onNotifyUiChanged()
-                },
-                onClearMapping = {
-                    midiManager.clearMappingForParam(param.key)
-                    onNotifyUiChanged()
                 }
+                .padding(vertical = 3.dp, horizontal = 2.dp)
+        ) {
+            // Parameter Title Label (Fixed position at top of slot)
+            Text(
+                text = param.label,
+                color = Color(0xFFE5E7EB),
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1
             )
-            Spacer(Modifier.height(2.dp))
-        }
 
-        Text(
-            text = param.label,
-            color = Color(0xFFE5E7EB),
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1
-        )
-
-        // Vertical Fader Canvas
-        val currentVal by rememberUpdatedState(value)
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .pointerInput(isLearnMode, param.key) {
-                    detectTapGestures { offset ->
-                        if (isLearnMode) {
-                            midiManager.learningTargetKey = param.key
-                            onNotifyUiChanged()
-                        } else {
-                            val h = size.height.toFloat().coerceAtLeast(1f)
-                            val newNorm = (1f - (offset.y / h)).coerceIn(0f, 1f)
-                            onValueChange(newNorm)
-                        }
-                    }
-                }
-                .pointerInput(isLearnMode, param.key) {
-                    detectDragGestures(
-                        onDragStart = {
+            // Vertical Fader Canvas + Scale Markings
+            val currentVal by rememberUpdatedState(value)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .pointerInput(isLearnMode, param.key) {
+                        detectTapGestures { offset ->
                             if (isLearnMode) {
                                 midiManager.learningTargetKey = param.key
                                 onNotifyUiChanged()
-                            }
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            if (!isLearnMode) {
+                            } else {
                                 val h = size.height.toFloat().coerceAtLeast(1f)
-                                val newNorm = (1f - (change.position.y / h)).coerceIn(0f, 1f)
+                                val newNorm = (1f - (offset.y / h)).coerceIn(0f, 1f)
                                 onValueChange(newNorm)
                             }
                         }
+                    }
+                    .pointerInput(isLearnMode, param.key) {
+                        detectDragGestures(
+                            onDragStart = {
+                                if (isLearnMode) {
+                                    midiManager.learningTargetKey = param.key
+                                    onNotifyUiChanged()
+                                }
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                if (!isLearnMode) {
+                                    val h = size.height.toFloat().coerceAtLeast(1f)
+                                    val newNorm = (1f - (change.position.y / h)).coerceIn(0f, 1f)
+                                    onValueChange(newNorm)
+                                }
+                            }
+                        )
+                    }
+            ) {
+                // Left 100 / 50 / 0 Scale Labels (matching reference screenshot)
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .padding(vertical = 8.dp, horizontal = 1.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    horizontalAlignment = Alignment.End
+                ) {
+                    Text("100", color = Color(0xFF4B5563), fontSize = 5.5.sp, fontFamily = FontFamily.Monospace)
+                    Text("50", color = Color(0xFF4B5563), fontSize = 5.5.sp, fontFamily = FontFamily.Monospace)
+                    Text("0", color = Color(0xFF4B5563), fontSize = 5.5.sp, fontFamily = FontFamily.Monospace)
+                }
+
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    val padY = 9.dp.toPx()
+                    val usableH = (h - padY * 2f).coerceAtLeast(10f)
+                    val centerX = w * 0.52f
+
+                    // Right-side 3 crisp horizontal tick lines (100, 50, 0)
+                    for (idx in 0..2) {
+                        val ty = padY + usableH * (idx / 2f)
+                        val tickW = if (idx == 1) 6.dp.toPx() else 4.5.dp.toPx()
+                        drawLine(
+                            color = if (idx == 1) Color(0xFF6B7280) else Color(0xFF4B5563),
+                            start = Offset(centerX + 8.dp.toPx(), ty),
+                            end = Offset(centerX + 8.dp.toPx() + tickW, ty),
+                            strokeWidth = 1.1f
+                        )
+                    }
+
+                    // Recessed Dark Track Slot
+                    val trackW = 5.dp.toPx()
+                    drawRoundRect(
+                        color = Color(0xFF040609),
+                        topLeft = Offset(centerX - trackW * 0.5f, padY),
+                        size = Size(trackW, usableH),
+                        cornerRadius = CornerRadius(trackW * 0.5f, trackW * 0.5f)
+                    )
+
+                    // Ribbed Colored Juno Fader Cap
+                    val norm = currentVal.coerceIn(0f, 1f)
+                    val capY = padY + usableH * (1f - norm)
+                    val capW = 21.dp.toPx()
+                    val capH = 13.dp.toPx()
+
+                    drawRoundRect(
+                        color = capColor,
+                        topLeft = Offset(centerX - capW * 0.5f, capY - capH * 0.5f),
+                        size = Size(capW, capH),
+                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                    )
+                    // Subtle highlight border on fader cap
+                    drawRoundRect(
+                        color = Color(0x44FFFFFF),
+                        topLeft = Offset(centerX - capW * 0.5f, capY - capH * 0.5f),
+                        size = Size(capW, capH),
+                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                        style = Stroke(width = 1f)
+                    )
+                    // Center dark indicator line on fader cap
+                    drawLine(
+                        color = Color(0xFF090C10),
+                        start = Offset(centerX - capW * 0.32f, capY),
+                        end = Offset(centerX + capW * 0.32f, capY),
+                        strokeWidth = 2f
                     )
                 }
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                val padY = 12.dp.toPx()
-                val usableH = (h - padY * 2f).coerceAtLeast(10f)
-                val centerX = w * 0.5f
+            }
 
-                // Scale ticks (0..10)
-                for (i in 0..10) {
-                    val ty = padY + usableH * (1f - i / 10f)
-                    val tickW = if (i % 5 == 0) 8.dp.toPx() else 4.dp.toPx()
-                    drawLine(
-                        color = if (i % 5 == 0) Color(0xFF6B7280) else Color(0xFF374151),
-                        start = Offset(centerX - 12.dp.toPx() - tickW, ty),
-                        end = Offset(centerX - 12.dp.toPx(), ty),
-                        strokeWidth = 1.2f
-                    )
-                    drawLine(
-                        color = if (i % 5 == 0) Color(0xFF6B7280) else Color(0xFF374151),
-                        start = Offset(centerX + 12.dp.toPx(), ty),
-                        end = Offset(centerX + 12.dp.toPx() + tickW, ty),
-                        strokeWidth = 1.2f
-                    )
-                }
-
-                // Track Slot
-                val trackW = 6.dp.toPx()
-                drawRoundRect(
-                    color = Color(0xFF05070A),
-                    topLeft = Offset(centerX - trackW * 0.5f, padY),
-                    size = Size(trackW, usableH),
-                    cornerRadius = CornerRadius(trackW * 0.5f, trackW * 0.5f)
-                )
-
-                // Fader Cap
-                val norm = currentVal.coerceIn(0f, 1f)
-                val capY = padY + usableH * (1f - norm)
-                val capW = 28.dp.toPx()
-                val capH = 16.dp.toPx()
-
-                drawRoundRect(
-                    color = capColor,
-                    topLeft = Offset(centerX - capW * 0.5f, capY - capH * 0.5f),
-                    size = Size(capW, capH),
-                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
-                )
-                // Center dark indicator line on fader cap
-                drawLine(
-                    color = Color(0xFF111827),
-                    start = Offset(centerX - capW * 0.32f, capY),
-                    end = Offset(centerX + capW * 0.32f, capY),
-                    strokeWidth = 2.2f
+            // Compact Digital Readout Box (0 .. 100)
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .widthIn(min = 24.dp)
+                    .background(Color(0xFF07090D), RoundedCornerShape(3.dp))
+                    .border(1.dp, Color(0xFF1B2230), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 4.dp, vertical = 0.5.dp)
+            ) {
+                Text(
+                    text = "${(value * 100f).roundToInt().coerceIn(0, 100)}",
+                    color = JunoAmberLed,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
 
-        // Digital Readout (0 .. 100)
-        Box(
+        // Floating Rounded Cartridge Badge (Zero layout shift: floats above the top border of the fader!)
+        MidiCcBalloonBadge(
+            mappedCC = mappedCC,
+            mappedChannel = mappedCh,
+            isLearnMode = isLearnMode,
+            isWaitingCC = isSelectedTarget,
+            onSelectForLearn = {
+                midiManager.learningTargetKey = param.key
+                onNotifyUiChanged()
+            },
+            onClearMapping = {
+                midiManager.clearMappingForParam(param.key)
+                onNotifyUiChanged()
+            },
             modifier = Modifier
-                .background(Color(0xFF080A0F), RoundedCornerShape(3.dp))
-                .border(1.dp, Color(0xFF1F2433), RoundedCornerShape(3.dp))
-                .padding(horizontal = 6.dp, vertical = 1.dp)
-        ) {
-            Text(
-                text = "${(value * 100f).roundToInt().coerceIn(0, 100)}",
-                color = JunoAmberLed,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
-            )
-        }
+                .align(Alignment.TopCenter)
+                .offset(y = (-6).dp)
+                .zIndex(30f)
+        )
     }
 }
 
 /**
- * Balloon badge for MIDI CC + Channel + Clear button (✕)
- * Follows the exact user layout specification:
- * - Only displayed when MIDI Learn is active
- * - Line 1: CC number (or MAPEAR)
- * - Line 2: Channel (CHxx) on its own line below CC
- * - Line 3: Clear button (✕) on its own line below text
+ * Floating Rounded Blue Cartridge Badge for MIDI Learn (`MidiCcBalloonBadge`):
+ * - NEVER participates in layout flow (always rendered as a floating `Box` overlay with negative Y offset)
+ * - ONLY appears when `isLearnMode == true` AND (`mappedCC != null` OR `isWaitingCC == true`)
+ *   (Unmapped, unselected controls stay completely clean without a balloon!)
+ * - Line 1: `MAPEAR` (when selected) and/or `CCxx` (when mapped)
+ * - Line 2: Mandatory line break for Channel (`CHxx`) below `CCxx`
+ * - Line 3: Mandatory line break for cancel/unmap button (`✕`) at the bottom
  */
 @Composable
 private fun MidiCcBalloonBadge(
@@ -2612,74 +2741,93 @@ private fun MidiCcBalloonBadge(
     isLearnMode: Boolean,
     isWaitingCC: Boolean,
     onSelectForLearn: () -> Unit,
-    onClearMapping: () -> Unit
+    onClearMapping: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    if (!isLearnMode) return
+    if (!isLearnMode || (mappedCC == null && !isWaitingCC)) return
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 2.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(
-                when {
-                    isWaitingCC -> Color(0xFF0284C7)
-                    mappedCC != null -> Color(0xFF0369A1)
-                    else -> Color(0xFF1E293B)
-                }
-            )
+        modifier = modifier
+            .widthIn(min = 28.dp, max = 38.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(if (isWaitingCC) Color(0xFF0EA5E9) else Color(0xFF0284C7))
             .border(
                 width = 1.dp,
                 color = if (isWaitingCC) Color.White else Color(0xFF38BDF8),
-                shape = RoundedCornerShape(6.dp)
+                shape = RoundedCornerShape(5.dp)
             )
             .clickable { onSelectForLearn() }
-            .padding(horizontal = 3.dp, vertical = 2.dp)
+            .padding(horizontal = 3.dp, vertical = 1.5.dp)
     ) {
-        // Line 1: CC or MAPEAR
-        val topText = when {
-            isWaitingCC -> "MAPEAR"
-            mappedCC != null -> "CC$mappedCC"
-            else -> "MAPEAR"
+        if (isWaitingCC) {
+            Text(
+                text = "MAPEAR",
+                color = Color.White,
+                fontSize = 6.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            if (mappedCC != null) {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 0.5.dp)
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(Color(0x55FFFFFF))
+                )
+            }
         }
-        Text(
-            text = topText,
-            color = Color.White,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.ExtraBold,
-            textAlign = TextAlign.Center,
-            maxLines = 1
-        )
 
-        // Line 2: Mandatory line break for Channel when mapped
+        if (mappedCC != null) {
+            Text(
+                text = "CC$mappedCC",
+                color = Color.White,
+                fontSize = 7.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+        }
+
+        // Mandatory line break for Channel below CC
         if (mappedCC != null && mappedChannel != null && mappedChannel in 1..16) {
             Text(
                 text = "CH$mappedChannel",
-                color = Color(0xFFBAE6FD),
-                fontSize = 8.sp,
+                color = Color(0xFFE0F2FE),
+                fontSize = 6.5.sp,
+                fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 maxLines = 1
             )
         }
 
-        // Line 3: Mandatory line break for '✕' clear button below text
+        // Mandatory line break for '✕' cancel button below text
         if (mappedCC != null) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 0.5.dp)
+                    .fillMaxWidth()
+                    .height(0.5.dp)
+                    .background(Color(0x44FFFFFF))
+            )
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .padding(top = 1.dp)
                     .fillMaxWidth()
-                    .background(Color(0x33000000), RoundedCornerShape(3.dp))
                     .clickable { onClearMapping() }
-                    .padding(vertical = 1.dp)
+                    .padding(top = 0.5.dp)
             ) {
                 Text(
                     text = "✕",
-                    color = Color(0xFFFCA5A5),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black,
                     textAlign = TextAlign.Center
                 )
             }
@@ -2703,41 +2851,35 @@ private fun JunoChorusButton(
     val isLearnMode = midiManager.isMidiLearnActive
     val isWaiting = isLearnMode && midiManager.learningTargetKey == param.key
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = Modifier.width(54.dp)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .width(38.dp)
+            .fillMaxHeight()
     ) {
-        if (isLearnMode) {
-            MidiCcBalloonBadge(
-                mappedCC = mappedCC,
-                mappedChannel = mappedCh,
-                isLearnMode = true,
-                isWaitingCC = isWaiting,
-                onSelectForLearn = {
-                    midiManager.learningTargetKey = param.key
-                    onNotifyUiChanged()
-                },
-                onClearMapping = {
-                    midiManager.clearMappingForParam(param.key)
-                    onNotifyUiChanged()
-                }
-            )
-            Spacer(Modifier.height(4.dp))
-        }
-
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
-                .width(46.dp)
-                .height(68.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (active) Color(0xFF282218) else Color(0xFF171A24))
+                .width(36.dp)
+                .height(56.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(
+                    when {
+                        isWaiting -> Color(0xFF0A2236)
+                        active -> Color(0xFF241E14)
+                        else -> Color(0xFF151821)
+                    }
+                )
                 .border(
-                    width = 1.5.dp,
-                    color = if (active) JunoAmberLed else Color(0xFF2E3646),
-                    shape = RoundedCornerShape(6.dp)
+                    width = if (isWaiting) 1.5.dp else 1.dp,
+                    color = when {
+                        isWaiting -> Color(0xFF38BDF8)
+                        isLearnMode -> Color(0xFF0369A1)
+                        active -> JunoAmberLed
+                        else -> Color(0xFF2B3242)
+                    },
+                    shape = RoundedCornerShape(4.dp)
                 )
                 .clickable {
                     if (isLearnMode) {
@@ -2747,22 +2889,55 @@ private fun JunoChorusButton(
                         onToggle()
                     }
                 }
-                .padding(6.dp)
+                .padding(vertical = 6.dp, horizontal = 4.dp)
         ) {
+            // Square LED Indicator Lens
             Box(
                 modifier = Modifier
-                    .size(12.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(if (active) JunoAmberLed else Color(0xFF374151))
+                    .size(10.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (active) JunoAmberLed else Color(0xFF090B10))
+                    .border(
+                        1.dp,
+                        if (active) Color(0xFFFDE68A) else Color(0xFF262C3A),
+                        RoundedCornerShape(2.dp)
+                    )
             )
-            Spacer(Modifier.height(8.dp))
+            // Roman Numeral I / II
             Text(
                 text = romanLabel,
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold
+                color = Color(0xFFF3F4F6),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black
+            )
+            // Tactile bevel line
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(Color(0xFF090B10), RoundedCornerShape(1.dp))
             )
         }
+
+        // Floating MIDI Cartridge above the Chorus button (zero layout shift!)
+        MidiCcBalloonBadge(
+            mappedCC = mappedCC,
+            mappedChannel = mappedCh,
+            isLearnMode = isLearnMode,
+            isWaitingCC = isWaiting,
+            onSelectForLearn = {
+                midiManager.learningTargetKey = param.key
+                onNotifyUiChanged()
+            },
+            onClearMapping = {
+                midiManager.clearMappingForParam(param.key)
+                onNotifyUiChanged()
+            },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = 8.dp)
+                .zIndex(30f)
+        )
     }
 }
 
@@ -2784,89 +2959,170 @@ private fun JunoParamSwitchWithBadge(
     val isLearnMode = midiManager.isMidiLearnActive
     val isWaiting = isLearnMode && midiManager.learningTargetKey == param.key
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        if (isLearnMode) {
-            Box(modifier = Modifier.width(54.dp)) {
-                MidiCcBalloonBadge(
-                    mappedCC = mappedCC,
-                    mappedChannel = mappedCh,
-                    isLearnMode = true,
-                    isWaitingCC = isWaiting,
-                    onSelectForLearn = {
-                        midiManager.learningTargetKey = param.key
-                        onNotifyUiChanged()
-                    },
-                    onClearMapping = {
-                        midiManager.clearMappingForParam(param.key)
-                        onNotifyUiChanged()
+    Box(contentAlignment = Alignment.TopCenter) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .clip(RoundedCornerShape(3.dp))
+                .background(
+                    when {
+                        isWaiting -> Color(0xFF0A2236)
+                        active -> activeColor
+                        else -> Color(0xFF181C26)
                     }
                 )
-            }
-        }
-        JunoToggleChip(
-            label = if (active) activeLabel else inactiveLabel,
-            active = active,
-            activeColor = activeColor,
-            onClick = {
-                if (isLearnMode) {
-                    midiManager.learningTargetKey = param.key
-                    onNotifyUiChanged()
-                } else {
-                    onToggle()
+                .border(
+                    width = if (isWaiting) 1.5.dp else 1.dp,
+                    color = when {
+                        isWaiting -> Color(0xFF38BDF8)
+                        isLearnMode -> Color(0xFF0369A1)
+                        active -> Color.White
+                        else -> Color(0xFF2D3446)
+                    },
+                    shape = RoundedCornerShape(3.dp)
+                )
+                .clickable {
+                    if (isLearnMode) {
+                        midiManager.learningTargetKey = param.key
+                        onNotifyUiChanged()
+                    } else {
+                        onToggle()
+                    }
                 }
-            }
+                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+        ) {
+            Text(
+                text = if (active) activeLabel else inactiveLabel,
+                color = if (active) Color.White else Color(0xFF9CA3AF),
+                fontSize = 7.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+
+        // Floating MIDI Cartridge Overlay (Zero layout shift!)
+        MidiCcBalloonBadge(
+            mappedCC = mappedCC,
+            mappedChannel = mappedCh,
+            isLearnMode = isLearnMode,
+            isWaitingCC = isWaiting,
+            onSelectForLearn = {
+                midiManager.learningTargetKey = param.key
+                onNotifyUiChanged()
+            },
+            onClearMapping = {
+                midiManager.clearMappingForParam(param.key)
+                onNotifyUiChanged()
+            },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = (-6).dp)
+                .zIndex(30f)
         )
     }
 }
 
 @Composable
 private fun SelectorGroupBox(
+    param: SynthParam,
     title: String,
     options: List<String>,
     selectedIndex: Int,
-    onSelect: (Int) -> Unit
+    midiManager: MidiControllerManager,
+    uiRevision: Int,
+    onSelect: (Int) -> Unit,
+    onNotifyUiChanged: () -> Unit
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-        modifier = Modifier
-            .background(Color(0xFF0E1117), RoundedCornerShape(6.dp))
-            .border(1.dp, Color(0xFF22293A), RoundedCornerShape(6.dp))
-            .padding(horizontal = 5.dp, vertical = 4.dp)
-    ) {
-        Text(
-            text = title,
-            color = Color(0xFF9CA3AF),
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold
-        )
-        for (i in options.indices) {
-            val isSel = i == selectedIndex
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .width(42.dp)
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(if (isSel) JunoOrange else Color(0xFF1A1E29))
-                    .border(
-                        1.dp,
-                        if (isSel) JunoAmberLed else Color(0xFF2D3343),
-                        RoundedCornerShape(4.dp)
-                    )
-                    .clickable { onSelect(i) }
-            ) {
-                Text(
-                    text = options[i],
-                    color = if (isSel) Color.Black else Color(0xFFD1D5DB),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.ExtraBold
+    val revIgnore = uiRevision
+    val mappedCC = remember(revIgnore, param) { midiManager.getMappedCC(param.key) }
+    val mappedCh = remember(revIgnore, param) { midiManager.getMappedChannel(param.key) }
+    val isLearnMode = midiManager.isMidiLearnActive
+    val isWaiting = isLearnMode && midiManager.learningTargetKey == param.key
+
+    Box(contentAlignment = Alignment.TopCenter) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(1.5.dp),
+            modifier = Modifier
+                .background(
+                    if (isWaiting) Color(0xFF0A2236) else Color(0xFF0D1017),
+                    RoundedCornerShape(4.dp)
                 )
+                .border(
+                    width = if (isWaiting) 1.5.dp else 1.dp,
+                    color = when {
+                        isWaiting -> Color(0xFF38BDF8)
+                        isLearnMode -> Color(0xFF0369A1)
+                        else -> Color(0xFF1D2434)
+                    },
+                    shape = RoundedCornerShape(4.dp)
+                )
+                .clickable(enabled = isLearnMode) {
+                    midiManager.learningTargetKey = param.key
+                    onNotifyUiChanged()
+                }
+                .padding(horizontal = 3.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = title,
+                color = Color(0xFF9CA3AF),
+                fontSize = 7.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+            for (i in options.indices) {
+                val isSel = i == selectedIndex
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .width(32.dp)
+                        .height(15.dp)
+                        .clip(RoundedCornerShape(2.5.dp))
+                        .background(if (isSel) Color(0xFFF59E0B) else Color(0xFF171B26))
+                        .border(
+                            0.8.dp,
+                            if (isSel) Color(0xFFFDE68A) else Color(0xFF282F40),
+                            RoundedCornerShape(2.5.dp)
+                        )
+                        .clickable {
+                            if (isLearnMode) {
+                                midiManager.learningTargetKey = param.key
+                                onNotifyUiChanged()
+                            } else {
+                                onSelect(i)
+                            }
+                        }
+                ) {
+                    Text(
+                        text = options[i],
+                        color = if (isSel) Color.Black else Color(0xFF9CA3AF),
+                        fontSize = 7.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black
+                    )
+                }
             }
         }
+
+        // Floating MIDI Cartridge Overlay (Zero layout shift!)
+        MidiCcBalloonBadge(
+            mappedCC = mappedCC,
+            mappedChannel = mappedCh,
+            isLearnMode = isLearnMode,
+            isWaitingCC = isWaiting,
+            onSelectForLearn = {
+                midiManager.learningTargetKey = param.key
+                onNotifyUiChanged()
+            },
+            onClearMapping = {
+                midiManager.clearMappingForParam(param.key)
+                onNotifyUiChanged()
+            },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = (-6).dp)
+                .zIndex(30f)
+        )
     }
 }
 
@@ -2880,16 +3136,17 @@ private fun JunoToggleChip(
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(if (active) activeColor else Color(0xFF1B1F2B))
-            .border(1.dp, if (active) Color.White else Color(0xFF32394E), RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(3.dp))
+            .background(if (active) activeColor else Color(0xFF181C26))
+            .border(1.dp, if (active) Color.White else Color(0xFF2E3546), RoundedCornerShape(3.dp))
             .clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = 6.dp, vertical = 2.5.dp)
     ) {
         Text(
             text = label,
             color = if (active) Color.White else Color(0xFF9CA3AF),
-            fontSize = 9.sp,
+            fontSize = 8.sp,
+            fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.ExtraBold
         )
     }
