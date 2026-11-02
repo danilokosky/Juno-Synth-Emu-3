@@ -50,7 +50,7 @@ jobs:
       - name: Build Debug & Release Native APKs (Kotlin + C++17 AAudio)
         working-directory: ./android
         run: |
-          gradle assembleDebug assembleRelease --stacktrace
+          gradle assembleDebug assembleRelease --console=plain
 
       - name: Upload Native Debug APK
         uses: actions/upload-artifact@v4

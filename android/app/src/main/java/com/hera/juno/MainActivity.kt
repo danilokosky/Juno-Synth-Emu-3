@@ -1405,7 +1405,7 @@ private fun JunoParamFader(
         )
 
         // Vertical Fader Canvas
-        var currentVal by rememberUpdatedState(value)
+        val currentVal by rememberUpdatedState(value)
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -1610,7 +1610,7 @@ private fun RawVerticalFader(
     capColor: Color,
     onValueChange: (Float) -> Unit
 ) {
-    var currentVal by rememberUpdatedState(valueNorm)
+    val currentVal by rememberUpdatedState(valueNorm)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -1915,7 +1915,7 @@ private fun HorizontalTouchStrip(
     onChange: (Float) -> Unit,
     onRelease: () -> Unit
 ) {
-    var currentVal by rememberUpdatedState(value)
+    val currentVal by rememberUpdatedState(value)
     Box(
         modifier = Modifier
             .width(width)
