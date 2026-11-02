@@ -65,7 +65,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         mappedCC={mappedCC}
         channelLabel={channelLabel}
         onUnmap={onUnmap}
-        positionClass="-top-2.5 left-1/2 -translate-x-1/2"
+        positionClass="bottom-[calc(100%-4px)] left-1/2 -translate-x-1/2"
       />
 
       <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider mb-0.5 truncate max-w-[50px]">

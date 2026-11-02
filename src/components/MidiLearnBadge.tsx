@@ -17,7 +17,7 @@ export const MidiLearnBadge: React.FC<MidiLearnBadgeProps> = ({
   mappedCC = null,
   channelLabel,
   onUnmap,
-  positionClass = '-top-2.5 left-1/2 -translate-x-1/2',
+  positionClass = 'bottom-[calc(100%-6px)] left-1/2 -translate-x-1/2',
 }) => {
   if (!isMidiLearnActive || (mappedCC === null && !isSelectedForLearn)) {
     return null;
@@ -30,40 +30,54 @@ export const MidiLearnBadge: React.FC<MidiLearnBadgeProps> = ({
       className={`absolute ${positionClass.replace(/^absolute\s+/, '')} z-40 flex items-center justify-center pointer-events-auto select-none`}
     >
       {isSelectedForLearn ? (
-        <div className="flex flex-col items-center justify-center bg-sky-500 text-white px-1.5 py-0.5 rounded-md border border-white shadow-[0_0_10px_rgba(56,189,248,0.95)] animate-pulse leading-none max-w-[54px]">
-          <span className="text-[8.5px] font-mono font-black tracking-tight leading-none whitespace-nowrap">
+        <div className="flex flex-col items-center justify-center bg-sky-500 text-white px-1 py-0.5 rounded-md border border-white shadow-[0_0_10px_rgba(56,189,248,0.95)] animate-pulse leading-none min-w-[28px] max-w-[36px]">
+          <span className="text-[7px] font-mono font-black tracking-tighter leading-none whitespace-nowrap">
             MAPEAR
           </span>
-          {(hasCC || channelLabel) && (
-            <div className="flex items-center justify-center gap-0.5 border-t border-white/35 mt-0.5 pt-0.5 w-full whitespace-nowrap">
-              <span className="text-[8px] font-mono font-bold text-sky-50 leading-none">
-                {hasCC ? `CC${mappedCC}` : channelLabel}
-              </span>
-              {hasCC && (
-                <button
-                  type="button"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onUnmap?.();
-                  }}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onUnmap?.();
-                  }}
-                  className="text-white hover:text-red-200 font-black text-[8.5px] leading-none cursor-pointer pl-0.5"
-                  title={`Desmapear CC ${mappedCC}`}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
+          {hasCC && (
+            <span className="text-[8px] font-mono font-bold text-white leading-none whitespace-nowrap border-t border-white/35 mt-0.5 pt-0.5 w-full text-center">
+              CC{mappedCC}
+            </span>
+          )}
+          {channelLabel && (
+            <span
+              className={`text-[7px] font-mono font-bold text-sky-100 leading-none whitespace-nowrap w-full text-center ${
+                hasCC ? 'mt-0.5' : 'border-t border-white/35 mt-0.5 pt-0.5'
+              }`}
+            >
+              {channelLabel}
+            </span>
+          )}
+          {hasCC && (
+            <button
+              type="button"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onUnmap?.();
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onUnmap?.();
+              }}
+              className="w-full border-t border-white/35 mt-0.5 pt-0.5 text-white hover:text-red-200 font-black text-[8px] leading-none cursor-pointer flex items-center justify-center"
+              title={`Desmapear CC ${mappedCC}`}
+            >
+              ✕
+            </button>
           )}
         </div>
       ) : hasCC ? (
-        <div className="inline-flex items-center justify-center gap-0.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-[8.5px] leading-none font-mono font-bold px-1.5 py-0.5 rounded-md shadow-md border border-[#38bdf8] whitespace-nowrap max-w-[52px]">
-          <span>CC{mappedCC}</span>
+        <div className="flex flex-col items-center justify-center bg-[#0284c7] hover:bg-[#0369a1] text-white font-mono px-1 py-0.5 rounded-md shadow-md border border-[#38bdf8] leading-none min-w-[26px] max-w-[32px]">
+          <span className="text-[8px] font-bold leading-none whitespace-nowrap">
+            CC{mappedCC}
+          </span>
+          {channelLabel && (
+            <span className="text-[6.5px] font-semibold text-sky-100/95 leading-none whitespace-nowrap mt-0.5">
+              {channelLabel}
+            </span>
+          )}
           <button
             type="button"
             onPointerDown={(e) => {
@@ -76,7 +90,7 @@ export const MidiLearnBadge: React.FC<MidiLearnBadgeProps> = ({
               e.stopPropagation();
               onUnmap?.();
             }}
-            className="text-white/95 hover:text-red-200 font-black text-[8.5px] leading-none cursor-pointer pl-0.5"
+            className="w-full border-t border-white/30 mt-0.5 pt-0.5 text-white/95 hover:text-red-200 font-black text-[7.5px] leading-none cursor-pointer flex items-center justify-center"
             title={`Desmapear CC ${mappedCC}`}
           >
             ✕

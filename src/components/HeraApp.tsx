@@ -90,7 +90,7 @@ export const HeraApp: React.FC = () => {
     return 0;
   });
   const [midiSectionChannels, setMidiSectionChannels] = useState<MidiSectionChannels>(() =>
-    buildDefaultSectionChannels(1, 0)
+    buildDefaultSectionChannels()
   );
   const [isChannelsMenuOpen, setIsChannelsMenuOpen] = useState<boolean>(false);
   const channelsDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -98,7 +98,7 @@ export const HeraApp: React.FC = () => {
   const [midiManagerInstance, setMidiManagerInstance] = useState<MidiManager | null>(null);
   const [currentMidiMapping, setCurrentMidiMapping] = useState<Record<number, keyof HeraParameters>>({});
   const [paramToCCMap, setParamToCCMap] = useState<Partial<Record<keyof HeraParameters, number>>>({});
-  const [currentMidiActionMapping, setCurrentMidiActionMapping] = useState<Record<number, MidiMappableAction>>({ 110: 'prevPreset', 111: 'nextPreset' });
+  const [currentMidiActionMapping, setCurrentMidiActionMapping] = useState<Record<number, MidiMappableAction>>({});
 
   // MIDI Controller Profiles State (Default: Launchkey MK4, auto-saved on every mapping/channel change)
   const [midiProfiles, setMidiProfiles] = useState<MidiControllerProfile[]>([]);
@@ -871,14 +871,14 @@ export const HeraApp: React.FC = () => {
 
           {/* Main Juno-60 Synth Control Panel */}
           <div className="bg-zinc-900 px-1 py-1 sm:py-2 border-b border-zinc-800 w-full">
-            <div className="w-full overflow-x-auto pb-1.5 scrollbar-thin">
+            <div className="w-full overflow-x-auto pt-3.5 pb-1.5 scrollbar-thin">
               <div className="min-w-max w-fit flex flex-row items-stretch justify-start gap-1 sm:gap-1.5 px-2 mx-auto">
                 {/* SECTION: LFO */}
               <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
                 <div className="text-[10px] font-black font-mono tracking-widest text-yellow-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
                   LFO
                 </div>
-                <div className="flex items-center justify-center gap-1 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-1">
                   <Slider
                     label="Rate"
                     value={params.LFORate}
@@ -949,7 +949,7 @@ export const HeraApp: React.FC = () => {
                 <div className="text-[10px] font-black font-mono tracking-widest text-red-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
                   DCO (Oscillator)
                 </div>
-                <div className="flex items-center justify-center gap-1 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-1">
                   {/* Selectors Column */}
                   <div className="flex flex-col gap-1 pr-1 border-r border-zinc-800/80">
                     <ToggleSwitch
@@ -1116,7 +1116,7 @@ export const HeraApp: React.FC = () => {
                 <div className="text-[10px] font-black font-mono tracking-widest text-cyan-300 uppercase text-center pb-0.5 border-b border-zinc-800/80">
                   VCF (Filter)
                 </div>
-                <div className="flex items-center justify-center gap-1 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-1">
                   <Slider
                     label="Freq"
                     value={params.VCFCutoff}
@@ -1250,7 +1250,7 @@ export const HeraApp: React.FC = () => {
                 <div className="text-[10px] font-black font-mono tracking-widest text-amber-300 uppercase text-center pb-0.5 border-b border-zinc-800/80">
                   ENV (ADSR)
                 </div>
-                <div className="flex items-center justify-center gap-1 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-1">
                   <Slider
                     label="A"
                     value={params.ENVAttack}
@@ -1363,6 +1363,7 @@ export const HeraApp: React.FC = () => {
                       channelLabel={getChannelLabelForParam('DelayEnabled')}
                       onUnmap={() => handleUnmapParam('DelayEnabled')}
                       title="Desmapear Delay ON/OFF"
+                      positionClass="bottom-[calc(100%+2px)] left-1/2 -translate-x-1/2"
                     />
                     <button
                       type="button"
@@ -1393,7 +1394,7 @@ export const HeraApp: React.FC = () => {
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center justify-center gap-1 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-1">
                   <Slider
                     label="Time"
                     value={params.DelayTime}
@@ -1458,6 +1459,7 @@ export const HeraApp: React.FC = () => {
                       channelLabel={getChannelLabelForParam('ReverbEnabled')}
                       onUnmap={() => handleUnmapParam('ReverbEnabled')}
                       title="Desmapear Reverb ON/OFF"
+                      positionClass="bottom-[calc(100%+2px)] left-1/2 -translate-x-1/2"
                     />
                     <button
                       type="button"
@@ -1488,7 +1490,7 @@ export const HeraApp: React.FC = () => {
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center justify-center gap-1 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-1">
                   <div className="flex flex-col justify-center pr-1 border-r border-zinc-800/80">
                     <ToggleSwitch
                       label="Mode"

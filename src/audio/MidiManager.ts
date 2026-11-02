@@ -175,59 +175,84 @@ export function formatMidiChannelShort(ch: number): string {
   return ch === 0 ? 'OMNI' : `CH${ch}`;
 }
 
-export function buildDefaultSectionChannels(keysCh: number = 1, fxCh: number = 0): MidiSectionChannels {
+export const LAUNCHKEY_MK4_SECTION_CHANNELS: MidiSectionChannels = {
+  keys: 2,       // CH 02
+  lfo: 1,        // CH 01
+  dco: 2,        // CH 02
+  hpf: 6,        // CH 06
+  vcf: 6,        // CH 06
+  vca: 2,        // CH 02
+  env: 2,        // CH 02
+  chorus: 6,     // CH 06
+  delay: 6,      // CH 06
+  reverb: 6,     // CH 06
+  arpPresets: 6, // CH 06
+};
+
+export function buildDefaultSectionChannels(keysCh?: number, fxCh?: number): MidiSectionChannels {
+  if (keysCh === undefined && fxCh === undefined) {
+    return { ...LAUNCHKEY_MK4_SECTION_CHANNELS };
+  }
+  const k = keysCh ?? LAUNCHKEY_MK4_SECTION_CHANNELS.keys;
+  const f = fxCh ?? 6;
   return {
-    keys: keysCh,
-    lfo: fxCh,
-    dco: keysCh,
-    hpf: fxCh,
-    vcf: fxCh,
-    vca: keysCh,
-    env: fxCh,
-    chorus: fxCh,
-    delay: fxCh,
-    reverb: fxCh,
-    arpPresets: fxCh,
+    keys: k,
+    lfo: keysCh !== undefined && fxCh === undefined ? 1 : f,
+    dco: k,
+    hpf: f,
+    vcf: f,
+    vca: k,
+    env: k,
+    chorus: f,
+    delay: f,
+    reverb: f,
+    arpPresets: f,
   };
 }
 
-// Default hardware MIDI CC Mapping for physical knobs/switches/faders
+// Default Launchkey MK4 MIDI CC Mapping — ONLY the controls mapped in the user's Launchkey MK4 layout:
+export const DEFAULT_LAUNCHKEY_MK4_PARAM_TO_CC: Partial<Record<keyof HeraParameters, number>> = {
+  // DCO (CH 02)
+  DCOPitchModDepth: 1, // LFO -> CC1
+  DCOPWMDepth: 20,     // PWM -> CC20
+  DCOPulseLevel: 21,   // PULSE -> CC21
+  DCOSawLevel: 22,     // SAW -> CC22
+  DCOSubLevel: 23,     // SUB -> CC23
+  // VCF (CH 06)
+  VCFCutoff: 2,        // FREQ -> CC2
+  // VCA (CH 02)
+  VCADepth: 7,         // LEVEL -> CC7
+  // ENV (CH 02)
+  ENVAttack: 24,       // A -> CC24
+  ENVRelease: 25,      // R -> CC25
+  // CHORUS (CH 06)
+  ChorusII: 0,         // II -> CC0
+  // ECHO DELAY (CH 06)
+  DelayEnabled: 8,     // ON -> CC8
+  DelayFeedback: 9,    // F-BACK -> CC9
+  DelayMix: 11,        // MIX -> CC11
+  // REVERB GLOBAL (CH 06)
+  ReverbEnabled: 17,   // ON -> CC17
+  ReverbDecay: 6,      // DECAY -> CC6
+  ReverbMix: 7,        // MIX -> CC7
+};
+
 export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
-  1: 'DCOPitchModDepth', // Modulation Wheel
-  7: 'MasterVolume',     // Master Volume
-  11: 'VCADepth',        // VCA Level
-  14: 'DCORange',        // DCO Range
-  15: 'DCOPWMMod',       // PWM Mod Source
-  16: 'DCOPWMDepth',     // PWM Depth
-  18: 'DCOPulseLevel',   // VCO/DCO Pulse Level
-  19: 'DCOSawLevel',     // VCO/DCO Saw Level
-  20: 'DCOSubLevel',     // VCO/DCO Sub Level
-  21: 'DCONoiseLevel',   // VCO/DCO Noise Level
-  22: 'HPF',             // HPF Cutoff
-  74: 'VCFCutoff',       // Standard MIDI Brightness / Cutoff
-  71: 'VCFResonance',    // Standard MIDI Resonance
-  23: 'VCFEnv',          // VCF Envelope Mod Depth
-  24: 'VCFLFO',          // VCF LFO Mod Depth
-  25: 'VCFKey',          // Keyboard Tracking
-  26: 'VCFBendDepth',    // Pitch Bend Depth
-  73: 'ENVAttack',       // Standard MIDI Attack
-  75: 'ENVDecay',        // Standard MIDI Decay
-  79: 'ENVSustain',      // Standard MIDI Sustain
-  72: 'ENVRelease',      // Standard MIDI Release
-  27: 'VCAType',         // VCA Mode (Gate / Env)
-  28: 'LFORate',         // LFO Rate
-  29: 'LFODelay',        // LFO Delay
-  80: 'ChorusI',         // Chorus I
-  81: 'ChorusII',        // Chorus II
-  85: 'DelayEnabled',    // Echo Delay On/Off
-  86: 'DelayTime',       // Echo Delay Time
-  87: 'DelayFeedback',   // Echo Delay Feedback
-  88: 'DelayMix',        // Echo Delay Mix
-  89: 'ReverbEnabled',   // Global Post Reverb On/Off
-  90: 'ReverbType',      // Global Post Reverb Type (Plate / Hall)
-  91: 'ReverbMix',       // Global Post Reverb Mix
-  92: 'ReverbTime',      // Global Post Reverb Time
-  93: 'ReverbDecay',     // Global Post Reverb Decay
+  0: 'ChorusII',
+  1: 'DCOPitchModDepth',
+  2: 'VCFCutoff',
+  6: 'ReverbDecay',
+  7: 'VCADepth',
+  8: 'DelayEnabled',
+  9: 'DelayFeedback',
+  11: 'DelayMix',
+  17: 'ReverbEnabled',
+  20: 'DCOPWMDepth',
+  21: 'DCOPulseLevel',
+  22: 'DCOSawLevel',
+  23: 'DCOSubLevel',
+  24: 'ENVAttack',
+  25: 'ENVRelease',
 };
 
 export interface MidiControllerProfile {
@@ -242,20 +267,31 @@ export interface MidiControllerProfile {
   sectionChannels: MidiSectionChannels;
 }
 
-const PROFILES_STORAGE_KEY = 'hera_midi_profiles_v1';
-const ACTIVE_PROFILE_STORAGE_KEY = 'hera_active_midi_profile_id_v1';
+const PROFILES_STORAGE_KEY = 'hera_midi_profiles_v2';
+const ACTIVE_PROFILE_STORAGE_KEY = 'hera_active_midi_profile_id_v2';
 export const DEFAULT_PROFILE_ID = 'launchkey-mk4';
 
 function buildDefaultParamToCC(): Partial<Record<keyof HeraParameters, number>> {
-  const map: Partial<Record<keyof HeraParameters, number>> = {};
-  for (const [ccStr, param] of Object.entries(DEFAULT_MIDI_CC_MAP)) {
-    map[param] = Number(ccStr);
+  return { ...DEFAULT_LAUNCHKEY_MK4_PARAM_TO_CC };
+}
+
+function buildDefaultParamToChannel(
+  paramToCC: Partial<Record<keyof HeraParameters, number>>,
+  sectionChannels: MidiSectionChannels
+): Partial<Record<keyof HeraParameters, number>> {
+  const out: Partial<Record<keyof HeraParameters, number>> = {};
+  for (const paramKey of Object.keys(paramToCC) as Array<keyof HeraParameters>) {
+    const sec = getSectionForParam(paramKey);
+    const ch = sectionChannels[sec] ?? 0;
+    if (ch >= 1 && ch <= 16) {
+      out[paramKey] = ch;
+    }
   }
-  return map;
+  return out;
 }
 
 function buildDefaultActionMapping(): Record<number, MidiMappableAction> {
-  return { 110: 'prevPreset', 111: 'nextPreset' };
+  return {};
 }
 
 export class MidiManager {
@@ -287,12 +323,15 @@ export class MidiManager {
   private synth: HeraSynthesizerEngine;
 
   // 0 = OMNI (All Channels 1-16), 1..16 = Specific MIDI Channel
-  private keysChannel: number = 1;
+  private keysChannel: number = LAUNCHKEY_MK4_SECTION_CHANNELS.keys;
   private effectsChannel: number = 0;
-  private sectionChannels: MidiSectionChannels = buildDefaultSectionChannels(1, 0);
+  private sectionChannels: MidiSectionChannels = { ...LAUNCHKEY_MK4_SECTION_CHANNELS };
 
   private paramToCC: Partial<Record<keyof HeraParameters, number>> = buildDefaultParamToCC();
-  private paramToChannel: Partial<Record<keyof HeraParameters, number>> = {};
+  private paramToChannel: Partial<Record<keyof HeraParameters, number>> = buildDefaultParamToChannel(
+    this.paramToCC,
+    this.sectionChannels
+  );
   private actionMapping: Record<number, MidiMappableAction> = buildDefaultActionMapping();
   private actionToChannel: Partial<Record<MidiMappableAction, number>> = {};
   private profiles: MidiControllerProfile[] = [];
@@ -311,21 +350,6 @@ export class MidiManager {
     let savedActiveId: string | null = null;
 
     try {
-      const savedKeys = localStorage.getItem('hera_midi_keys_channel');
-      if (savedKeys !== null) {
-        const parsed = parseInt(savedKeys, 10);
-        if (!isNaN(parsed) && parsed >= 0 && parsed <= 16) {
-          this.keysChannel = parsed;
-        }
-      }
-      const savedFx = localStorage.getItem('hera_midi_ctrl_channel');
-      if (savedFx !== null) {
-        const parsed = parseInt(savedFx, 10);
-        if (!isNaN(parsed) && parsed >= 0 && parsed <= 16) {
-          this.effectsChannel = parsed;
-        }
-      }
-
       const rawProfiles = localStorage.getItem(PROFILES_STORAGE_KEY);
       if (rawProfiles) {
         const parsed = JSON.parse(rawProfiles);
@@ -339,7 +363,7 @@ export class MidiManager {
     }
 
     const defaultMap = buildDefaultParamToCC();
-    const defaultSections = buildDefaultSectionChannels(this.keysChannel, this.effectsChannel);
+    const defaultSections: MidiSectionChannels = { ...LAUNCHKEY_MK4_SECTION_CHANNELS };
 
     if (loadedProfiles.length === 0) {
       loadedProfiles = [
@@ -347,11 +371,11 @@ export class MidiManager {
           id: DEFAULT_PROFILE_ID,
           name: 'Launchkey MK4',
           paramToCC: { ...defaultMap },
-          paramToChannel: {},
+          paramToChannel: buildDefaultParamToChannel(defaultMap, defaultSections),
           actionMapping: buildDefaultActionMapping(),
           actionToChannel: {},
-          keysChannel: this.keysChannel,
-          effectsChannel: this.effectsChannel,
+          keysChannel: defaultSections.keys,
+          effectsChannel: 0,
           sectionChannels: { ...defaultSections },
         },
       ];
@@ -360,43 +384,36 @@ export class MidiManager {
         id: DEFAULT_PROFILE_ID,
         name: 'Launchkey MK4',
         paramToCC: { ...defaultMap },
-        paramToChannel: {},
+        paramToChannel: buildDefaultParamToChannel(defaultMap, defaultSections),
         actionMapping: buildDefaultActionMapping(),
         actionToChannel: {},
-        keysChannel: this.keysChannel,
-        effectsChannel: this.effectsChannel,
+        keysChannel: defaultSections.keys,
+        effectsChannel: 0,
         sectionChannels: { ...defaultSections },
       });
     }
 
-    // Migrate and normalize all saved profiles
+    // Normalize all saved profiles while strictly preserving user-unmapped controls
     loadedProfiles = loadedProfiles.map((prof) => {
-      const mergedParamToCC: Partial<Record<keyof HeraParameters, number>> = {
-        ...prof.paramToCC,
-      };
-      const usedCCs = new Set(Object.values(mergedParamToCC));
-      for (const [paramKey, defCC] of Object.entries(defaultMap)) {
-        const k = paramKey as keyof HeraParameters;
-        if (mergedParamToCC[k] === undefined && defCC !== undefined && !usedCCs.has(defCC)) {
-          mergedParamToCC[k] = defCC;
-        }
-      }
-
-      const pKeysCh = typeof prof.keysChannel === 'number' ? prof.keysChannel : this.keysChannel;
-      const pFxCh = typeof prof.effectsChannel === 'number' ? prof.effectsChannel : this.effectsChannel;
-      const fallbackSections = buildDefaultSectionChannels(pKeysCh, pFxCh);
       const mergedSections: MidiSectionChannels = {
-        ...fallbackSections,
+        ...LAUNCHKEY_MK4_SECTION_CHANNELS,
         ...(prof.sectionChannels || {}),
+      };
+      const mergedParamToCC: Partial<Record<keyof HeraParameters, number>> = {
+        ...(prof.paramToCC || {}),
       };
 
       return {
         ...prof,
         paramToCC: mergedParamToCC,
-        paramToChannel: { ...(prof.paramToChannel || {}) },
+        paramToChannel: {
+          ...buildDefaultParamToChannel(mergedParamToCC, mergedSections),
+          ...(prof.paramToChannel || {}),
+        },
+        actionMapping: { ...(prof.actionMapping || {}) },
         actionToChannel: { ...(prof.actionToChannel || {}) },
         keysChannel: mergedSections.keys,
-        effectsChannel: pFxCh,
+        effectsChannel: typeof prof.effectsChannel === 'number' ? prof.effectsChannel : 0,
         sectionChannels: mergedSections,
       };
     });
@@ -409,13 +426,16 @@ export class MidiManager {
 
     this.activeProfileId = active.id;
     this.paramToCC = { ...(active.paramToCC || buildDefaultParamToCC()) };
-    this.paramToChannel = { ...(active.paramToChannel || {}) };
-    this.actionMapping = { ...(active.actionMapping || buildDefaultActionMapping()) };
-    this.actionToChannel = { ...(active.actionToChannel || {}) };
     this.sectionChannels = {
-      ...buildDefaultSectionChannels(active.keysChannel ?? 1, active.effectsChannel ?? 0),
+      ...LAUNCHKEY_MK4_SECTION_CHANNELS,
       ...(active.sectionChannels || {}),
     };
+    this.paramToChannel = {
+      ...buildDefaultParamToChannel(this.paramToCC, this.sectionChannels),
+      ...(active.paramToChannel || {}),
+    };
+    this.actionMapping = { ...(active.actionMapping || buildDefaultActionMapping()) };
+    this.actionToChannel = { ...(active.actionToChannel || {}) };
     this.keysChannel = this.sectionChannels.keys;
     this.effectsChannel = active.effectsChannel ?? 0;
 

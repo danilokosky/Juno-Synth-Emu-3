@@ -255,14 +255,14 @@ export const Slider: React.FC<SliderProps> = ({
           : `${label}: ${displayString} (Duplo clique para resetar)`
       }
     >
-      {/* Floating MIDI Learn Badge (compact 2-line when selected -> never exceeds fader width) */}
+      {/* Floating MIDI Learn Badge (vertical stack anchored above label -> never covers fader title or exceeds width) */}
       <MidiLearnBadge
         isMidiLearnActive={isMidiLearnActive}
         isSelectedForLearn={isSelectedForLearn}
         mappedCC={mappedCC}
         channelLabel={channelLabel}
         onUnmap={onUnmap}
-        positionClass="-top-2.5 left-1/2 -translate-x-1/2"
+        positionClass="bottom-[calc(100%-6px)] left-1/2 -translate-x-1/2"
       />
 
       {/* Parameter Title / Label - Strictly separated from fader travel */}

@@ -45,7 +45,7 @@ export const ChorusButton: React.FC<ChorusButtonProps> = ({
         mappedCC={mappedCC}
         channelLabel={channelLabel}
         onUnmap={onUnmap}
-        positionClass="-top-3 left-1/2 -translate-x-1/2"
+        positionClass="bottom-[calc(100%+2px)] left-1/2 -translate-x-1/2"
       />
 
       <button
