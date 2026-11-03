@@ -45,6 +45,9 @@ interface PresetManagerProps {
   mappedCCNext?: number | null;
   mappedCCSelect?: number | null;
   channelLabel?: string;
+  channelLabelPrev?: string;
+  channelLabelNext?: string;
+  channelLabelSelect?: string;
   onSelectActionForLearn?: (action: 'prevPreset' | 'nextPreset' | 'selectPreset') => void;
   onUnmapAction?: (action: 'prevPreset' | 'nextPreset' | 'selectPreset') => void;
   onRegisterLoadByIndex?: (fn: (index: number) => void) => void;
@@ -72,6 +75,9 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
   mappedCCNext = null,
   mappedCCSelect = null,
   channelLabel,
+  channelLabelPrev,
+  channelLabelNext,
+  channelLabelSelect,
   onSelectActionForLearn,
   onUnmapAction,
   onRegisterLoadByIndex,
@@ -378,7 +384,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
             isMidiLearnActive={isMidiLearnActive}
             isSelectedForLearn={selectedLearnAction === 'selectPreset'}
             mappedCC={mappedCCSelect}
-            channelLabel={channelLabel}
+            channelLabel={channelLabelSelect ?? channelLabel}
             onUnmap={() => onUnmapAction?.('selectPreset')}
             positionClass="-top-4 left-1/2 -translate-x-1/2"
           />
@@ -498,7 +504,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
               isMidiLearnActive={isMidiLearnActive}
               isSelectedForLearn={selectedLearnAction === 'prevPreset'}
               mappedCC={mappedCCPrev}
-              channelLabel={channelLabel}
+              channelLabel={channelLabelPrev ?? channelLabel}
               onUnmap={() => onUnmapAction?.('prevPreset')}
               positionClass="-top-5 left-1/2 -translate-x-1/2"
             />
@@ -531,7 +537,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
               isMidiLearnActive={isMidiLearnActive}
               isSelectedForLearn={selectedLearnAction === 'nextPreset'}
               mappedCC={mappedCCNext}
-              channelLabel={channelLabel}
+              channelLabel={channelLabelNext ?? channelLabel}
               onUnmap={() => onUnmapAction?.('nextPreset')}
               positionClass="-top-5 left-1/2 -translate-x-1/2"
             />

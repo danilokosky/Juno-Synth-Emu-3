@@ -707,8 +707,15 @@ export class MidiManager {
       }
     }
 
-    // Update any learned action channel in this section
+    // Update any learned action channel in this section (except preset actions which keep their mapped button's channel)
     for (const actionKey of Object.keys(this.actionToCC) as MidiMappableAction[]) {
+      if (
+        actionKey === 'prevPreset' ||
+        actionKey === 'nextPreset' ||
+        actionKey === 'selectPreset'
+      ) {
+        continue;
+      }
       if (getSectionForAction(actionKey) === section) {
         if (clamped === 0) {
           delete this.actionToChannel[actionKey];
@@ -752,6 +759,13 @@ export class MidiManager {
     }
 
     for (const actionKey of Object.keys(this.actionToCC) as MidiMappableAction[]) {
+      if (
+        actionKey === 'prevPreset' ||
+        actionKey === 'nextPreset' ||
+        actionKey === 'selectPreset'
+      ) {
+        continue;
+      }
       if (clamped === 0) {
         delete this.actionToChannel[actionKey];
       } else {
@@ -1094,8 +1108,31 @@ export class MidiManager {
     if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16) {
       return learnedCh;
     }
+    // For preset actions, if another preset button has a learned channel, use that button's channel
+    // Otherwise default to 0 (OMNI) so preset Program Change is not tied to the section channel
+    if (action === 'prevPreset' || action === 'nextPreset' || action === 'selectPreset') {
+      const fallbackPresetCh =
+        this.actionToChannel.selectPreset ??
+        this.actionToChannel.prevPreset ??
+        this.actionToChannel.nextPreset;
+      if (fallbackPresetCh !== undefined && fallbackPresetCh >= 1 && fallbackPresetCh <= 16) {
+        return fallbackPresetCh;
+      }
+      return 0;
+    }
     const section = getSectionForAction(action);
     return this.sectionChannels[section] ?? 0;
+  }
+
+  /**
+   * Returns the MIDI channel learned from any mapped preset button (1..16), or 0 (OMNI) if none is mapped.
+   */
+  getPresetMappedChannel(): number {
+    const ch =
+      this.actionToChannel.selectPreset ??
+      this.actionToChannel.prevPreset ??
+      this.actionToChannel.nextPreset;
+    return ch !== undefined && ch >= 1 && ch <= 16 ? ch : 0;
   }
 
   resetToDefaultMapping() {
@@ -1260,29 +1297,55 @@ export class MidiManager {
           this.lastLearnedPresetAction &&
           now - this.lastLearnedPresetTimestamp < 250
         ) {
-          // Controller sent Bank Select (CC0/CC32) right before Program Change — upgrade mapping to PC code
+          // Controller sent Bank Select (CC0/CC32) right before Program Change — upgrade mapping to PC code on the button's channel
           const learned = this.lastLearnedPresetAction;
           this.mapActionCC(pcCode, learned, msgChannel);
           this.onActionTriggered?.(learned, programNumber);
           return;
         }
 
-        // 2. Check if this Program Change is mapped to a Custom Action ('prevPreset', 'nextPreset', 'selectPreset'):
-        let matchedCustomAction = false;
-        for (const [actKey, mappedCode] of Object.entries(this.actionToCC)) {
-          const action = actKey as MidiMappableAction;
+        // 2. Check if 'prevPreset' or 'nextPreset' is specifically mapped to this PC code on the mapped button's channel:
+        for (const action of ['prevPreset', 'nextPreset'] as const) {
+          const mappedCode = this.actionToCC[action];
           if (mappedCode === pcCode && this.doesActionMatchChannel(action, msgChannel)) {
             this.onActionTriggered?.(action, programNumber);
-            matchedCustomAction = true;
+            return;
           }
         }
-        if (matchedCustomAction) {
+
+        // 3. If 'selectPreset' is mapped to Program Change (>= 1000) on this button's channel,
+        //    ANY Program Change (0..127) on that mapped button's channel selects the preset!
+        const selectMappedCode = this.actionToCC.selectPreset;
+        if (
+          selectMappedCode !== undefined &&
+          selectMappedCode >= 1000 &&
+          this.doesActionMatchChannel('selectPreset', msgChannel)
+        ) {
+          this.onActionTriggered?.('selectPreset', programNumber);
           return;
         }
 
-        // 3. Only execute standard Program Change preset selection if presetChangeMode === 'program_change'
-        if (this.presetChangeMode === 'program_change' && isArpPresetsChannelMatch) {
-          this.onProgramChange?.(programNumber);
+        // 4. Program Change preset selection:
+        //    Uses the channel of the mapped preset button (if any preset button was mapped on a channel),
+        //    or accepts any channel (OMNI) when in 'program_change' mode — never locked to the section channel!
+        const mappedPresetCh = this.getPresetMappedChannel();
+        const isMappedButtonChannelMatch = mappedPresetCh === 0 || msgChannel === mappedPresetCh;
+
+        if (this.presetChangeMode === 'program_change') {
+          if (isMappedButtonChannelMatch || isArpPresetsChannelMatch || isKeysChannelMatch) {
+            this.onProgramChange?.(programNumber);
+          }
+        } else if (mappedPresetCh >= 1 && msgChannel === mappedPresetCh && selectMappedCode === undefined) {
+          // Even in custom mode, if the user mapped < or > to CC buttons on `mappedPresetCh`,
+          // Program Change arriving on that same mapped button's channel is also honored
+          const prevCode = this.actionToCC.prevPreset;
+          const nextCode = this.actionToCC.nextPreset;
+          const isPrevNextUsingPC =
+            (prevCode !== undefined && prevCode >= 1000) ||
+            (nextCode !== undefined && nextCode >= 1000);
+          if (!isPrevNextUsingPC) {
+            this.onProgramChange?.(programNumber);
+          }
         }
         break;
       }

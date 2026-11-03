@@ -672,11 +672,16 @@ export const HeraApp: React.FC = () => {
                           </select>
                         </div>
 
-                        {/* Preset Change Mode Selector (Program Change vs Custom Program) */}
+                        {/* Preset Change Mode Selector (Program Change vs Custom Program — uses mapped button's channel) */}
                         <div className="px-2.5 py-1.5 bg-zinc-900/90 border-b border-zinc-800 flex flex-col gap-1">
-                          <span className="text-[8px] font-bold text-amber-400 uppercase tracking-wider">
-                            Mudança de Presets (Timbres):
-                          </span>
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[8px] font-bold text-amber-400 uppercase tracking-wider">
+                              Mudança de Presets (Timbres):
+                            </span>
+                            <span className="text-[7.5px] font-mono text-emerald-400">
+                              Canal Botão: {formatMidiChannelShort(midiManagerInstance?.getPresetMappedChannel() ?? 0)}
+                            </span>
+                          </div>
                           <div className="grid grid-cols-2 gap-1">
                             <button
                               type="button"
@@ -686,7 +691,7 @@ export const HeraApp: React.FC = () => {
                                   ? 'bg-sky-600 text-white border-sky-400 shadow-sm'
                                   : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
                               }`}
-                              title="Usa mensagens padrão MIDI Program Change (PC 0..127) para selecionar os timbres diretamente"
+                              title="Aceita Program Change (PC 0..127) diretamente pelo canal do botão mapeado ou qualquer canal (independente da seção)"
                             >
                               PROGRAM CHANGE
                             </button>
@@ -698,7 +703,7 @@ export const HeraApp: React.FC = () => {
                                   ? 'bg-amber-500 text-black border-amber-300 font-black shadow-sm'
                                   : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
                               }`}
-                              title="Usa apenas o botão/knob customizado mapeado via MIDI Learn em <, > ou no visor de Preset"
+                              title="Usa o botão/knob mapeado via MIDI Learn em <, > ou no visor de Preset (no canal referente ao botão mapeado)"
                             >
                               CUSTOM PROGRAM
                             </button>
@@ -711,6 +716,7 @@ export const HeraApp: React.FC = () => {
                             const isKeys = sec.id === 'keys';
                             const isArpPresets = sec.id === 'arpPresets';
                             const currentCh = midiSectionChannels[sec.id] ?? (isKeys ? 1 : 0);
+                            const mappedPresetCh = midiManagerInstance?.getPresetMappedChannel() ?? 0;
                             return (
                               <div
                                 key={sec.id}
@@ -728,7 +734,7 @@ export const HeraApp: React.FC = () => {
                                     {isKeys
                                       ? 'Notas, PitchBend, Master, VCA e Levels DCO'
                                       : isArpPresets
-                                      ? `Modo: ${presetChangeMode === 'custom' ? 'Custom Program (MIDI Learn)' : 'Program Change Padrão'}`
+                                      ? `Presets (${presetChangeMode === 'custom' ? 'Custom' : 'PC'}): Canal do botão (${formatMidiChannelShort(mappedPresetCh)})`
                                       : `Seção ${sec.shortLabel} (MIDI Learn / CC)`}
                                   </span>
                                 </div>
@@ -1829,7 +1835,10 @@ export const HeraApp: React.FC = () => {
               mappedCCPrev={getMappedActionCC('prevPreset')}
               mappedCCNext={getMappedActionCC('nextPreset')}
               mappedCCSelect={getMappedActionCC('selectPreset')}
-              channelLabel={getChannelLabelForAction('prevPreset')}
+              channelLabel={getChannelLabelForAction('selectPreset')}
+              channelLabelPrev={getChannelLabelForAction('prevPreset')}
+              channelLabelNext={getChannelLabelForAction('nextPreset')}
+              channelLabelSelect={getChannelLabelForAction('selectPreset')}
               onSelectActionForLearn={handleSelectActionForLearn}
               onUnmapAction={handleUnmapAction}
               onRegisterLoadByIndex={(fn) => {

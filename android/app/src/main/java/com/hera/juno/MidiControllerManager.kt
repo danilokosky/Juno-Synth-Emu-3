@@ -368,6 +368,12 @@ class MidiControllerManager(
         prof.sectionChannels[section] = clamped
         for ((paramKey, _) in prof.paramToCC) {
             val param = SynthParam.fromKey(paramKey) ?: continue
+            if (param == SynthParam.PresetPrev ||
+                param == SynthParam.PresetNext ||
+                param == SynthParam.PresetSelect
+            ) {
+                continue
+            }
             if (param.section == section) {
                 if (clamped == 0) {
                     prof.paramToChannel.remove(paramKey)
@@ -390,6 +396,12 @@ class MidiControllerManager(
         }
         for ((paramKey, _) in prof.paramToCC) {
             val param = SynthParam.fromKey(paramKey) ?: continue
+            if (param == SynthParam.PresetPrev ||
+                param == SynthParam.PresetNext ||
+                param == SynthParam.PresetSelect
+            ) {
+                continue
+            }
             if (param.section != MidiSection.KEYS) {
                 if (ch == 0) {
                     prof.paramToChannel.remove(paramKey)
@@ -415,16 +427,30 @@ class MidiControllerManager(
 
     fun getMappedCC(paramKey: String): Int? = getActiveProfile().paramToCC[paramKey]
 
+    fun getPresetMappedChannel(prof: MidiMappingProfile = getActiveProfile()): Int {
+        val ch = prof.paramToChannel[SynthParam.PresetSelect.key]
+            ?: prof.paramToChannel[SynthParam.PresetPrev.key]
+            ?: prof.paramToChannel[SynthParam.PresetNext.key]
+        return if (ch != null && ch in 1..16) ch else 0
+    }
+
     /**
      * Returns the effective MIDI channel (1..16) for a parameter, or null if OMNI (0).
      * Always prioritizes the parameter's individual learned channel (`paramToChannel`) over the section default (`sectionChannels`),
-     * so identical CC numbers (e.g. CC7) on different channels are strictly differentiated.
+     * and for preset controls uses the mapped button's channel rather than tying to the section channel.
      */
     fun getMappedChannel(paramKey: String): Int? {
         val prof = getActiveProfile()
         val explicit = prof.paramToChannel[paramKey]
         if (explicit != null && explicit in 1..16) return explicit
         val param = SynthParam.fromKey(paramKey) ?: return null
+        if (param == SynthParam.PresetPrev ||
+            param == SynthParam.PresetNext ||
+            param == SynthParam.PresetSelect
+        ) {
+            val presetCh = getPresetMappedChannel(prof)
+            return if (presetCh in 1..16) presetCh else null
+        }
         val secCh = prof.sectionChannels[param.section] ?: 0
         return if (secCh in 1..16) secCh else null
     }
@@ -432,6 +458,12 @@ class MidiControllerManager(
     private fun getEffectiveChannelForParam(prof: MidiMappingProfile, paramKey: String, param: SynthParam): Int {
         val explicit = prof.paramToChannel[paramKey]
         if (explicit != null && explicit in 1..16) return explicit
+        if (param == SynthParam.PresetPrev ||
+            param == SynthParam.PresetNext ||
+            param == SynthParam.PresetSelect
+        ) {
+            return getPresetMappedChannel(prof)
+        }
         val secCh = prof.sectionChannels[param.section] ?: 0
         return if (secCh in 1..16) secCh else 0
     }
@@ -659,7 +691,7 @@ class MidiControllerManager(
             }
         }
 
-        // 2. Check if PresetPrev, PresetNext, or PresetSelect is mapped to this Program Change code on this channel
+        // 2. Check if PresetPrev or PresetNext is specifically mapped to this Program Change code on its mapped button's channel
         val prevCode = prof.paramToCC[SynthParam.PresetPrev.key]
         val prevCh = getEffectiveChannelForParam(prof, SynthParam.PresetPrev.key, SynthParam.PresetPrev)
         if (prevCode == pcCode && (prevCh == 0 || prevCh == channel)) {
@@ -680,9 +712,11 @@ class MidiControllerManager(
             return
         }
 
+        // 3. If PresetSelect is mapped to Program Change (>= 1000) on this button's channel,
+        //    ANY Program Change (0..127) on that mapped button's channel selects the preset!
         val selectCode = prof.paramToCC[SynthParam.PresetSelect.key]
         val selectCh = getEffectiveChannelForParam(prof, SynthParam.PresetSelect.key, SynthParam.PresetSelect)
-        if (selectCode == pcCode && (selectCh == 0 || selectCh == channel)) {
+        if (selectCode != null && selectCode >= 1000 && (selectCh == 0 || selectCh == channel)) {
             mainHandler.post {
                 onProgramChange?.invoke(programNumber)
                 onProfileUpdated()
@@ -690,11 +724,24 @@ class MidiControllerManager(
             return
         }
 
-        // 3. Standard MIDI Program Change fallback ONLY when presetChangeMode == "program_change"
+        // 4. Program Change preset selection:
+        //    Uses the channel of the mapped preset button (if any preset button was mapped on a channel),
+        //    or accepts any channel (OMNI) when in "program_change" mode — never locked to the section channel!
+        val mappedPresetCh = getPresetMappedChannel(prof)
+        val isMappedButtonChannelMatch = (mappedPresetCh == 0 || mappedPresetCh == channel)
+
         if (prof.presetChangeMode == "program_change") {
             val arpSecCh = prof.sectionChannels[MidiSection.ARP_PRESETS] ?: 0
             val keysSecCh = prof.sectionChannels[MidiSection.KEYS] ?: 0
-            if (arpSecCh == 0 || arpSecCh == channel || keysSecCh == 0 || keysSecCh == channel) {
+            if (isMappedButtonChannelMatch || arpSecCh == 0 || arpSecCh == channel || keysSecCh == 0 || keysSecCh == channel) {
+                mainHandler.post {
+                    onProgramChange?.invoke(programNumber)
+                    onProfileUpdated()
+                }
+            }
+        } else if (mappedPresetCh in 1..16 && channel == mappedPresetCh && selectCode == null) {
+            val isPrevNextUsingPC = (prevCode != null && prevCode >= 1000) || (nextCode != null && nextCode >= 1000)
+            if (!isPrevNextUsingPC) {
                 mainHandler.post {
                     onProgramChange?.invoke(programNumber)
                     onProfileUpdated()
