@@ -277,8 +277,11 @@ export const Slider: React.FC<SliderProps> = ({
         ref={faderAreaRef}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        style={{ touchAction: 'none' }}
-        className="relative flex items-center justify-center w-8.5 sm:w-9.5 h-26 sm:h-28 px-0.5 py-2 cursor-pointer select-none active:brightness-110 touch-none"
+        style={{
+          touchAction: 'none',
+          height: 'calc(112px * var(--fader-elongation, 1))',
+        }}
+        className="relative flex items-center justify-center w-8.5 sm:w-9.5 px-0.5 py-2 cursor-pointer select-none active:brightness-110 touch-none"
       >
         {/* Tick scale marks left side - strictly z-0 behind the fader cap */}
         <div className="absolute left-0 top-2.5 bottom-2.5 flex flex-col justify-between items-end pr-0.5 text-[6px] font-mono text-zinc-500 pointer-events-none z-0">

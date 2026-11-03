@@ -67,6 +67,60 @@ export const HeraApp: React.FC = () => {
   const [isArpEnabled, setIsArpEnabled] = useState<boolean>(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState<boolean>(true);
 
+  // Responsive viewport dimensions for Faders Section proportional zoom & elongation (max +20%)
+  const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1280,
+    height: typeof window !== 'undefined' ? window.innerHeight : 720,
+  }));
+  const topHeaderRef = useRef<HTMLDivElement | null>(null);
+  const presetBarRef = useRef<HTMLDivElement | null>(null);
+  const keyboardSectionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const updateSize = () => {
+      setViewportSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
+  const { faderElongation, rackZoomFactor } = (() => {
+    const vw = viewportSize.width;
+    const vh = viewportSize.height;
+    const aspect = vw / Math.max(1, vh);
+    const isSmartphone = vh < 520 || (aspect >= 1.8 && vh < 560);
+
+    const headerH = topHeaderRef.current?.offsetHeight || 54;
+    const presetH = presetBarRef.current?.offsetHeight || 64;
+    const keyboardH = keyboardSectionRef.current?.offsetHeight || 205;
+    const nonRackAboveKeyboardH = headerH + presetH + 14;
+    const baseRackH = 236;
+
+    if (isSmartphone) {
+      // On Smartphone: Header + Faders Section + Preset Bar fill 100% of viewport height so Keyboard stays hidden below on scroll
+      const targetRackH = Math.max(baseRackH, vh - nonRackAboveKeyboardH);
+      const totalScale = Math.max(1.0, targetRackH / baseRackH);
+      const elongation = Math.min(1.2, Math.max(1.0, totalScale)); // Never exceed +20%
+      const zoom = Math.min(1.45, Math.max(1.0, totalScale / elongation));
+      return { faderElongation: elongation, rackZoomFactor: zoom };
+    }
+
+    if (!isKeyboardOpen) {
+      // Tablet / Window / Fullscreen TV/Monitor with Keyboard hidden: elongate faders up to max 20%
+      return { faderElongation: 1.2, rackZoomFactor: 1.1 };
+    }
+
+    // Tablet / Window / Fullscreen TV/Monitor with complete Keyboard visible:
+    const targetRackH = Math.max(baseRackH, vh - nonRackAboveKeyboardH - keyboardH - 16);
+    const totalScale = Math.max(1.0, targetRackH / baseRackH);
+    const elongation = Math.min(1.2, Math.max(1.0, totalScale)); // Never exceed +20%
+    const zoom = Math.min(1.22, Math.max(1.0, totalScale / elongation));
+    return { faderElongation: elongation, rackZoomFactor: zoom };
+  })();
+
   // MIDI
   const [midiDevices, setMidiDevices] = useState<MidiDevice[]>([]);
   const [midiActive, setMidiActive] = useState<boolean>(false);
@@ -457,7 +511,10 @@ export const HeraApp: React.FC = () => {
           <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-3 bg-gradient-to-l from-amber-950 via-amber-900 to-amber-950 border-l border-amber-900/60 z-30 pointer-events-none" />
 
           {/* Top Roland Header Bar */}
-          <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 px-2 sm:px-4 py-1 sm:py-1.5 border-b-2 border-zinc-700 flex flex-wrap items-center justify-between gap-2">
+          <div
+            ref={topHeaderRef}
+            className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 px-2 sm:px-4 py-1 sm:py-1.5 border-b-2 border-zinc-700 flex flex-wrap items-center justify-between gap-2"
+          >
             {/* Branding / Badge */}
             <div className="flex items-center gap-2.5">
               <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-lg shadow-md border border-zinc-700/80 bg-zinc-950 p-0.5 flex items-center justify-center hover:scale-105 transition-transform overflow-hidden">
@@ -880,10 +937,20 @@ export const HeraApp: React.FC = () => {
             <div className="flex-1 bg-blue-600" />
           </div>
 
-          {/* Main Juno-60 Synth Control Panel */}
-          <div className="bg-zinc-900 px-1 py-1 sm:py-2 border-b border-zinc-800 w-full">
+          {/* Main Juno-60 Synth Control Panel (Section-only zoom + up to 20% proportional fader elongation) */}
+          <div
+            style={
+              {
+                '--fader-elongation': faderElongation,
+              } as React.CSSProperties
+            }
+            className="bg-zinc-900 px-1 py-1 sm:py-2 border-b border-zinc-800 w-full"
+          >
             <div className="w-full overflow-x-auto pt-3.5 pb-1.5 scrollbar-thin">
-              <div className="min-w-max w-fit flex flex-row items-stretch justify-start gap-1 sm:gap-1.5 px-2 mx-auto">
+              <div
+                style={{ zoom: rackZoomFactor }}
+                className="min-w-max w-fit flex flex-row items-stretch justify-start gap-1 sm:gap-1.5 px-2 mx-auto"
+              >
                 {/* SECTION: LFO */}
               <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
                 <div className="text-[10px] font-black font-mono tracking-widest text-yellow-400 uppercase text-center pb-1 border-b border-zinc-800/80">
@@ -1538,7 +1605,10 @@ export const HeraApp: React.FC = () => {
         </div>
 
           {/* Middle Utility Section: Preset Manager + Arpeggiator */}
-          <div className="p-1.5 sm:p-2 bg-zinc-950 border-b border-zinc-800 flex flex-col gap-1.5">
+          <div
+            ref={presetBarRef}
+            className="p-1.5 sm:p-2 bg-zinc-950 border-b border-zinc-800 flex flex-col gap-1.5"
+          >
             <PresetManager
               currentParams={params}
               onSelectPreset={handleSelectPreset}
@@ -1576,7 +1646,7 @@ export const HeraApp: React.FC = () => {
 
           {/* Bottom Virtual Piano Keyboard & Controls */}
           {isKeyboardOpen && (
-            <div className="bg-zinc-950">
+            <div ref={keyboardSectionRef} className="bg-zinc-950">
               <PianoKeyboard />
             </div>
           )}

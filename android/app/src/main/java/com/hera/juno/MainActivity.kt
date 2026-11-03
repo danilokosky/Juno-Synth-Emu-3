@@ -76,6 +76,9 @@ private val JunoGreenReady = Color(0xFF10B981)
 private val JunoWoodLight = Color(0xFF6B321C)
 private val JunoWoodDark = Color(0xFF3A180B)
 
+// Proportional vertical elongation factor for the Faders section (strictly capped at 1.0f .. 1.20f = max +20%)
+private val LocalFaderElongation = compositionLocalOf { 1.0f }
+
 class MainActivity : ComponentActivity() {
 
     private var midiControllerManager: MidiControllerManager? = null
@@ -332,12 +335,18 @@ fun HeraJunoNativeScreen(
             .fillMaxSize()
             .background(JunoBgDark)
     ) {
-        // Ergonomic density matching the Google AI Studio Preview layout:
-        // The reference canvas height is ~520.dp, which fits the complete console (Header + Faders + Presets + Arp bar + Keyboard)
-        // By scaling Compose Density based on (maxHeight / 520.dp), on large screens/monitors (e.g. 1080p, 1440p) or large windows,
-        // all UI elements scale up proportionally together! This prevents tiny microscopic DPI and eliminates empty black dead zones,
-        // while preserving the exact same ratio of fader travel, font size, and spacing across small and large screens!
-        val dpiScale = (maxHeight / 520.dp).coerceIn(0.75f, 2.6f)
+        val rawWidthDp = maxWidth
+        val rawHeightDp = maxHeight
+        val rawAspectRatio = rawWidthDp.value / rawHeightDp.value.coerceAtLeast(1f)
+
+        // Distinguish Smartphone landscape screens from Tablet / Window / Fullscreen TV or Monitor viewports:
+        // - On Smartphone: Header + Faders Section (zoomed & elongated up to 20%) + Voices/Presets Bar fill 100% of the window,
+        //   keeping the Piano Keyboard completely hidden below the fold and accessible via vertical scroll.
+        // - On Tablet / Window / Fullscreen Monitor or TV: Keep the complete Piano Keyboard visible on screen when open;
+        //   if the Keyboard is hidden, elongate the Faders Section up to 20% of its original proportion.
+        val isSmartphoneViewport = rawHeightDp < 480.dp || (rawAspectRatio >= 1.80f && rawHeightDp < 540.dp)
+        val referenceCanvasHeightDp = if (isSmartphoneViewport) 435.dp else 568.dp
+        val dpiScale = (rawHeightDp / referenceCanvasHeightDp).coerceIn(0.75f, 2.6f)
         val previewMatchedDensity = remember(baseDensity, dpiScale) {
             Density(
                 density = baseDensity.density * dpiScale,
@@ -367,6 +376,54 @@ fun HeraJunoNativeScreen(
                     val isCompactViewport = maxHeight <= 560.dp
                     val keyboardSectionHeight = 190.dp
                     val responsiveSemitones = if (maxWidth >= 1200.dp) 48 else 36
+
+                    // Fixed height of non-rack elements above the keyboard:
+                    // TopHeaderBar (46dp) + Top Rainbow (2.5dp) + Scrollbar (8dp) + Bottom Rainbow (2.5dp) + VoicingPresetBar (52dp) = 111dp
+                    val nonRackAboveKeyboardDp = 111f
+                    val baseRackHeightDp = 232f
+                    val fullKeyboardWrapperDp = 198f
+
+                    // Calculate Faders Section proportional elongation (capped at +20% = 1.20f) and section-only zoom:
+                    val (faderElongation, rackZoomFactor) = remember(
+                        maxHeight,
+                        isSmartphoneViewport,
+                        showKeyboard,
+                        arpExpanded,
+                        showPresetsDialog
+                    ) {
+                        if (isSmartphoneViewport) {
+                            // Fill the smartphone window with Header + Faders Rack + Voices/Presets Bar
+                            // so the Keyboard stays 100% hidden below and accessible on vertical scroll:
+                            val targetRackDp = (maxHeight.value - nonRackAboveKeyboardDp).coerceAtLeast(baseRackHeightDp)
+                            val totalScale = (targetRackDp / baseRackHeightDp).coerceAtLeast(1.0f)
+                            val elongation = totalScale.coerceIn(1.0f, 1.20f) // Never exceed +20% elongation
+                            val zoom = (totalScale / elongation).coerceIn(1.0f, 1.45f)
+                            elongation to zoom
+                        } else if (!showKeyboard) {
+                            // Tablet / Window / Fullscreen TV/Monitor when Keyboard is hidden:
+                            // Elongate faders up to the maximum 20% of original proportion
+                            val elongation = 1.20f
+                            val zoom = 1.12f
+                            elongation to zoom
+                        } else {
+                            // Tablet / Window / Fullscreen TV/Monitor with complete Keyboard visible:
+                            // Fit Header + Faders Rack + Voices/Presets Bar + Complete Keyboard in the viewport
+                            val extraDrawersDp = (if (arpExpanded) 44f else 0f) + (if (showPresetsDialog) 140f else 0f)
+                            val targetRackDp = (maxHeight.value - nonRackAboveKeyboardDp - fullKeyboardWrapperDp - extraDrawersDp)
+                                .coerceAtLeast(baseRackHeightDp)
+                            val totalScale = (targetRackDp / baseRackHeightDp).coerceAtLeast(1.0f)
+                            val elongation = totalScale.coerceIn(1.0f, 1.20f) // Never exceed +20% elongation
+                            val zoom = (totalScale / elongation).coerceIn(1.0f, 1.25f)
+                            elongation to zoom
+                        }
+                    }
+
+                    val rackZoomedDensity = remember(previewMatchedDensity, rackZoomFactor) {
+                        Density(
+                            density = previewMatchedDensity.density * rackZoomFactor,
+                            fontScale = previewMatchedDensity.fontScale
+                        )
+                    }
 
                     Column(
                         modifier = Modifier
@@ -432,15 +489,19 @@ fun HeraJunoNativeScreen(
                     // 1B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Top Separator)
                     JunoRainbowSeparator()
 
-                    // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Matches AI Studio Preview DPI & horizontal scroll behavior)
+                    // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Section-only zoom + up to 20% proportional fader elongation)
                     val rackScrollState = rememberScrollState()
+                    CompositionLocalProvider(
+                        LocalDensity provides rackZoomedDensity,
+                        LocalFaderElongation provides faderElongation
+                    ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(232.dp)
+                            .height((232f * faderElongation).dp)
                             .background(Color(0xFF11131A))
                             .horizontalScroll(rackScrollState)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 8.dp, vertical = (4f * faderElongation).dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // SECTION 1: LFO (Rate + Vib Del faders with MAN TRIG button comfortably spaced)
@@ -944,6 +1005,7 @@ fun HeraJunoNativeScreen(
                         }
                     }
                 }
+            }
             }
 
                     // 2A. Visible Horizontal Scrollbar Indicator under the Synth Rack (matching AI Studio Preview)
@@ -3135,11 +3197,12 @@ private fun SynthModuleCard(
     bottomBar: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val elongation = LocalFaderElongation.current.coerceIn(1.0f, 1.20f)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .width(IntrinsicSize.Max)
-            .height(224.dp)
+            .height((224f * elongation).dp)
             .clip(RoundedCornerShape(5.dp))
             .background(Color(0xFF0B0D13))
             .border(1.dp, Color(0xFF1F2533), RoundedCornerShape(5.dp))
@@ -3214,12 +3277,12 @@ private fun SynthModuleCard(
                 .background(accentColor.copy(alpha = 0.35f))
         )
 
-        // 3. Main Controls Area (Comfortable vertical breathing room separating faders from header and footer)
+        // 3. Main Controls Area (Proportional vertical breathing room separating faders from header and footer)
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = (10f * elongation).dp),
             contentAlignment = Alignment.Center
         ) {
             content()
@@ -3295,12 +3358,14 @@ private fun JunoParamFader(
     val mappedCh = remember(revIgnore, param) { midiManager.getMappedChannel(param.key) }
     val isLearnMode = midiManager.isMidiLearnActive
     val isSelectedTarget = isLearnMode && midiManager.learningTargetKey == param.key
+    val elongation = LocalFaderElongation.current.coerceIn(1.0f, 1.20f)
+    val effectiveFaderHeight = (faderHeight.value * elongation).dp
 
     Box(
         contentAlignment = Alignment.TopCenter,
         modifier = Modifier
             .width(42.dp)
-            .height(faderHeight)
+            .height(effectiveFaderHeight)
     ) {
         // Fixed-dimension Fader Body (Never shifts when MIDI Learn toggles!)
         Column(
