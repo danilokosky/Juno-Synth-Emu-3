@@ -25,7 +25,9 @@ export const MidiLearnBadge: React.FC<MidiLearnBadgeProps> = ({
 
   const hasCC = mappedCC !== null && mappedCC !== undefined;
   const ccCodeLabel = hasCC
-    ? mappedCC >= 1000
+    ? mappedCC === 2000
+      ? 'PB'
+      : mappedCC >= 1000
       ? `PC${mappedCC - 1000}`
       : `CC${mappedCC}`
     : '';

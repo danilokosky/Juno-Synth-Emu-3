@@ -1,9 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { synthEngine } from '../audio/HeraAudioEngine';
-import { ChevronLeft, ChevronRight, Music, Volume2 } from 'lucide-react';
+import { MidiMappableAction } from '../audio/MidiManager';
+import { MidiLearnBadge } from './MidiLearnBadge';
 
 interface PianoKeyboardProps {
   className?: string;
+  isMidiLearnActive?: boolean;
+  selectedLearnAction?: MidiMappableAction | null;
+  mappedCCPitch?: number | null;
+  mappedCCMod?: number | null;
+  channelLabelPitch?: string;
+  channelLabelMod?: string;
+  onSelectActionForLearn?: (action: MidiMappableAction) => void;
+  onUnmapAction?: (action: MidiMappableAction) => void;
+  onRegisterWheelUpdater?: (updater: {
+    setPitchBendUi: (val: number) => void;
+    setModWheelUi: (val: number) => void;
+  }) => void;
 }
 
 // Key definitions
@@ -53,13 +66,31 @@ const KEY_MAP: Record<string, number> = {
   p: 76, // E5
 };
 
-export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) => {
+export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
+  className = '',
+  isMidiLearnActive = false,
+  selectedLearnAction = null,
+  mappedCCPitch = null,
+  mappedCCMod = null,
+  channelLabelPitch,
+  channelLabelMod,
+  onSelectActionForLearn,
+  onUnmapAction,
+  onRegisterWheelUpdater,
+}) => {
   const [octaveShift, setOctaveShift] = useState<number>(0);
   const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
   const [pitchBend, setPitchBend] = useState<number>(0);
   const [modWheel, setModWheel] = useState<number>(0);
   const [holdSustain, setHoldSustain] = useState<boolean>(false);
   const [showKeyLabels, setShowKeyLabels] = useState<boolean>(true);
+
+  useEffect(() => {
+    onRegisterWheelUpdater?.({
+      setPitchBendUi: (val: number) => setPitchBend(Math.max(-1, Math.min(1, val))),
+      setModWheelUi: (val: number) => setModWheel(Math.max(0, Math.min(1, val))),
+    });
+  }, [onRegisterWheelUpdater]);
 
   const isMouseDownRef = useRef(false);
   const heldNotesRef = useRef<Set<number>>(new Set());
@@ -142,11 +173,16 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
 
   // Pitch bend spring-back handling
   const handlePitchBendPointerDown = (e: React.PointerEvent) => {
+    if (isMidiLearnActive) {
+      e.stopPropagation();
+      onSelectActionForLearn?.('pitchWheel');
+      return;
+    }
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const handlePitchBendPointerMove = (e: React.PointerEvent) => {
-    if (e.buttons !== 1) return;
+    if (isMidiLearnActive || e.buttons !== 1) return;
     const target = e.currentTarget;
     const rect = target.getBoundingClientRect();
     const normalizedY = 1 - (e.clientY - rect.top) / rect.height; // 0 (bottom) to 1 (top)
@@ -156,14 +192,24 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
   };
 
   const handlePitchBendPointerUp = () => {
+    if (isMidiLearnActive) return;
     // Spring back to center
     setPitchBend(0);
     synthEngine.setPitchBend(0);
   };
 
   // Mod wheel handling
+  const handleModWheelPointerDown = (e: React.PointerEvent) => {
+    if (isMidiLearnActive) {
+      e.stopPropagation();
+      onSelectActionForLearn?.('modWheel');
+      return;
+    }
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
   const handleModWheelPointerMove = (e: React.PointerEvent) => {
-    if (e.buttons !== 1) return;
+    if (isMidiLearnActive || e.buttons !== 1) return;
     const target = e.currentTarget;
     const rect = target.getBoundingClientRect();
     const normalizedY = 1 - (e.clientY - rect.top) / rect.height;
@@ -307,7 +353,26 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
         {/* Left Wheels Section (Bender & Mod Wheel) */}
         <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded p-1.5 shadow-inner">
           {/* Pitch Bender Wheel */}
-          <div className="flex flex-col items-center">
+          <div
+            onClick={() => {
+              if (isMidiLearnActive) onSelectActionForLearn?.('pitchWheel');
+            }}
+            className={`relative flex flex-col items-center rounded px-0.5 transition-all ${
+              isMidiLearnActive
+                ? selectedLearnAction === 'pitchWheel'
+                  ? 'ring-2 ring-sky-400 bg-sky-950/30 cursor-pointer'
+                  : 'ring-1 ring-sky-500/40 hover:ring-sky-400 cursor-pointer'
+                : ''
+            }`}
+          >
+            <MidiLearnBadge
+              isMidiLearnActive={isMidiLearnActive}
+              isSelectedForLearn={selectedLearnAction === 'pitchWheel'}
+              mappedCC={mappedCCPitch}
+              channelLabel={channelLabelPitch}
+              onUnmap={() => onUnmapAction?.('pitchWheel')}
+              positionClass="top-3 left-1/2 -translate-x-1/2"
+            />
             <span className="text-[8px] font-mono uppercase text-zinc-400 mb-1">Pitch</span>
             <div
               onPointerDown={handlePitchBendPointerDown}
@@ -315,7 +380,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
               onPointerUp={handlePitchBendPointerUp}
               onPointerCancel={handlePitchBendPointerUp}
               className="relative w-7 h-28 bg-zinc-950 rounded border border-zinc-700 shadow-inner cursor-ns-resize flex items-center justify-center overflow-hidden"
-              title="Pitch Bender (Center spring)"
+              title="Pitch Bender (Center spring / MIDI Learn)"
             >
               {/* Center detent mark */}
               <div className="absolute top-1/2 left-0 right-0 h-[1px] bg-zinc-600 -translate-y-1/2 pointer-events-none" />
@@ -333,13 +398,32 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ className = '' }) 
           </div>
 
           {/* Modulation Wheel */}
-          <div className="flex flex-col items-center">
+          <div
+            onClick={() => {
+              if (isMidiLearnActive) onSelectActionForLearn?.('modWheel');
+            }}
+            className={`relative flex flex-col items-center rounded px-0.5 transition-all ${
+              isMidiLearnActive
+                ? selectedLearnAction === 'modWheel'
+                  ? 'ring-2 ring-sky-400 bg-sky-950/30 cursor-pointer'
+                  : 'ring-1 ring-sky-500/40 hover:ring-sky-400 cursor-pointer'
+                : ''
+            }`}
+          >
+            <MidiLearnBadge
+              isMidiLearnActive={isMidiLearnActive}
+              isSelectedForLearn={selectedLearnAction === 'modWheel'}
+              mappedCC={mappedCCMod}
+              channelLabel={channelLabelMod}
+              onUnmap={() => onUnmapAction?.('modWheel')}
+              positionClass="top-3 left-1/2 -translate-x-1/2"
+            />
             <span className="text-[8px] font-mono uppercase text-zinc-400 mb-1">Mod</span>
             <div
-              onPointerDown={handlePitchBendPointerDown}
+              onPointerDown={handleModWheelPointerDown}
               onPointerMove={handleModWheelPointerMove}
               className="relative w-7 h-28 bg-zinc-950 rounded border border-zinc-700 shadow-inner cursor-ns-resize flex items-center justify-center overflow-hidden"
-              title="Modulation Wheel"
+              title="Modulation Wheel (MIDI Learn)"
             >
               {/* Wheel handle */}
               <div

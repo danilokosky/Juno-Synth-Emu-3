@@ -190,6 +190,10 @@ export const HeraApp: React.FC = () => {
     setArpEnabled: (enabled: boolean) => void;
     setHoldEnabled: (hold: boolean) => void;
   } | null>(null);
+  const wheelUpdaterRef = useRef<{
+    setPitchBendUi: (val: number) => void;
+    setModWheelUi: (val: number) => void;
+  } | null>(null);
 
   // Help modal
   const [showHelp, setShowHelp] = useState<boolean>(false);
@@ -254,6 +258,10 @@ export const HeraApp: React.FC = () => {
       } else if (action === 'arpHold') {
         // 0 = OFF, >= 1 = ON
         arpActionsRef.current?.setHoldEnabled(rawValue >= 1);
+      } else if (action === 'pitchWheel') {
+        wheelUpdaterRef.current?.setPitchBendUi(rawValue);
+      } else if (action === 'modWheel') {
+        wheelUpdaterRef.current?.setModWheelUi(rawValue);
       }
     });
 
@@ -1867,7 +1875,19 @@ export const HeraApp: React.FC = () => {
           {/* Bottom Virtual Piano Keyboard & Controls */}
           {isKeyboardOpen && (
             <div ref={keyboardSectionRef} className="bg-zinc-950">
-              <PianoKeyboard />
+              <PianoKeyboard
+                isMidiLearnActive={isMidiLearnActive}
+                selectedLearnAction={selectedLearnAction}
+                mappedCCPitch={getMappedActionCC('pitchWheel')}
+                mappedCCMod={getMappedActionCC('modWheel')}
+                channelLabelPitch={getChannelLabelForAction('pitchWheel')}
+                channelLabelMod={getChannelLabelForAction('modWheel')}
+                onSelectActionForLearn={handleSelectActionForLearn}
+                onUnmapAction={handleUnmapAction}
+                onRegisterWheelUpdater={(updater) => {
+                  wheelUpdaterRef.current = updater;
+                }}
+              />
             </div>
           )}
         </div>

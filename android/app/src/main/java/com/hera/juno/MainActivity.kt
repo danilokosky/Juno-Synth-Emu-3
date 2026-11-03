@@ -1320,6 +1320,10 @@ fun HeraJunoNativeScreen(
                             ) {
                                 VerticalWheel(
                                     label = "PITCH",
+                                    param = SynthParam.PitchWheel,
+                                    midiManager = midiManager,
+                                    uiRevision = midiUiRevision,
+                                    onNotifyUiChanged = notifyMidiUiChanged,
                                     value = pitchBendUi,
                                     springCenter = true,
                                     valueLabel = if (kotlin.math.abs(pitchBendUi) < 0.02f) "CTR" else if (pitchBendUi > 0) "+${(pitchBendUi * 100).roundToInt()}%" else "${(pitchBendUi * 100).roundToInt()}%",
@@ -1339,6 +1343,10 @@ fun HeraJunoNativeScreen(
                                 Spacer(Modifier.width(5.dp))
                                 VerticalWheel(
                                     label = "MOD",
+                                    param = SynthParam.ModWheel,
+                                    midiManager = midiManager,
+                                    uiRevision = midiUiRevision,
+                                    onNotifyUiChanged = notifyMidiUiChanged,
                                     value = modWheelUi,
                                     springCenter = false,
                                     valueLabel = "${(modWheelUi * 100).roundToInt()}%",
@@ -3777,6 +3785,7 @@ private fun MidiCcBalloonBadge(
 
     val badgeShape = if (isWaitingCC) RoundedCornerShape(12.dp) else RoundedCornerShape(50)
     val badgeTitle = when {
+        mappedCC != null && mappedCC == 2000 -> "PB"
         mappedCC != null && mappedCC >= 1000 -> "PC${mappedCC - 1000}"
         mappedCC != null -> "CC$mappedCC"
         preferProgramChangeLabel -> "PC--"
@@ -4365,6 +4374,10 @@ private fun HorizontalTouchStrip(
 @Composable
 private fun VerticalWheel(
     label: String,
+    param: SynthParam,
+    midiManager: MidiControllerManager,
+    uiRevision: Int,
+    onNotifyUiChanged: () -> Unit,
     value: Float,
     springCenter: Boolean,
     valueLabel: String,
@@ -4373,126 +4386,194 @@ private fun VerticalWheel(
     onRelease: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    @Suppress("UNUSED_EXPRESSION")
+    uiRevision
+
+    val isLearnMode = midiManager.isMidiLearnActive
+    val isWaitingCC = isLearnMode && midiManager.activeLearnTargetKey == param.key
+    val mappedCC = midiManager.getMappedCCForParam(param)
+    val mappedChannel = midiManager.getChannelForParam(param)
     val currentVal by rememberUpdatedState(value)
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+
+    Box(
+        contentAlignment = Alignment.TopCenter,
         modifier = modifier
     ) {
-        Text(
-            text = label,
-            color = Color(0xFF9CA3AF),
-            fontSize = 7.5.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(Modifier.height(2.dp))
-        Box(
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
-                .width(26.dp)
-                .weight(1f)
-                .clip(RoundedCornerShape(3.dp))
-                .background(Color(0xFF06080D))
-                .border(1.dp, Color(0xFF262E3E), RoundedCornerShape(3.dp))
-                .pointerInput(springCenter) {
-                    detectTapGestures { offset ->
-                        val h = size.height.toFloat().coerceAtLeast(1f)
-                        val norm = (1f - (offset.y / h)).coerceIn(0f, 1f)
-                        if (springCenter) {
-                            onChange(norm * 2f - 1f)
-                        } else {
-                            onChange(norm)
+                .fillMaxSize()
+                .then(
+                    if (isLearnMode) {
+                        Modifier
+                            .border(
+                                width = if (isWaitingCC) 1.5.dp else 1.dp,
+                                color = if (isWaitingCC) Color(0xFF38BDF8) else Color(0xFF0EA5E9).copy(alpha = 0.45f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .clickable {
+                                midiManager.activeLearnTargetKey =
+                                    if (midiManager.activeLearnTargetKey == param.key) null else param.key
+                                onNotifyUiChanged()
+                            }
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
+            Text(
+                text = label,
+                color = if (isWaitingCC) Color(0xFF38BDF8) else Color(0xFF9CA3AF),
+                fontSize = 7.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(2.dp))
+            Box(
+                modifier = Modifier
+                    .width(26.dp)
+                    .weight(1f)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0xFF06080D))
+                    .border(
+                        1.dp,
+                        if (isWaitingCC) Color(0xFF38BDF8) else Color(0xFF262E3E),
+                        RoundedCornerShape(3.dp)
+                    )
+                    .pointerInput(springCenter, isLearnMode) {
+                        detectTapGestures { offset ->
+                            if (isLearnMode) {
+                                midiManager.activeLearnTargetKey =
+                                    if (midiManager.activeLearnTargetKey == param.key) null else param.key
+                                onNotifyUiChanged()
+                            } else {
+                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                val norm = (1f - (offset.y / h)).coerceIn(0f, 1f)
+                                if (springCenter) {
+                                    onChange(norm * 2f - 1f)
+                                } else {
+                                    onChange(norm)
+                                }
+                            }
                         }
                     }
-                }
-                .pointerInput(springCenter) {
-                    detectDragGestures(
-                        onDrag = { change, _ ->
-                            change.consume()
-                            val h = size.height.toFloat().coerceAtLeast(1f)
-                            val norm = (1f - (change.position.y / h)).coerceIn(0f, 1f)
-                            if (springCenter) {
-                                onChange(norm * 2f - 1f)
-                            } else {
-                                onChange(norm)
+                    .pointerInput(springCenter, isLearnMode) {
+                        detectDragGestures(
+                            onDrag = { change, _ ->
+                                change.consume()
+                                if (isLearnMode && midiManager.activeLearnTargetKey != param.key) {
+                                    midiManager.activeLearnTargetKey = param.key
+                                    onNotifyUiChanged()
+                                }
+                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                val norm = (1f - (change.position.y / h)).coerceIn(0f, 1f)
+                                if (springCenter) {
+                                    onChange(norm * 2f - 1f)
+                                } else {
+                                    onChange(norm)
+                                }
+                            },
+                            onDragEnd = {
+                                if (springCenter) onRelease()
+                            },
+                            onDragCancel = {
+                                if (springCenter) onRelease()
                             }
-                        },
-                        onDragEnd = {
-                            if (springCenter) onRelease()
-                        },
-                        onDragCancel = {
-                            if (springCenter) onRelease()
-                        }
-                    )
-                }
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                val thumbH = 22.dp.toPx()
-                val thumbW = w - 4.dp.toPx()
-                val usableTravel = (h - thumbH).coerceAtLeast(1f)
+                        )
+                    }
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    val thumbH = 22.dp.toPx()
+                    val thumbW = w - 4.dp.toPx()
+                    val usableTravel = (h - thumbH).coerceAtLeast(1f)
 
-                // Center detent mark line for Pitch Wheel
-                if (springCenter) {
-                    val midY = h * 0.5f
-                    drawLine(
-                        color = Color(0xFF4B5563),
-                        start = Offset(2.dp.toPx(), midY),
-                        end = Offset(w - 2.dp.toPx(), midY),
-                        strokeWidth = 1.2f
-                    )
-                }
+                    // Center detent mark line for Pitch Wheel
+                    if (springCenter) {
+                        val midY = h * 0.5f
+                        drawLine(
+                            color = Color(0xFF4B5563),
+                            start = Offset(2.dp.toPx(), midY),
+                            end = Offset(w - 2.dp.toPx(), midY),
+                            strokeWidth = 1.2f
+                        )
+                    }
 
-                // Thumb position calculation
-                val fraction = if (springCenter) {
-                    ((currentVal + 1f) * 0.5f).coerceIn(0f, 1f)
-                } else {
-                    currentVal.coerceIn(0f, 1f)
-                }
-                val thumbY = usableTravel * (1f - fraction)
-                val thumbX = (w - thumbW) * 0.5f
+                    // Thumb position calculation
+                    val fraction = if (springCenter) {
+                        ((currentVal + 1f) * 0.5f).coerceIn(0f, 1f)
+                    } else {
+                        currentVal.coerceIn(0f, 1f)
+                    }
+                    val thumbY = usableTravel * (1f - fraction)
+                    val thumbX = (w - thumbW) * 0.5f
 
-                // Metallic gradient thumb
-                drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        listOf(
-                            Color(0xFF52525B),
-                            Color(0xFFA1A1AA),
-                            Color(0xFFE4E4E7),
-                            Color(0xFF71717A),
-                            Color(0xFF3F3F46)
+                    // Metallic gradient thumb
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color(0xFF52525B),
+                                Color(0xFFA1A1AA),
+                                Color(0xFFE4E4E7),
+                                Color(0xFF71717A),
+                                Color(0xFF3F3F46)
+                            ),
+                            startY = thumbY,
+                            endY = thumbY + thumbH
                         ),
-                        startY = thumbY,
-                        endY = thumbY + thumbH
-                    ),
-                    topLeft = Offset(thumbX, thumbY),
-                    size = Size(thumbW, thumbH),
-                    cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx())
-                )
-                // Highlight border
-                drawRoundRect(
-                    color = Color(0xFFD4D4D8),
-                    topLeft = Offset(thumbX, thumbY),
-                    size = Size(thumbW, thumbH),
-                    cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx()),
-                    style = Stroke(width = 1f)
-                )
-                // Center tactile ridge
-                drawLine(
-                    color = Color(0xFF27272A),
-                    start = Offset(thumbX + 3.dp.toPx(), thumbY + thumbH * 0.5f),
-                    end = Offset(thumbX + thumbW - 3.dp.toPx(), thumbY + thumbH * 0.5f),
-                    strokeWidth = 1.5f
-                )
+                        topLeft = Offset(thumbX, thumbY),
+                        size = Size(thumbW, thumbH),
+                        cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx())
+                    )
+                    // Highlight border
+                    drawRoundRect(
+                        color = Color(0xFFD4D4D8),
+                        topLeft = Offset(thumbX, thumbY),
+                        size = Size(thumbW, thumbH),
+                        cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx()),
+                        style = Stroke(width = 1f)
+                    )
+                    // Center tactile ridge
+                    drawLine(
+                        color = Color(0xFF27272A),
+                        start = Offset(thumbX + 3.dp.toPx(), thumbY + thumbH * 0.5f),
+                        end = Offset(thumbX + thumbW - 3.dp.toPx(), thumbY + thumbH * 0.5f),
+                        strokeWidth = 1.5f
+                    )
+                }
             }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = valueLabel,
+                color = valueColor,
+                fontSize = 7.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
         }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = valueLabel,
-            color = valueColor,
-            fontSize = 7.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold
+
+        MidiCcBalloonBadge(
+            isLearnMode = isLearnMode,
+            mappedCC = mappedCC,
+            mappedChannel = mappedChannel,
+            isWaitingCC = isWaitingCC,
+            onSelectForLearn = {
+                midiManager.activeLearnTargetKey =
+                    if (midiManager.activeLearnTargetKey == param.key) null else param.key
+                onNotifyUiChanged()
+            },
+            onClearMapping = {
+                midiManager.unmapParam(param)
+                if (midiManager.activeLearnTargetKey == param.key) {
+                    midiManager.activeLearnTargetKey = null
+                }
+                onNotifyUiChanged()
+            },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 12.dp)
+                .zIndex(20f)
         )
     }
 }

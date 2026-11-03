@@ -117,7 +117,9 @@ export type MidiMappableAction =
   | 'selectPreset'
   | 'lfoTrig'
   | 'arpToggle'
-  | 'arpHold';
+  | 'arpHold'
+  | 'pitchWheel'
+  | 'modWheel';
 
 export type MidiPresetChangeMode = 'program_change' | 'custom';
 
@@ -176,6 +178,7 @@ export function getSectionForParam(param: keyof HeraParameters): MidiSectionId {
 
 export function getSectionForAction(action: MidiMappableAction): MidiSectionId {
   if (action === 'lfoTrig') return 'lfo';
+  if (action === 'pitchWheel' || action === 'modWheel') return 'keys';
   return 'arpPresets';
 }
 
@@ -218,8 +221,10 @@ export function buildDefaultSectionChannels(keysCh?: number, fxCh?: number): Mid
   };
 }
 
-// Default Launchkey MK4 MIDI CC Mapping — ONLY the controls mapped in the user's Launchkey MK4 layout:
+// Default Launchkey MK4 MIDI CC Mapping — matches the 18 default controls (16 params + 2 preset actions):
 export const DEFAULT_LAUNCHKEY_MK4_PARAM_TO_CC: Partial<Record<keyof HeraParameters, number>> = {
+  // DCO PWM Switch (CH 06 -> CC0)
+  DCOPWMMod: 0,        // PWM MAN/LFO/ENV -> CC0 (CH 06)
   // DCO (CH 02)
   DCOPitchModDepth: 1, // LFO -> CC1
   DCOPWMDepth: 20,     // PWM -> CC20
@@ -233,8 +238,6 @@ export const DEFAULT_LAUNCHKEY_MK4_PARAM_TO_CC: Partial<Record<keyof HeraParamet
   // ENV (CH 02)
   ENVAttack: 24,       // A -> CC24
   ENVRelease: 25,      // R -> CC25
-  // CHORUS (CH 06)
-  ChorusII: 0,         // II -> CC0
   // ECHO DELAY (CH 06)
   DelayEnabled: 8,     // ON -> CC8
   DelayFeedback: 9,    // F-BACK -> CC9
@@ -245,8 +248,18 @@ export const DEFAULT_LAUNCHKEY_MK4_PARAM_TO_CC: Partial<Record<keyof HeraParamet
   ReverbMix: 7,        // MIX -> CC7
 };
 
+export const DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CC: Partial<Record<MidiMappableAction, number>> = {
+  prevPreset: 1115, // PC115 (CH 06)
+  nextPreset: 1114, // PC114 (CH 06)
+};
+
+export const DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CHANNEL: Partial<Record<MidiMappableAction, number>> = {
+  prevPreset: 6,
+  nextPreset: 6,
+};
+
 export const DEFAULT_MIDI_CC_MAP: Record<number, keyof HeraParameters> = {
-  0: 'ChorusII',
+  0: 'DCOPWMMod',
   1: 'DCOPitchModDepth',
   2: 'VCFCutoff',
   6: 'ReverbDecay',
@@ -289,8 +302,8 @@ declare global {
   }
 }
 
-const PROFILES_STORAGE_KEY = 'hera_midi_profiles_v4';
-const ACTIVE_PROFILE_STORAGE_KEY = 'hera_active_midi_profile_id_v4';
+const PROFILES_STORAGE_KEY = 'hera_midi_profiles_v5';
+const ACTIVE_PROFILE_STORAGE_KEY = 'hera_active_midi_profile_id_v5';
 export const DEFAULT_PROFILE_ID = 'launchkey-mk4';
 
 function buildDefaultParamToCC(): Partial<Record<keyof HeraParameters, number>> {
@@ -303,6 +316,10 @@ function buildDefaultParamToChannel(
 ): Partial<Record<keyof HeraParameters, number>> {
   const out: Partial<Record<keyof HeraParameters, number>> = {};
   for (const paramKey of Object.keys(paramToCC) as Array<keyof HeraParameters>) {
+    if (paramKey === 'DCOPWMMod' && paramToCC[paramKey] === 0) {
+      out[paramKey] = 6; // CH 06 in Launchkey MK4 layout
+      continue;
+    }
     const sec = getSectionForParam(paramKey);
     const ch = sectionChannels[sec] ?? 0;
     if (ch >= 1 && ch <= 16) {
@@ -313,7 +330,10 @@ function buildDefaultParamToChannel(
 }
 
 function buildDefaultActionMapping(): Record<number, MidiMappableAction> {
-  return {};
+  return {
+    1115: 'prevPreset',
+    1114: 'nextPreset',
+  };
 }
 
 export class MidiManager {
@@ -356,8 +376,12 @@ export class MidiManager {
     this.sectionChannels
   );
   private actionMapping: Record<number, MidiMappableAction> = buildDefaultActionMapping();
-  private actionToCC: Partial<Record<MidiMappableAction, number>> = {};
-  private actionToChannel: Partial<Record<MidiMappableAction, number>> = {};
+  private actionToCC: Partial<Record<MidiMappableAction, number>> = {
+    ...DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CC,
+  };
+  private actionToChannel: Partial<Record<MidiMappableAction, number>> = {
+    ...DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CHANNEL,
+  };
   private presetChangeMode: MidiPresetChangeMode = 'program_change';
   private profiles: MidiControllerProfile[] = [];
   private activeProfileId: string = DEFAULT_PROFILE_ID;
@@ -404,7 +428,9 @@ export class MidiManager {
           paramToCC: { ...defaultMap },
           paramToChannel: buildDefaultParamToChannel(defaultMap, defaultSections),
           actionMapping: buildDefaultActionMapping(),
-          actionToChannel: {},
+          actionToCC: { ...DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CC },
+          actionToChannel: { ...DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CHANNEL },
+          presetChangeMode: 'program_change',
           keysChannel: defaultSections.keys,
           effectsChannel: 0,
           sectionChannels: { ...defaultSections },
@@ -417,7 +443,9 @@ export class MidiManager {
         paramToCC: { ...defaultMap },
         paramToChannel: buildDefaultParamToChannel(defaultMap, defaultSections),
         actionMapping: buildDefaultActionMapping(),
-        actionToChannel: {},
+        actionToCC: { ...DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CC },
+        actionToChannel: { ...DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CHANNEL },
+        presetChangeMode: 'program_change',
         keysChannel: defaultSections.keys,
         effectsChannel: 0,
         sectionChannels: { ...defaultSections },
@@ -1138,9 +1166,9 @@ export class MidiManager {
   resetToDefaultMapping() {
     this.paramToCC = buildDefaultParamToCC();
     this.paramToChannel = buildDefaultParamToChannel(this.paramToCC, this.sectionChannels);
-    this.actionToCC = {};
+    this.actionToCC = { ...DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CC };
     this.actionMapping = buildDefaultActionMapping();
-    this.actionToChannel = {};
+    this.actionToChannel = { ...DEFAULT_LAUNCHKEY_MK4_ACTION_TO_CHANNEL };
     this.presetChangeMode = 'program_change';
     this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping());
@@ -1273,11 +1301,45 @@ export class MidiManager {
       }
       case 0xe: {
         // Pitch Bend (14-bit)
-        this.onMidiActivity?.(undefined, undefined, msgChannel);
-        if (!isKeysChannelMatch) return;
+        this.onMidiActivity?.(2000, data2, msgChannel);
         const bendRaw = (data2 << 7) | data1;
-        const normalized = (bendRaw - 8192) / 8192;
-        this.synth.setPitchBend(normalized);
+        const normalized = Math.max(-1, Math.min(1, (bendRaw - 8192) / 8192));
+        const norm0to1 = Math.max(0, Math.min(1, (normalized + 1) * 0.5));
+
+        if (this.activeLearnAction === 'pitchWheel' || this.activeLearnAction === 'modWheel') {
+          const learned = this.activeLearnAction;
+          this.mapActionCC(2000, learned, msgChannel);
+          this.activeLearnAction = null;
+          if (learned === 'pitchWheel') {
+            this.synth.setPitchBend(normalized);
+            this.onActionTriggered?.('pitchWheel', normalized);
+          } else {
+            this.synth.setModWheel(norm0to1);
+            this.onActionTriggered?.('modWheel', norm0to1);
+          }
+          return;
+        }
+
+        const pitchMapped = this.actionToCC.pitchWheel;
+        const modMapped = this.actionToCC.modWheel;
+        let handled = false;
+
+        if (pitchMapped === 2000 && this.doesActionMatchChannel('pitchWheel', msgChannel)) {
+          this.synth.setPitchBend(normalized);
+          this.onActionTriggered?.('pitchWheel', normalized);
+          handled = true;
+        }
+        if (modMapped === 2000 && this.doesActionMatchChannel('modWheel', msgChannel)) {
+          this.synth.setModWheel(norm0to1);
+          this.onActionTriggered?.('modWheel', norm0to1);
+          handled = true;
+        }
+
+        // Default Pitch Bend behavior when Pitch Wheel is not custom-mapped to another CC
+        if (!handled && pitchMapped === undefined && isKeysChannelMatch) {
+          this.synth.setPitchBend(normalized);
+          this.onActionTriggered?.('pitchWheel', normalized);
+        }
         break;
       }
       case 0xc: {
@@ -1365,7 +1427,7 @@ export class MidiManager {
           this.activeLearnParam = null;
         }
 
-        // 2. MIDI Learn interception for Actions:
+        // 2. MIDI Learn interception for Actions (including Pitch & Mod Wheels):
         if (this.activeLearnAction) {
           const learned = this.activeLearnAction;
           const isMomentaryAction =
@@ -1376,7 +1438,14 @@ export class MidiManager {
           }
           this.mapActionCC(cc, learned, msgChannel);
           this.activeLearnAction = null;
-          if (learned === 'selectPreset' || value >= 1) {
+          if (learned === 'pitchWheel') {
+            const bend = normalized * 2 - 1;
+            this.synth.setPitchBend(bend);
+            this.onActionTriggered?.('pitchWheel', bend);
+          } else if (learned === 'modWheel') {
+            this.synth.setModWheel(normalized);
+            this.onActionTriggered?.('modWheel', normalized);
+          } else if (learned === 'selectPreset' || value >= 1) {
             this.onActionTriggered?.(learned, value);
           }
           return;
@@ -1387,7 +1456,14 @@ export class MidiManager {
           if (mappedCode !== cc) continue;
           const targetAction = actKey as MidiMappableAction;
           if (this.doesActionMatchChannel(targetAction, msgChannel)) {
-            if (
+            if (targetAction === 'pitchWheel') {
+              const bend = normalized * 2 - 1;
+              this.synth.setPitchBend(bend);
+              this.onActionTriggered?.('pitchWheel', bend);
+            } else if (targetAction === 'modWheel') {
+              this.synth.setModWheel(normalized);
+              this.onActionTriggered?.('modWheel', normalized);
+            } else if (
               targetAction === 'arpToggle' ||
               targetAction === 'arpHold' ||
               targetAction === 'selectPreset'
@@ -1412,15 +1488,12 @@ export class MidiManager {
           }
         }
 
-        if (strictMatchedParams.length === 0 && cc === 1) {
+        if (strictMatchedParams.length === 0 && cc === 1 && this.actionToCC.modWheel === undefined) {
           const lfoCh = this.sectionChannels.lfo ?? 0;
           const isLfoChMatch = lfoCh === 0 || msgChannel === lfoCh;
           if (isKeysChannelMatch || isLfoChMatch) {
-            if (this.paramToCC.DCOPitchModDepth === 1) {
-              strictMatchedParams.push('DCOPitchModDepth');
-            } else {
-              this.synth.setModWheel(normalized);
-            }
+            this.synth.setModWheel(normalized);
+            this.onActionTriggered?.('modWheel', normalized);
           }
         }
 

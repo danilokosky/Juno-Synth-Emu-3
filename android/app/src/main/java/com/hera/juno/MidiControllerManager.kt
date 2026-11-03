@@ -30,7 +30,7 @@ class MidiControllerManager(
     private val onProfileUpdated: () -> Unit
 ) {
     companion object {
-        private const val PREFS_NAME = "hera_native_midi_profiles_v3"
+        private const val PREFS_NAME = "hera_native_midi_profiles_v4"
         private const val KEY_PROFILES_JSON = "profiles_json"
         private const val KEY_PROFILE_ORDER = "profile_order_csv"
         private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
@@ -98,7 +98,8 @@ class MidiControllerManager(
         )
 
         val paramCC = mutableMapOf(
-            // DCO (CH 02)
+            // DCO (PWM switch -> CC0, LFO -> CC1, PWM -> CC20, PULSE -> CC21, SAW -> CC22, SUB -> CC23)
+            SynthParam.DCOPWMMod.key to 0,
             SynthParam.DCOPitchModDepth.key to 1,
             SynthParam.DCOPWMDepth.key to 20,
             SynthParam.DCOPulseLevel.key to 21,
@@ -119,12 +120,13 @@ class MidiControllerManager(
             SynthParam.ReverbEnabled.key to 17,
             SynthParam.ReverbDecay.key to 6,
             SynthParam.ReverbMix.key to 7,
-            // PRESET ARROWS (Program Change PC0 / PC1 on ARP_PRESETS CH 06)
-            SynthParam.PresetPrev.key to 1000,
-            SynthParam.PresetNext.key to 1001
+            // PRESET ARROWS (Program Change PC115 / PC114)
+            SynthParam.PresetPrev.key to 1115,
+            SynthParam.PresetNext.key to 1114
         )
 
         val paramCh = mutableMapOf(
+            SynthParam.DCOPWMMod.key to 6,
             SynthParam.DCOPitchModDepth.key to 2,
             SynthParam.DCOPWMDepth.key to 2,
             SynthParam.DCOPulseLevel.key to 2,
@@ -617,9 +619,44 @@ class MidiControllerManager(
                 mainHandler.post { onNoteOff(d1) }
             }
             0xE0 -> {
-                if (!keysMatch) return
                 val raw14 = (d2 shl 7) or d1
-                currentPitchBend = ((raw14 - 8192) / 8192f).coerceIn(-1f, 1f)
+                val bendNorm = ((raw14 - 8192) / 8192f).coerceIn(-1f, 1f)
+
+                // Support MIDI Learn for Pitch Bend wheel (code 2000 = PB)
+                val targetKey = learningTargetKey
+                if (isMidiLearnActive && targetKey != null) {
+                    val targetParam = SynthParam.fromKey(targetKey)
+                    if (targetParam == SynthParam.PitchWheel || targetParam == SynthParam.ModWheel) {
+                        assignLearnedMapping(prof, targetKey, targetParam, 2000, channel)
+                        return
+                    }
+                }
+
+                // Check if PitchWheel or ModWheel is explicitly mapped to PB (2000)
+                val pitchMappedCC = prof.paramToCC[SynthParam.PitchWheel.key]
+                val modMappedCC = prof.paramToCC[SynthParam.ModWheel.key]
+                if (modMappedCC == 2000) {
+                    val modCh = getEffectiveChannelForParam(prof, SynthParam.ModWheel.key, SynthParam.ModWheel)
+                    if (modCh == 0 || modCh == channel) {
+                        currentModWheel = ((bendNorm + 1f) * 0.5f).coerceIn(0f, 1f)
+                        val b = currentPitchBend
+                        val m = currentModWheel
+                        mainHandler.post { onPitchBend(b, m) }
+                        return
+                    }
+                }
+                if (pitchMappedCC != null && pitchMappedCC != 2000) {
+                    // Pitch wheel was remapped to a custom CC, so ignore default 0xE0 unless it matches PB
+                    return
+                }
+                val pitchCh = if (pitchMappedCC == 2000) {
+                    getEffectiveChannelForParam(prof, SynthParam.PitchWheel.key, SynthParam.PitchWheel)
+                } else {
+                    keysChannel
+                }
+                if (pitchCh != 0 && pitchCh != channel) return
+
+                currentPitchBend = bendNorm
                 val b = currentPitchBend
                 val m = currentModWheel
                 mainHandler.post { onPitchBend(b, m) }
@@ -664,7 +701,11 @@ class MidiControllerManager(
         }
 
         learningTargetKey = null
-        val codeLabel = if (code >= 1000) "PC${code - 1000}" else "CC$code"
+        val codeLabel = when {
+            code == 2000 -> "PB"
+            code >= 1000 -> "PC${code - 1000}"
+            else -> "CC$code"
+        }
         lastLearnedInfo = "${targetParam.label} -> $codeLabel (CH$channel)"
         saveProfiles()
         mainHandler.post { onProfileUpdated() }
@@ -691,10 +732,10 @@ class MidiControllerManager(
             }
         }
 
-        // 2. Check if PresetPrev or PresetNext is specifically mapped to this Program Change code on its mapped button's channel
+        // 2. Check if PresetPrev or PresetNext is specifically mapped to this Program Change code (accepts mapped button's channel or any channel if unique PC)
         val prevCode = prof.paramToCC[SynthParam.PresetPrev.key]
         val prevCh = getEffectiveChannelForParam(prof, SynthParam.PresetPrev.key, SynthParam.PresetPrev)
-        if (prevCode == pcCode && (prevCh == 0 || prevCh == channel)) {
+        if (prevCode == pcCode && (prevCh == 0 || prevCh == channel || prof.presetChangeMode == "program_change")) {
             mainHandler.post {
                 onPresetStep?.invoke(-1)
                 onProfileUpdated()
@@ -704,7 +745,7 @@ class MidiControllerManager(
 
         val nextCode = prof.paramToCC[SynthParam.PresetNext.key]
         val nextCh = getEffectiveChannelForParam(prof, SynthParam.PresetNext.key, SynthParam.PresetNext)
-        if (nextCode == pcCode && (nextCh == 0 || nextCh == channel)) {
+        if (nextCode == pcCode && (nextCh == 0 || nextCh == channel || prof.presetChangeMode == "program_change")) {
             mainHandler.post {
                 onPresetStep?.invoke(1)
                 onProfileUpdated()
@@ -806,6 +847,14 @@ class MidiControllerManager(
                         }
                         SynthParam.PresetSelect -> {
                             onProgramChange?.invoke(value.coerceAtLeast(0))
+                        }
+                        SynthParam.PitchWheel -> {
+                            currentPitchBend = ((min(100, value.coerceAtLeast(0)) / 100f) * 2f - 1f).coerceIn(-1f, 1f)
+                            onPitchBend(currentPitchBend, currentModWheel)
+                        }
+                        SynthParam.ModWheel -> {
+                            currentModWheel = (min(100, value.coerceAtLeast(0)) / 100f).coerceIn(0f, 1f)
+                            onPitchBend(currentPitchBend, currentModWheel)
                         }
                         else -> {
                             val newVal = computeParamValueFromCC(param, value)
