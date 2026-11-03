@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { VoiceStatus } from '../types/synth';
+import { synthEngine } from '../audio/HeraAudioEngine';
 
 interface VoiceIndicatorProps {
-  voices: VoiceStatus[];
+  voices?: VoiceStatus[];
   className?: string;
 }
 
@@ -15,7 +16,18 @@ function midiToNoteName(midi: number): string {
   return `${note}${octave}`;
 }
 
-export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({ voices, className = '' }) => {
+export const VoiceIndicator: React.FC<VoiceIndicatorProps> = React.memo(({ voices: externalVoices, className = '' }) => {
+  const [internalVoices, setInternalVoices] = useState<VoiceStatus[]>([]);
+
+  useEffect(() => {
+    if (externalVoices !== undefined) return;
+    synthEngine.setVoicesListener((statuses) => {
+      setInternalVoices(statuses);
+    });
+  }, [externalVoices]);
+
+  const activeVoices = externalVoices ?? internalVoices;
+
   return (
     <div className={`flex flex-col gap-1 bg-zinc-950 p-2 rounded border border-zinc-800/80 shadow-inner ${className}`}>
       <div className="flex items-center justify-between text-[8px] font-mono uppercase text-zinc-400 border-b border-zinc-800 pb-1 mb-0.5">
@@ -24,7 +36,7 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({ voices, classNam
       </div>
       <div className="grid grid-cols-6 gap-1.5">
         {Array.from({ length: 6 }).map((_, i) => {
-          const v = voices[i];
+          const v = activeVoices[i];
           const isActive = !!v?.active;
           return (
             <div key={i} className="flex flex-col items-center">
@@ -49,4 +61,5 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({ voices, classNam
       </div>
     </div>
   );
-};
+});
+

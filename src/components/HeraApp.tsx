@@ -53,7 +53,6 @@ export const HeraApp: React.FC = () => {
   });
 
   const [currentPresetName, setCurrentPresetName] = useState<string>('Strings 1');
-  const [voices, setVoices] = useState<VoiceStatus[]>([]);
   const [isAudioStarted, setIsAudioStarted] = useState<boolean>(false);
   const [masterVolume, setMasterVolume] = useState<number>(0.85);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -187,10 +186,6 @@ export const HeraApp: React.FC = () => {
 
   // Initialize engine listeners
   useEffect(() => {
-    synthEngine.setVoicesListener((statuses) => {
-      setVoices(statuses);
-    });
-
     synthEngine.setRecordingListener((recording, blob) => {
       setIsRecording(recording);
       if (blob) {
@@ -537,7 +532,7 @@ export const HeraApp: React.FC = () => {
 
             {/* Quick Status / Oscilloscope & Live Voices */}
             <div className="flex items-center gap-3">
-              <VoiceIndicator voices={voices} className="hidden sm:flex" />
+              <VoiceIndicator className="hidden sm:flex" />
 
               <div className="hidden md:block w-48">
                 <Oscilloscope />

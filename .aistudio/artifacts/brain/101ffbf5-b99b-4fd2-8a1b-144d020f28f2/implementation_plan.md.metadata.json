@@ -1,0 +1,6 @@
+{
+  "summary": "Diagnóstico técnico completo comparando o motor de áudio v1.1 Stable (HeraAudioEngine.ts anexo) com o motor nativo Android (C++ AAudio + Compose) e plano de correção para eliminar cortes, estalos (clips) e diferenças de timbre, restaurando 100% da sonoridade e comportamento da versão 1.1 Stable.",
+  "updatedAt": "2026-11-03T14:31:04.922285975Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

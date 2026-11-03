@@ -230,20 +230,6 @@ fun HeraJunoNativeScreen(
         NativeSynthBridge.setArpConfig(arpEnabled, arpMode, arpRange, arpBpm, arpRateDiv)
     }
 
-    // Real-time 60fps Oscilloscope & Voice Count polling from C++ engine
-    val waveformSamples = remember { FloatArray(256) }
-    var waveformTick by remember { mutableIntStateOf(0) }
-    var activeVoiceCount by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            NativeSynthBridge.getWaveformBuffer(waveformSamples)
-            activeVoiceCount = NativeSynthBridge.getActiveVoicesCount()
-            waveformTick++
-            delay(16L)
-        }
-    }
-
     // SAF Preset Export Launcher (.xml / .hera)
     val exportPresetLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/xml")
@@ -432,9 +418,6 @@ fun HeraJunoNativeScreen(
                     ) {
                     // 1. TOP ROLAND HEADER BAR (Branding with VOICES next to JUNO-60 + Scope + Distinct MIDI & Master Controls)
                     TopHeaderBar(
-                        activeVoiceCount = activeVoiceCount,
-                        waveformSamples = waveformSamples,
-                        waveformTick = waveformTick,
                         masterVolume = paramState[SynthParam.MasterVolume] ?: 0.8f,
                         isMasterMuted = isMasterMuted,
                         onToggleMasterMute = {
@@ -1562,10 +1545,105 @@ private fun AtariCartridgeBadgeIcon(modifier: Modifier = Modifier) {
  *   4. TECLADO & PANIC buttons
  */
 @Composable
+private fun LiveVoiceIndicatorsBox() {
+    var activeVoiceCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val count = NativeSynthBridge.getActiveVoicesCount()
+            if (count != activeVoiceCount) {
+                activeVoiceCount = count
+            }
+            delay(32L)
+        }
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .background(Color(0xFF080A0E), RoundedCornerShape(3.dp))
+            .border(1.dp, Color(0xFF1E2330), RoundedCornerShape(3.dp))
+            .padding(horizontal = 5.dp, vertical = 1.5.dp)
+    ) {
+        Text(
+            text = "VOICES",
+            color = Color(0xFF9CA3AF),
+            fontSize = 6.5.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.6.sp
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            for (v in 0 until 6) {
+                val lit = v < activeVoiceCount
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(if (lit) JunoRed else Color(0xFF232734))
+                        .border(
+                            0.5.dp,
+                            if (lit) Color(0xFFFCA5A5) else Color(0xFF374151),
+                            CircleShape
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveOscilloscopeBox() {
+    val waveformSamples = remember { FloatArray(256) }
+    var waveformTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            NativeSynthBridge.getWaveformBuffer(waveformSamples)
+            waveformTick++
+            delay(16L)
+        }
+    }
+    Box(
+        modifier = Modifier
+            .width(86.dp)
+            .height(26.dp)
+            .background(Color(0xFF05100C), RoundedCornerShape(4.dp))
+            .border(1.dp, Color(0xFF1B4332), RoundedCornerShape(4.dp))
+            .padding(2.dp)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val tickIgnore = waveformTick
+            if (tickIgnore >= 0) {
+                val w = size.width
+                val h = size.height
+                val midY = h * 0.5f
+                drawLine(
+                    color = Color(0xFF143628),
+                    start = Offset(0f, midY),
+                    end = Offset(w, midY),
+                    strokeWidth = 1f
+                )
+                val path = Path()
+                val n = waveformSamples.size
+                for (i in 0 until n) {
+                    val x = (i.toFloat() / (n - 1).toFloat()) * w
+                    val y = (midY - waveformSamples[i].coerceIn(-1f, 1f) * (h * 0.42f))
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(
+                    path = path,
+                    color = Color(0xFF34D399),
+                    style = Stroke(width = 1.8f, cap = StrokeCap.Round)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun TopHeaderBar(
-    activeVoiceCount: Int,
-    waveformSamples: FloatArray,
-    waveformTick: Int,
     masterVolume: Float,
     isMasterMuted: Boolean,
     onToggleMasterMute: () -> Unit,
@@ -1634,43 +1712,8 @@ private fun TopHeaderBar(
                         )
                     }
 
-                    // 6-Voice Polyphony Indicator adapted right next to "JUNO-60"
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier
-                            .background(Color(0xFF080A0E), RoundedCornerShape(3.dp))
-                            .border(1.dp, Color(0xFF1E2330), RoundedCornerShape(3.dp))
-                            .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                    ) {
-                        Text(
-                            text = "VOICES",
-                            color = Color(0xFF9CA3AF),
-                            fontSize = 6.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.6.sp
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            for (v in 0 until 6) {
-                                val lit = v < activeVoiceCount
-                                Box(
-                                    modifier = Modifier
-                                        .size(5.dp)
-                                        .clip(CircleShape)
-                                        .background(if (lit) JunoRed else Color(0xFF232734))
-                                        .border(
-                                            0.5.dp,
-                                            if (lit) Color(0xFFFCA5A5) else Color(0xFF374151),
-                                            CircleShape
-                                        )
-                                )
-                            }
-                        }
-                    }
+                    // 6-Voice Polyphony Indicator isolated in its own leaf composable
+                    LiveVoiceIndicatorsBox()
                 }
 
                 // Subtitle stretched slightly underneath so it aligns cleanly with HERA JUNO-60 + VOICES
@@ -1683,42 +1726,8 @@ private fun TopHeaderBar(
                 )
             }
 
-            // Real-time 60fps CRT Oscilloscope next to branding
-            Box(
-                modifier = Modifier
-                    .width(86.dp)
-                    .height(26.dp)
-                    .background(Color(0xFF05100C), RoundedCornerShape(4.dp))
-                    .border(1.dp, Color(0xFF1B4332), RoundedCornerShape(4.dp))
-                    .padding(2.dp)
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val tickIgnore = waveformTick
-                    if (tickIgnore >= 0) {
-                        val w = size.width
-                        val h = size.height
-                        val midY = h * 0.5f
-                        drawLine(
-                            color = Color(0xFF143628),
-                            start = Offset(0f, midY),
-                            end = Offset(w, midY),
-                            strokeWidth = 1f
-                        )
-                        val path = Path()
-                        val n = waveformSamples.size
-                        for (i in 0 until n) {
-                            val x = (i.toFloat() / (n - 1).toFloat()) * w
-                            val y = (midY - waveformSamples[i].coerceIn(-1f, 1f) * (h * 0.42f))
-                            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                        }
-                        drawPath(
-                            path = path,
-                            color = Color(0xFF34D399),
-                            style = Stroke(width = 1.8f, cap = StrokeCap.Round)
-                        )
-                    }
-                }
-            }
+            // Real-time 60fps CRT Oscilloscope isolated in its own leaf composable
+            LiveOscilloscopeBox()
         }
 
         Spacer(Modifier.width(8.dp))

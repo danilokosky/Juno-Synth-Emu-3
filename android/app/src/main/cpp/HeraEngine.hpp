@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <vector>
 #include <array>
-#include <mutex>
 #include <atomic>
 
 namespace hera {
@@ -15,6 +14,8 @@ constexpr float kPi = 3.14159265358979323846f;
 constexpr float kTwoPi = 6.28318530717958647692f;
 constexpr int kMaxVoices = 6;
 constexpr int kWaveformBufferSize = 512;
+constexpr uint32_t kEventQueueSize = 512;
+constexpr uint32_t kEventQueueMask = kEventQueueSize - 1;
 
 enum ParamId : int {
     DCORange = 0,          // 0 = 16'(0.5), 1 = 8'(1.0), 2 = 4'(2.0)
@@ -28,7 +29,7 @@ enum ParamId : int {
     HPF = 8,               // 0..1
     VCFCutoff = 9,         // 0..1
     VCFResonance = 10,     // 0..1
-    VCFEnv = 11,           // 0..1
+    VCFEnv = 11,           // 0..1 (or bipolar)
     VCFLFO = 12,           // 0..1
     VCFKey = 13,           // 0..1
     VCFBendDepth = 14,     // 0..1
@@ -61,7 +62,7 @@ inline float clampf(float v, float lo, float hi) {
     return std::max(lo, std::min(hi, v));
 }
 
-// Authentic Juno-60 Lookup Curves (ported from Hera C++ tables)
+// Authentic Juno-60 Lookup Curves matching v1.1 Stable (HeraAudioEngine.ts)
 struct HeraTables {
     static float getLfoRateHz(float v) {
         float x = clampf(v, 0.0f, 1.0f);
@@ -75,17 +76,17 @@ struct HeraTables {
 
     static float getAttackSec(float v) {
         float x = clampf(v, 0.0f, 1.0f);
-        return 0.0015f + 0.0099f * std::exp(5.8f * x);
+        return std::max(0.004f, 0.0099f * std::exp(5.8f * x));
     }
 
     static float getDecaySec(float v) {
         float x = clampf(v, 0.0f, 1.0f);
-        return 0.005f + 0.0495f * std::exp(6.0f * x);
+        return std::max(0.006f, 0.0495f * std::exp(6.0f * x));
     }
 
     static float getReleaseSec(float v) {
         float x = clampf(v, 0.0f, 1.0f);
-        return 0.005f + 0.0495f * std::exp(6.0f * x);
+        return std::max(0.012f, 0.0495f * std::exp(6.0f * x));
     }
 
     static float getHpfFrequency(float v) {
@@ -96,7 +97,7 @@ struct HeraTables {
     }
 
     static float getRangeFactor(float v) {
-        int r = static_cast<int>(std::round(v));
+        int r = static_cast<int>(std::floor(clampf(v, 0.0f, 2.0f) + 0.5f));
         if (r <= 0) return 0.5f; // 16'
         if (r == 1) return 1.0f; // 8'
         return 2.0f;             // 4'
@@ -124,61 +125,95 @@ enum class EnvStage {
     Release
 };
 
-struct JunoVoice {
-    bool active = false;
-    bool gate = false;
-    int note = -1;
+// Lock-free command event for real-time audio thread
+enum class EventType : uint8_t {
+    NoteOn = 0,
+    NoteOff,
+    AllNotesOff,
+    ArpConfig
+};
+
+struct EngineEvent {
+    EventType type = EventType::NoteOn;
+    int note = 0;
     float velocity = 1.0f;
+    bool arpEnabled = false;
+    int arpMode = 0;
+    int arpRange = 1;
+    float arpBpm = 120.0f;
+    int arpRateDiv = 8;
+};
 
+struct JunoVoice {
+    int id = 0;
+    bool active = false;
+    bool released = true;
+    bool sameNoteDamped = false;
+    int note = -1;
+    uint64_t startOrder = 0;
+    float velocityFactor = 1.0f;
+
+    // Continuously running oscillator state (never reset -> zero phase clicks)
     float phase = 0.0f;
-    float subPhase = 0.0f;
     bool subFlip = false;
+    float currentFreqHz = 440.0f;
 
+    // Amplitude & Filter RC Envelopes matching v1.1 Stable
     EnvStage envStage = EnvStage::Idle;
     float envLevel = 0.0f;
+    float vcfEnvLevel = 0.0f;
     float gateEnvLevel = 0.0f;
+    float lfoDelayElapsedSec = 0.0f;
 
-    // 4-pole OTA cascaded lowpass state
+    // 4-pole cascaded lowpass state (never zeroed while ringing -> Warm Retrigger)
     float z1 = 0.0f;
     float z2 = 0.0f;
     float z3 = 0.0f;
     float z4 = 0.0f;
 
-    // 1-pole High-pass state
-    float hpfInPrev = 0.0f;
-    float hpfOutPrev = 0.0f;
-
-    void trigger(int midiNote, float vel, bool warmRetrigger) {
+    void startVoice(int midiNote, float vel, uint64_t orderCounter, float rangeFactor) {
+        bool wasActive = active;
         note = midiNote;
-        velocity = clampf(vel, 0.05f, 1.0f);
-        gate = true;
+        startOrder = orderCounter;
         active = true;
+        released = false;
+        sameNoteDamped = false;
+
+        // Linear & musical velocity scaling matching v1.1 Stable (0.45 + 0.55 * vel)
+        float normVel = (vel > 1.0f) ? (vel / 127.0f) : vel;
+        velocityFactor = 0.45f + 0.55f * clampf(normVel, 0.1f, 1.0f);
+
+        float targetFreq = 440.0f * std::pow(2.0f, (static_cast<float>(midiNote) - 69.0f) / 12.0f) * rangeFactor;
+        if (!wasActive) {
+            currentFreqHz = targetFreq;
+        }
+
+        // Warm Capacitor Retrigger: rise from current envLevel / vcfEnvLevel without ever jumping to 0
+        envLevel = std::max(0.0f, envLevel);
+        vcfEnvLevel = std::max(0.0f, vcfEnvLevel);
+        gateEnvLevel = std::max(0.0f, gateEnvLevel);
+        lfoDelayElapsedSec = 0.0f;
         envStage = EnvStage::Attack;
-        if (!warmRetrigger) {
-            // Keep existing filter/env level if warm retrigger, else start clean from current level
-            envLevel = std::max(0.0f, envLevel);
-            gateEnvLevel = std::max(0.0f, gateEnvLevel);
-        }
     }
 
-    void releaseNote() {
-        if (gate) {
-            gate = false;
-            if (envStage != EnvStage::Idle) {
-                envStage = EnvStage::Release;
-            }
-        }
+    void stopVoice() {
+        if (!active || released) return;
+        released = true;
+        envStage = EnvStage::Release;
     }
 
-    void reset() {
-        active = false;
-        gate = false;
-        note = -1;
-        envStage = EnvStage::Idle;
-        envLevel = 0.0f;
-        gateEnvLevel = 0.0f;
-        z1 = z2 = z3 = z4 = 0.0f;
-        hpfInPrev = hpfOutPrev = 0.0f;
+    // Matching v1.1 Stable softenSameNoteRelease() (16ms RC decay when another Round-Robin voice plays same note)
+    void softenSameNoteRelease() {
+        if (!active || sameNoteDamped) return;
+        sameNoteDamped = true;
+        released = true;
+        envStage = EnvStage::Release;
+    }
+
+    void stopImmediate() {
+        released = true;
+        sameNoteDamped = true;
+        envStage = EnvStage::Release;
     }
 };
 
@@ -232,8 +267,6 @@ public:
         gain_ = gain;
     }
 
-    void setGain(float g) { gain_ = clampf(g, 0.1f, 0.85f); }
-
     float process(float input) {
         float delayed = delay_.readInterpolated(delaySamples_);
         float v = input - gain_ * delayed;
@@ -260,7 +293,7 @@ public:
         float input,
         float baseDelaySamples,
         float feedback,
-        float damp,
+        float dampCoef,
         float modDepthSamples,
         float modIncrement
     ) {
@@ -270,9 +303,9 @@ public:
         float delayed = delay_.readInterpolated(baseDelaySamples + modOffset);
 
         // One-pole low-pass damping in feedback loop
-        filterStore_ = delayed * (1.0f - damp) + filterStore_ * damp;
+        filterStore_ = delayed * (1.0f - dampCoef) + filterStore_ * dampCoef;
         delay_.write(input + filterStore_ * feedback);
-        return delayed;
+        return filterStore_;
     }
 
 private:
@@ -284,68 +317,75 @@ private:
 class HeraEngine {
 public:
     HeraEngine() {
+        for (int i = 0; i < kMaxVoices; ++i) {
+            voices_[i].id = i;
+            voices_[i].phase = static_cast<float>(i) * 0.1618f; // Natural analog free-running phase spread
+        }
         setDefaults();
         setSampleRate(48000.0f);
     }
 
     void setDefaults() {
-        params_[DCORange] = 1.0f;          // 8'
-        params_[DCOSawLevel] = 1.0f;
-        params_[DCOPulseLevel] = 0.0f;
-        params_[DCOSubLevel] = 0.0f;
-        params_[DCONoiseLevel] = 0.0f;
-        params_[DCOPWMDepth] = 0.3f;
-        params_[DCOPWMMod] = 1.0f;         // LFO
-        params_[DCOPitchModDepth] = 0.0f;
-        params_[HPF] = 0.0f;
-        params_[VCFCutoff] = 0.7f;
-        params_[VCFResonance] = 0.0f;
-        params_[VCFEnv] = 0.0f;
-        params_[VCFLFO] = 0.0f;
-        params_[VCFKey] = 1.0f;
-        params_[VCFBendDepth] = 0.0f;
-        params_[VCAType] = 0.0f;           // ENV
-        params_[VCADepth] = 0.5f;
-        params_[ENVAttack] = 0.4f;
-        params_[ENVDecay] = 0.0f;
-        params_[ENVSustain] = 1.0f;
-        params_[ENVRelease] = 0.45f;
-        params_[LFORate] = 0.6f;
-        params_[LFODelay] = 0.0f;
-        params_[LFOTrigMode] = 1.0f;       // AUTO
-        params_[LFOManualTrig] = 0.0f;
-        params_[ChorusI] = 1.0f;
-        params_[ChorusII] = 0.0f;
-        params_[DelayEnabled] = 0.0f;
-        params_[DelayTime] = 0.35f;
-        params_[DelayFeedback] = 0.35f;
-        params_[DelayMix] = 0.25f;
-        params_[ReverbEnabled] = 0.0f;
-        params_[ReverbType] = 0.0f;        // 0 = Plate, 1 = Hall
-        params_[ReverbTime] = 0.35f;
-        params_[ReverbDecay] = 0.55f;
-        params_[ReverbMix] = 0.25f;
-        params_[MasterVolume] = 0.8f;
+        setParameter(DCORange, 1.0f);          // 8'
+        setParameter(DCOSawLevel, 1.0f);
+        setParameter(DCOPulseLevel, 0.0f);
+        setParameter(DCOSubLevel, 0.0f);
+        setParameter(DCONoiseLevel, 0.0f);
+        setParameter(DCOPWMDepth, 0.3f);
+        setParameter(DCOPWMMod, 1.0f);         // LFO
+        setParameter(DCOPitchModDepth, 0.0f);
+        setParameter(HPF, 0.0f);
+        setParameter(VCFCutoff, 0.7f);
+        setParameter(VCFResonance, 0.0f);
+        setParameter(VCFEnv, 0.0f);
+        setParameter(VCFLFO, 0.0f);
+        setParameter(VCFKey, 1.0f);
+        setParameter(VCFBendDepth, 0.0f);
+        setParameter(VCAType, 0.0f);           // ENV
+        setParameter(VCADepth, 0.5f);
+        setParameter(ENVAttack, 0.4f);
+        setParameter(ENVDecay, 0.0f);
+        setParameter(ENVSustain, 1.0f);
+        setParameter(ENVRelease, 0.45f);
+        setParameter(LFORate, 0.6f);
+        setParameter(LFODelay, 0.0f);
+        setParameter(LFOTrigMode, 1.0f);       // AUTO
+        setParameter(LFOManualTrig, 0.0f);
+        setParameter(ChorusI, 1.0f);
+        setParameter(ChorusII, 0.0f);
+        setParameter(DelayEnabled, 0.0f);
+        setParameter(DelayTime, 0.35f);
+        setParameter(DelayFeedback, 0.35f);
+        setParameter(DelayMix, 0.25f);
+        setParameter(ReverbEnabled, 0.0f);
+        setParameter(ReverbType, 0.0f);        // 0 = Plate, 1 = Hall
+        setParameter(ReverbTime, 0.35f);
+        setParameter(ReverbDecay, 0.55f);
+        setParameter(ReverbMix, 0.25f);
+        setParameter(MasterVolume, 0.85f);
+
+        for (int i = 0; i < ParamCount; ++i) {
+            smoothedParams_[i] = targetParams_[i].load(std::memory_order_relaxed);
+        }
 
         waveformRing_.fill(0.0f);
     }
 
     void setSampleRate(float sr) {
-        std::lock_guard<std::mutex> lock(mutex_);
         sampleRate_ = std::max(8000.0f, sr);
 
-        // Initialize BBD Chorus lines (~25ms max)
+        // Initialize BBD Chorus lines (~30ms max)
         int maxChorusSamples = static_cast<int>(sampleRate_ * 0.030f) + 64;
         chorusDelayL_.init(maxChorusSamples);
         chorusDelayR_.init(maxChorusSamples);
 
-        // Initialize Stereo Echo Delay lines (~1.5s max)
-        int maxEchoSamples = static_cast<int>(sampleRate_ * 1.5f) + 128;
+        // Initialize Stereo Echo Delay lines (~2.0s max matching v1.1 Stable)
+        int maxEchoSamples = static_cast<int>(sampleRate_ * 2.0f) + 128;
         echoDelayL_.init(maxEchoSamples);
         echoDelayR_.init(maxEchoSamples);
 
-        // Initialize Global Post-Processing Stereo Reverb (Plate & Hall)
-        reverbPreDelay_.init(static_cast<int>(sampleRate_ * 0.15f) + 64);
+        // Initialize Global Post-Processing Stereo Reverb (Plate & Hall matching v1.1 Stable)
+        reverbPreDelay_.init(static_cast<int>(sampleRate_ * 0.25f) + 64);
         reverbDiffuser1L_.init(static_cast<int>(sampleRate_ * 0.0047f), 0.68f);
         reverbDiffuser2L_.init(static_cast<int>(sampleRate_ * 0.0113f), 0.62f);
         reverbDiffuser1R_.init(static_cast<int>(sampleRate_ * 0.0053f), 0.68f);
@@ -359,90 +399,56 @@ public:
 
     void setParameter(int id, float value) {
         if (id < 0 || id >= ParamCount) return;
-        params_[id] = value;
+        targetParams_[id].store(value, std::memory_order_relaxed);
     }
 
     float getParameter(int id) const {
         if (id < 0 || id >= ParamCount) return 0.0f;
-        return params_[id];
+        return targetParams_[id].load(std::memory_order_relaxed);
     }
 
-    void setPitchBend(float bendSemitones, float modWheel) {
-        pitchBend_ = clampf(bendSemitones, -1.0f, 1.0f);
-        modWheel_ = clampf(modWheel, 0.0f, 1.0f);
+    void setPitchBend(float bendNorm, float modWheel) {
+        // v1.1 Stable uses +/- 2.0 semitones for pitch bend wheel
+        targetPitchBendSemis_.store(clampf(bendNorm, -1.0f, 1.0f) * 2.0f, std::memory_order_relaxed);
+        targetModWheel_.store(clampf(modWheel, 0.0f, 1.0f), std::memory_order_relaxed);
     }
 
     void setArpConfig(bool enabled, int mode, int range, float bpm, int rateDiv) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        bool wasEnabled = arpEnabled_;
-        arpEnabled_ = enabled;
-        arpMode_ = clampf(static_cast<float>(mode), 0.0f, 2.0f);
-        arpRange_ = std::max(1, std::min(3, range));
-        arpBpm_ = clampf(bpm, 40.0f, 240.0f);
-        arpRateDiv_ = std::max(1, rateDiv); // 4=1/4, 8=1/8, 16=1/16
-
-        if (wasEnabled && !enabled) {
-            if (arpCurrentNote_ >= 0) {
-                triggerVoiceOffLocked(arpCurrentNote_);
-                arpCurrentNote_ = -1;
-            }
-            heldNotes_.clear();
-        }
+        EngineEvent ev{};
+        ev.type = EventType::ArpConfig;
+        ev.arpEnabled = enabled;
+        ev.arpMode = mode;
+        ev.arpRange = range;
+        ev.arpBpm = bpm;
+        ev.arpRateDiv = rateDiv;
+        pushEventLockFree(ev);
     }
 
     void noteOn(int midiNote, float velocity) {
-        std::lock_guard<std::mutex> lock(mutex_);
         if (midiNote < 0 || midiNote > 127) return;
-
-        if (arpEnabled_) {
-            if (std::find(heldNotes_.begin(), heldNotes_.end(), midiNote) == heldNotes_.end()) {
-                heldNotes_.push_back(midiNote);
-                std::sort(heldNotes_.begin(), heldNotes_.end());
-            }
-            return;
-        }
-
-        triggerVoiceOnLocked(midiNote, velocity);
+        EngineEvent ev{};
+        ev.type = EventType::NoteOn;
+        ev.note = midiNote;
+        ev.velocity = velocity;
+        pushEventLockFree(ev);
     }
 
     void noteOff(int midiNote) {
-        std::lock_guard<std::mutex> lock(mutex_);
         if (midiNote < 0 || midiNote > 127) return;
-
-        auto it = std::find(heldNotes_.begin(), heldNotes_.end(), midiNote);
-        if (it != heldNotes_.end()) {
-            heldNotes_.erase(it);
-        }
-
-        if (arpEnabled_) {
-            if (heldNotes_.empty() && arpCurrentNote_ >= 0) {
-                triggerVoiceOffLocked(arpCurrentNote_);
-                arpCurrentNote_ = -1;
-                arpStepIndex_ = 0;
-            }
-            return;
-        }
-
-        triggerVoiceOffLocked(midiNote);
+        EngineEvent ev{};
+        ev.type = EventType::NoteOff;
+        ev.note = midiNote;
+        pushEventLockFree(ev);
     }
 
     void allNotesOff() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        heldNotes_.clear();
-        arpCurrentNote_ = -1;
-        for (int i = 0; i < kMaxVoices; ++i) {
-            voices_[i].reset();
-        }
+        EngineEvent ev{};
+        ev.type = EventType::AllNotesOff;
+        pushEventLockFree(ev);
     }
 
     int getActiveVoicesCount() const {
-        int count = 0;
-        for (int i = 0; i < kMaxVoices; ++i) {
-            if (voices_[i].active && voices_[i].gate) {
-                count++;
-            }
-        }
-        return count;
+        return activeVoicesCountAtomic_.load(std::memory_order_relaxed);
     }
 
     void copyWaveform(float* dest, int count) const {
@@ -454,134 +460,168 @@ public:
         }
     }
 
+    // 100% Lock-Free Real-Time Audio Callback (Never locks std::mutex, never drops buffers!)
     void renderStereo(float* outInterleaved, int32_t numFrames) {
-        std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
-        if (!lock.owns_lock()) {
-            std::memset(outInterleaved, 0, sizeof(float) * numFrames * 2);
-            return;
-        }
+        // 1. Drain lock-free event queue
+        drainEventsLockFree();
 
         const float sr = sampleRate_;
         const float invSr = 1.0f / sr;
 
-        // Snapshot parameters
-        const float rangeFactor = HeraTables::getRangeFactor(params_[DCORange]);
-        const float sawLevel = clampf(params_[DCOSawLevel], 0.0f, 1.0f);
-        const float pulseLevel = clampf(params_[DCOPulseLevel], 0.0f, 1.0f);
-        const float subLevel = clampf(params_[DCOSubLevel], 0.0f, 1.0f);
-        const float noiseLevel = clampf(params_[DCONoiseLevel], 0.0f, 1.0f);
-        const float pwmDepth = clampf(params_[DCOPWMDepth], 0.0f, 1.0f);
-        const int pwmMod = static_cast<int>(std::round(params_[DCOPWMMod]));
-        const float pitchModDepth = clampf(params_[DCOPitchModDepth], 0.0f, 1.0f);
+        // One-pole RC smoothing coefficients for click-free fader movements (matching setTargetAtTime in v1.1)
+        const float fastSmooth = 1.0f - std::exp(-invSr / 0.005f);   // 5ms RC smoothing
+        const float medSmooth = 1.0f - std::exp(-invSr / 0.015f);    // 15ms RC smoothing
+        const float freqGlideCoef = 1.0f - std::exp(-invSr / 0.0012f); // 1.2ms micro-glide on DCO pitch
 
-        const float hpfFreq = HeraTables::getHpfFrequency(params_[HPF]);
-        const float hpfRC = 1.0f / (kTwoPi * std::max(10.0f, hpfFreq));
-        const float hpfAlpha = hpfRC / (hpfRC + invSr);
+        // Snapshot discrete switches & non-audio-rate targets
+        const float rangeFactor = HeraTables::getRangeFactor(targetParams_[DCORange].load(std::memory_order_relaxed));
+        const int pwmMod = static_cast<int>(std::round(targetParams_[DCOPWMMod].load(std::memory_order_relaxed)));
+        const int vcaType = static_cast<int>(std::round(targetParams_[VCAType].load(std::memory_order_relaxed)));
+        const int lfoTrigMode = static_cast<int>(std::round(targetParams_[LFOTrigMode].load(std::memory_order_relaxed)));
+        const bool lfoManualTrig = targetParams_[LFOManualTrig].load(std::memory_order_relaxed) >= 0.5f;
+        const bool chorusI = targetParams_[ChorusI].load(std::memory_order_relaxed) >= 0.5f;
+        const bool chorusII = targetParams_[ChorusII].load(std::memory_order_relaxed) >= 0.5f;
+        const bool delayEnabled = targetParams_[DelayEnabled].load(std::memory_order_relaxed) >= 0.5f;
+        const bool reverbEnabled = targetParams_[ReverbEnabled].load(std::memory_order_relaxed) >= 0.5f;
+        const bool isHall = static_cast<int>(std::round(targetParams_[ReverbType].load(std::memory_order_relaxed))) >= 1;
 
-        const float vcfCutoffParam = clampf(params_[VCFCutoff], 0.0f, 1.0f);
-        const float vcfResParam = clampf(params_[VCFResonance], 0.0f, 1.0f);
-        const float vcfEnvParam = clampf(params_[VCFEnv], -1.0f, 1.0f);
-        const float vcfLfoParam = clampf(params_[VCFLFO], 0.0f, 1.0f);
-        const float vcfKeyParam = clampf(params_[VCFKey], 0.0f, 1.0f);
-        const float vcfBendParam = clampf(params_[VCFBendDepth], 0.0f, 1.0f);
+        // ADSR times & exact v1.1 Stable RC time constants (attackSec * 0.35, decaySec * 0.33, releaseSec * 0.25)
+        const float attackSec = HeraTables::getAttackSec(targetParams_[ENVAttack].load(std::memory_order_relaxed));
+        const float decaySec = HeraTables::getDecaySec(targetParams_[ENVDecay].load(std::memory_order_relaxed));
+        const float sustainLevel = clampf(targetParams_[ENVSustain].load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float releaseSec = HeraTables::getReleaseSec(targetParams_[ENVRelease].load(std::memory_order_relaxed));
 
-        const int vcaType = static_cast<int>(std::round(params_[VCAType]));
-        const float vcaDepth = clampf(params_[VCADepth], 0.0f, 1.0f);
+        const float attackCoef = std::exp(-invSr / std::max(0.001f, attackSec * 0.35f));
+        const float decayCoef = std::exp(-invSr / std::max(0.002f, decaySec * 0.33f));
+        const float releaseCoef = std::exp(-invSr / std::max(0.005f, releaseSec * 0.25f));
+        const float sameNoteDampCoef = std::exp(-invSr / 0.016f); // v1.1 softenSameNoteRelease 16ms RC
+        const float gateAttackCoef = std::exp(-invSr / 0.0025f);  // v1.1 2.5ms RC gate attack
+        const float gateReleaseCoef = std::exp(-invSr / 0.0040f); // v1.1 4.0ms RC gate release
 
-        const float attackSec = HeraTables::getAttackSec(params_[ENVAttack]);
-        const float decaySec = HeraTables::getDecaySec(params_[ENVDecay]);
-        const float sustainLevel = clampf(params_[ENVSustain], 0.0f, 1.0f);
-        const float releaseSec = HeraTables::getReleaseSec(params_[ENVRelease]);
+        const float lfoRateHz = HeraTables::getLfoRateHz(targetParams_[LFORate].load(std::memory_order_relaxed));
+        const float lfoDelaySec = HeraTables::getLfoDelaySec(targetParams_[LFODelay].load(std::memory_order_relaxed));
 
-        const float attackCoef = std::exp(-invSr / std::max(0.0005f, attackSec * 0.45f));
-        const float decayCoef = std::exp(-invSr / std::max(0.001f, decaySec * 0.35f));
-        const float releaseCoef = std::exp(-invSr / std::max(0.001f, releaseSec * 0.35f));
-        const float gateCoef = std::exp(-invSr / 0.0035f);
+        // BBD Chorus 7500 Hz Low-pass filter coefficient (matching v1.1 chorusFilterL/R = 7500 Hz)
+        const float chorusLpfAlpha = 1.0f - std::exp(-kTwoPi * 7500.0f * invSr);
+        // Tape Delay 4500 Hz Low-pass filter coefficient (matching v1.1 delayFilterL/R = 4500 Hz)
+        const float delayLpfAlpha = 1.0f - std::exp(-kTwoPi * 4500.0f * invSr);
+        // Reverb 135 Hz Low-cut High-pass filter coefficient (matching v1.1 lowCut = 135 Hz)
+        const float reverbHpfRC = 1.0f / (kTwoPi * 135.0f);
+        const float reverbHpfAlpha = reverbHpfRC / (reverbHpfRC + invSr);
 
-        const float lfoRateHz = HeraTables::getLfoRateHz(params_[LFORate]);
-        const float lfoDelaySec = HeraTables::getLfoDelaySec(params_[LFODelay]);
-        const int lfoTrigMode = static_cast<int>(std::round(params_[LFOTrigMode]));
-        const bool lfoManualTrig = params_[LFOManualTrig] >= 0.5f;
+        // Reverb tank parameters matching v1.1 Stable (lines 1149-1168 of HeraAudioEngine.ts)
+        const float reverbTimeNorm = clampf(targetParams_[ReverbTime].load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float reverbDecayNorm = clampf(targetParams_[ReverbDecay].load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float reverbMixNorm = clampf(targetParams_[ReverbMix].load(std::memory_order_relaxed), 0.0f, 1.0f);
 
-        const bool chorusI = params_[ChorusI] >= 0.5f;
-        const bool chorusII = params_[ChorusII] >= 0.5f;
-
-        const bool delayEnabled = params_[DelayEnabled] >= 0.5f;
-        const float delayTimeParam = clampf(params_[DelayTime], 0.0f, 1.0f);
-        const float delayFeedbackParam = clampf(params_[DelayFeedback], 0.0f, 0.92f);
-        const float delayMixParam = clampf(params_[DelayMix], 0.0f, 1.0f);
-
-        const bool reverbEnabled = params_[ReverbEnabled] >= 0.5f;
-        const int reverbType = static_cast<int>(std::round(params_[ReverbType])); // 0=Plate, 1=Hall
-        const float reverbTimeParam = clampf(params_[ReverbTime], 0.0f, 1.0f);
-        const float reverbDecayParam = clampf(params_[ReverbDecay], 0.0f, 1.0f);
-        const float reverbMixParam = clampf(params_[ReverbMix], 0.0f, 1.0f);
-
-        const float masterVolume = clampf(params_[MasterVolume], 0.0f, 1.0f);
-
-        // Precompute reverb parameters outside sample loop
-        const bool isHall = (reverbType == 1);
         const float preDelaySec = isHall
-            ? (0.018f + reverbTimeParam * 0.095f)
-            : (0.004f + reverbTimeParam * 0.045f);
+            ? (0.015f + reverbTimeNorm * 0.080f)
+            : (0.004f + reverbTimeNorm * 0.041f);
         const float preDelaySamples = preDelaySec * sr;
-        const float timeScale = isHall
-            ? (1.15f + reverbTimeParam * 0.65f)
-            : (0.65f + reverbTimeParam * 0.55f);
-        const float reverbFeedback = isHall
-            ? (0.74f + reverbDecayParam * 0.21f)
-            : (0.70f + reverbDecayParam * 0.23f);
-        const float reverbDamp = isHall
-            ? (0.45f - reverbDecayParam * 0.22f)
-            : (0.25f - reverbDecayParam * 0.14f);
-        const float reverbModInc = kTwoPi * (isHall ? 0.55f : 0.95f) * invSr;
-        const float reverbModDepthSamples = (isHall ? 0.0014f : 0.0008f) * sr;
-        const float combBaseSec[6] = { 0.0297f, 0.0371f, 0.0411f, 0.0437f, 0.0531f, 0.0617f };
+        const float reverbSizeScale = isHall
+            ? (1.15f + reverbTimeNorm * 0.70f)
+            : (0.85f + reverbTimeNorm * 0.40f);
+        const float reverbDampingHz = isHall ? 3400.0f : 6800.0f;
+        const float reverbDampCoef = std::exp(-kTwoPi * reverbDampingHz * invSr);
+        const float reverbFeedback = 0.32f + reverbDecayNorm * 0.605f;
+        const float reverbModInc = kTwoPi * 0.41f * invSr;
+        const float reverbModDepthSamples = 0.00024f * sr;
+        const float baseCombTimes[6] = { 0.0297f, 0.0371f, 0.0411f, 0.0313f, 0.0389f, 0.0437f };
+
+        // Master Peak Limiter coefficients (-1.5 dB = 0.8414f threshold, 1ms attack, 120ms release)
+        const float limiterThreshold = 0.8414f;
+        const float limiterAttackCoef = std::exp(-invSr / 0.001f);
+        const float limiterReleaseCoef = std::exp(-invSr / 0.120f);
+        const float normTanh1_2 = 1.0f / std::tanh(1.2f);
 
         for (int32_t frame = 0; frame < numFrames; ++frame) {
-            // 1. Arpeggiator clock step
+            // Smooth continuous parameters (eliminating zipper noise)
+            smoothedParams_[DCOSawLevel] += fastSmooth * (targetParams_[DCOSawLevel].load(std::memory_order_relaxed) - smoothedParams_[DCOSawLevel]);
+            smoothedParams_[DCOPulseLevel] += fastSmooth * (targetParams_[DCOPulseLevel].load(std::memory_order_relaxed) - smoothedParams_[DCOPulseLevel]);
+            smoothedParams_[DCOSubLevel] += fastSmooth * (targetParams_[DCOSubLevel].load(std::memory_order_relaxed) - smoothedParams_[DCOSubLevel]);
+            smoothedParams_[DCONoiseLevel] += fastSmooth * (targetParams_[DCONoiseLevel].load(std::memory_order_relaxed) - smoothedParams_[DCONoiseLevel]);
+            smoothedParams_[DCOPWMDepth] += fastSmooth * (targetParams_[DCOPWMDepth].load(std::memory_order_relaxed) - smoothedParams_[DCOPWMDepth]);
+            smoothedParams_[DCOPitchModDepth] += fastSmooth * (targetParams_[DCOPitchModDepth].load(std::memory_order_relaxed) - smoothedParams_[DCOPitchModDepth]);
+            smoothedParams_[HPF] += medSmooth * (targetParams_[HPF].load(std::memory_order_relaxed) - smoothedParams_[HPF]);
+            smoothedParams_[VCFCutoff] += fastSmooth * (targetParams_[VCFCutoff].load(std::memory_order_relaxed) - smoothedParams_[VCFCutoff]);
+            smoothedParams_[VCFResonance] += medSmooth * (targetParams_[VCFResonance].load(std::memory_order_relaxed) - smoothedParams_[VCFResonance]);
+            smoothedParams_[VCFEnv] += fastSmooth * (targetParams_[VCFEnv].load(std::memory_order_relaxed) - smoothedParams_[VCFEnv]);
+            smoothedParams_[VCFLFO] += fastSmooth * (targetParams_[VCFLFO].load(std::memory_order_relaxed) - smoothedParams_[VCFLFO]);
+            smoothedParams_[VCFKey] += fastSmooth * (targetParams_[VCFKey].load(std::memory_order_relaxed) - smoothedParams_[VCFKey]);
+            smoothedParams_[VCFBendDepth] += fastSmooth * (targetParams_[VCFBendDepth].load(std::memory_order_relaxed) - smoothedParams_[VCFBendDepth]);
+            smoothedParams_[VCADepth] += fastSmooth * (targetParams_[VCADepth].load(std::memory_order_relaxed) - smoothedParams_[VCADepth]);
+            smoothedParams_[DelayTime] += medSmooth * (targetParams_[DelayTime].load(std::memory_order_relaxed) - smoothedParams_[DelayTime]);
+            smoothedParams_[DelayFeedback] += medSmooth * (targetParams_[DelayFeedback].load(std::memory_order_relaxed) - smoothedParams_[DelayFeedback]);
+            smoothedParams_[DelayMix] += medSmooth * (targetParams_[DelayMix].load(std::memory_order_relaxed) - smoothedParams_[DelayMix]);
+            smoothedParams_[MasterVolume] += medSmooth * (targetParams_[MasterVolume].load(std::memory_order_relaxed) - smoothedParams_[MasterVolume]);
+
+            smoothPitchBendSemis_ += fastSmooth * (targetPitchBendSemis_.load(std::memory_order_relaxed) - smoothPitchBendSemis_);
+            smoothModWheel_ += fastSmooth * (targetModWheel_.load(std::memory_order_relaxed) - smoothModWheel_);
+
+            // 1. Arpeggiator clock with 70% Gate Duty Cycle (matching v1.1 Stable lines 1313-1323)
             if (arpEnabled_ && !heldNotes_.empty()) {
                 float beatsPerSec = arpBpm_ / 60.0f;
                 float notesPerBeat = static_cast<float>(arpRateDiv_) / 4.0f;
                 float stepDurationSamples = sr / std::max(0.5f, beatsPerSec * notesPerBeat);
+                float gateOffSamples = stepDurationSamples * 0.70f;
+
+                if (arpSampleCounter_ == 0.0f) {
+                    advanceArpeggiatorStep();
+                }
                 arpSampleCounter_ += 1.0f;
+
+                if (!arpGateReleased_ && arpSampleCounter_ >= gateOffSamples) {
+                    arpGateReleased_ = true;
+                    if (arpCurrentNote_ >= 0) {
+                        triggerVoiceOff(arpCurrentNote_);
+                        arpCurrentNote_ = -1;
+                    }
+                }
                 if (arpSampleCounter_ >= stepDurationSamples) {
                     arpSampleCounter_ = 0.0f;
-                    advanceArpeggiatorStepLocked();
+                    arpGateReleased_ = false;
                 }
             } else {
                 arpSampleCounter_ = 0.0f;
+                arpGateReleased_ = false;
             }
 
-            // 2. Global LFO
-            bool anyGateActive = false;
-            for (int v = 0; v < kMaxVoices; ++v) {
-                if (voices_[v].gate) {
-                    anyGateActive = true;
-                    break;
-                }
-            }
-
+            // 2. Global Sine LFO (matching v1.1 globalLfoOsc.type = 'sine')
             lfoPhase_ += lfoRateHz * invSr;
             if (lfoPhase_ >= 1.0f) lfoPhase_ -= 1.0f;
-            // Triangle LFO (-1..+1)
-            float lfoTri = 4.0f * std::fabs(lfoPhase_ - 0.5f) - 1.0f;
+            const float lfoSine = std::sin(lfoPhase_ * kTwoPi);
 
-            bool lfoTriggered = (lfoTrigMode == 1) ? anyGateActive : lfoManualTrig;
-            if (lfoTriggered) {
-                if (lfoDelaySec <= 0.005f) {
-                    lfoEnv_ = 1.0f;
-                } else {
-                    lfoEnv_ = std::min(1.0f, lfoEnv_ + invSr / lfoDelaySec);
-                }
-            } else {
-                lfoEnv_ = std::max(0.0f, lfoEnv_ - invSr * 8.0f);
-            }
-            float lfoOut = lfoTri * std::max(lfoEnv_, modWheel_);
-
-            // 3. White noise PRNG
+            // 3. Paul Kellet Warm Pink Noise Generator (matching v1.1 Stable lines 673-684)
             noiseSeed_ = noiseSeed_ * 196314165u + 907633515u;
-            float whiteNoise = (static_cast<float>(noiseSeed_ >> 9) / 4194304.0f) - 1.0f;
+            const float white = (static_cast<float>(noiseSeed_ >> 9) / 4194304.0f) - 1.0f;
+            pinkB0_ = 0.99886f * pinkB0_ + white * 0.0555179f;
+            pinkB1_ = 0.99332f * pinkB1_ + white * 0.0750759f;
+            pinkB2_ = 0.96900f * pinkB2_ + white * 0.1538520f;
+            pinkB3_ = 0.86650f * pinkB3_ + white * 0.3104856f;
+            pinkB4_ = 0.55000f * pinkB4_ + white * 0.5329522f;
+            pinkB5_ = -0.7616f * pinkB5_ - white * 0.0168980f;
+            const float pinkNoise = (pinkB0_ + pinkB1_ + pinkB2_ + pinkB3_ + pinkB4_ + pinkB5_ + pinkB6_ + white * 0.5362f) * 0.11f;
+            pinkB6_ = white * 0.115926f;
+
+            // Pre-filter DCO mix levels matching v1.1 Stable (0.24 / 0.24 / 0.18 / 0.12)
+            const float sawGain = clampf(smoothedParams_[DCOSawLevel], 0.0f, 1.0f) * 0.24f;
+            const float pulseGain = clampf(smoothedParams_[DCOPulseLevel], 0.0f, 1.0f) * 0.24f;
+            const float subGain = clampf(smoothedParams_[DCOSubLevel], 0.0f, 1.0f) * 0.18f;
+            const float noiseGain = clampf(smoothedParams_[DCONoiseLevel], 0.0f, 1.0f) * 0.12f;
+
+            const float pwmDepth = clampf(smoothedParams_[DCOPWMDepth], 0.0f, 1.0f);
+            const float pitchModDepth = clampf(smoothedParams_[DCOPitchModDepth], 0.0f, 1.0f);
+            const float vcfCutoffNorm = clampf(smoothedParams_[VCFCutoff], 0.0f, 1.0f);
+            const float vcfResNorm = clampf(smoothedParams_[VCFResonance], 0.0f, 1.0f);
+            const float vcfEnvNorm = clampf(smoothedParams_[VCFEnv], -1.0f, 1.0f);
+            const float vcfLfoNorm = clampf(smoothedParams_[VCFLFO], 0.0f, 1.0f);
+            const float vcfKeyNorm = clampf(smoothedParams_[VCFKey], 0.0f, 1.0f);
+            const float vcfBendNorm = clampf(smoothedParams_[VCFBendDepth], 0.0f, 1.0f);
+            const float vcaLevel = clampf(smoothedParams_[VCADepth], 0.0f, 1.0f);
+
+            // Base cutoff Hz matching v1.1 Stable: 16 * (20000 / 16)^VCFCutoff
+            const float baseCutoffHz = 16.0f * std::pow(20000.0f / 16.0f, vcfCutoffNorm);
+            const float kRes = 3.15f * std::pow(vcfResNorm, 1.1f);
 
             float voiceSum = 0.0f;
 
@@ -590,35 +630,57 @@ public:
                 JunoVoice& voice = voices_[v];
                 if (!voice.active) continue;
 
-                // ADSR Envelope
+                const float envPeak = voice.velocityFactor;
+                const float voiceSustainTarget = sustainLevel * envPeak;
+
+                // Continuous RC Capacitor ADSR Envelope matching v1.1 Stable (lines 243-255 & 474-487)
                 switch (voice.envStage) {
                     case EnvStage::Attack: {
-                        voice.envLevel = 1.25f + (voice.envLevel - 1.25f) * attackCoef;
-                        if (voice.envLevel >= 1.0f) {
-                            voice.envLevel = 1.0f;
-                            voice.envStage = EnvStage::Decay;
+                        if (sustainLevel >= 0.99f) {
+                            voice.envLevel = envPeak + (voice.envLevel - envPeak) * attackCoef;
+                            voice.vcfEnvLevel = 1.0f + (voice.vcfEnvLevel - 1.0f) * attackCoef;
+                            if (voice.envLevel >= envPeak * 0.995f) {
+                                voice.envLevel = envPeak;
+                                voice.vcfEnvLevel = 1.0f;
+                                voice.envStage = EnvStage::Sustain;
+                            }
+                        } else {
+                            float targetPeak = envPeak * 1.04f;
+                            voice.envLevel = targetPeak + (voice.envLevel - targetPeak) * attackCoef;
+                            voice.vcfEnvLevel = 1.04f + (voice.vcfEnvLevel - 1.04f) * attackCoef;
+                            if (voice.envLevel >= envPeak) {
+                                voice.envLevel = envPeak;
+                                voice.vcfEnvLevel = 1.0f;
+                                voice.envStage = EnvStage::Decay;
+                            }
                         }
                         break;
                     }
                     case EnvStage::Decay: {
-                        voice.envLevel = sustainLevel + (voice.envLevel - sustainLevel) * decayCoef;
-                        if (std::fabs(voice.envLevel - sustainLevel) < 0.0005f) {
-                            voice.envLevel = sustainLevel;
+                        voice.envLevel = voiceSustainTarget + (voice.envLevel - voiceSustainTarget) * decayCoef;
+                        voice.vcfEnvLevel = sustainLevel + (voice.vcfEnvLevel - sustainLevel) * decayCoef;
+                        if (std::fabs(voice.envLevel - voiceSustainTarget) < 0.0005f) {
+                            voice.envLevel = voiceSustainTarget;
+                            voice.vcfEnvLevel = sustainLevel;
                             voice.envStage = EnvStage::Sustain;
                         }
                         break;
                     }
                     case EnvStage::Sustain: {
-                        voice.envLevel = sustainLevel;
-                        if (!voice.gate) {
+                        voice.envLevel = voiceSustainTarget + (voice.envLevel - voiceSustainTarget) * medSmooth;
+                        voice.vcfEnvLevel = sustainLevel + (voice.vcfEnvLevel - sustainLevel) * medSmooth;
+                        if (voice.released) {
                             voice.envStage = EnvStage::Release;
                         }
                         break;
                     }
                     case EnvStage::Release: {
-                        voice.envLevel *= releaseCoef;
-                        if (voice.envLevel < 0.0002f) {
+                        float relCoef = voice.sameNoteDamped ? sameNoteDampCoef : releaseCoef;
+                        voice.envLevel *= relCoef;
+                        voice.vcfEnvLevel *= releaseCoef;
+                        if (voice.envLevel < 0.00015f) {
                             voice.envLevel = 0.0f;
+                            voice.vcfEnvLevel = 0.0f;
                             voice.envStage = EnvStage::Idle;
                         }
                         break;
@@ -626,25 +688,47 @@ public:
                     case EnvStage::Idle:
                     default:
                         voice.envLevel = 0.0f;
+                        voice.vcfEnvLevel = 0.0f;
                         break;
                 }
 
-                // Gate De-click Envelope
-                float gateTarget = voice.gate ? 1.0f : 0.0f;
-                voice.gateEnvLevel = gateTarget + (voice.gateEnvLevel - gateTarget) * gateCoef;
+                // Gate mode envelope (2.5ms RC attack, 4.0ms RC release matching v1.1)
+                if (!voice.released) {
+                    voice.gateEnvLevel = envPeak + (voice.gateEnvLevel - envPeak) * gateAttackCoef;
+                } else {
+                    float gRel = voice.sameNoteDamped ? sameNoteDampCoef : gateReleaseCoef;
+                    voice.gateEnvLevel *= gRel;
+                }
 
-                float ampEnv = (vcaType == 0) ? voice.envLevel : voice.gateEnvLevel;
-                if (ampEnv < 0.0002f && !voice.gate) {
-                    voice.reset();
+                const float ampEnv = (vcaType == 1) ? voice.gateEnvLevel : voice.envLevel;
+                if (ampEnv < 0.00015f && voice.released) {
+                    voice.active = false;
+                    voice.note = -1;
+                    voice.sameNoteDamped = false;
                     continue;
                 }
 
-                // DCO Pitch calculation
-                float pitchSemis = static_cast<float>(voice.note)
-                    + pitchBend_ * 7.0f
-                    + lfoOut * pitchModDepth * 3.0f;
-                float freq = 440.0f * std::pow(2.0f, (pitchSemis - 69.0f) / 12.0f) * rangeFactor;
-                freq = clampf(freq, 16.0f, sr * 0.45f);
+                // Per-voice LFO delay envelope matching v1.1 scheduleLfo
+                float voiceLfoEnv = 0.0f;
+                bool lfoActiveForVoice = (lfoTrigMode == 1) ? (!voice.released) : lfoManualTrig;
+                if (lfoActiveForVoice) {
+                    voice.lfoDelayElapsedSec += invSr;
+                    if (lfoDelaySec < 0.02f) {
+                        voiceLfoEnv = 1.0f;
+                    } else if (voice.lfoDelayElapsedSec >= lfoDelaySec) {
+                        float afterDelay = voice.lfoDelayElapsedSec - lfoDelaySec;
+                        voiceLfoEnv = 1.0f - std::exp(-afterDelay / 0.12f);
+                    }
+                }
+                const float pitchLfoCents = lfoSine * ((pitchModDepth * 320.0f * voiceLfoEnv) + (smoothModWheel_ * 320.0f));
+                const float filterLfoCents = lfoSine * (vcfLfoNorm * 2600.0f * std::max(voiceLfoEnv, smoothModWheel_));
+
+                // Target DCO frequency with 1.2ms micro-glide (matching v1.1 setTargetAtTime(..., 0.0012))
+                float noteTargetHz = 440.0f * std::pow(2.0f, (static_cast<float>(voice.note) - 69.0f) / 12.0f) * rangeFactor;
+                voice.currentFreqHz += freqGlideCoef * (noteTargetHz - voice.currentFreqHz);
+
+                float detuneRatio = std::pow(2.0f, (smoothPitchBendSemis_ * 100.0f + pitchLfoCents) / 1200.0f);
+                float freq = clampf(voice.currentFreqHz * detuneRatio, 16.0f, sr * 0.45f);
                 float dt = freq * invSr;
 
                 voice.phase += dt;
@@ -661,11 +745,11 @@ public:
                 if (pwmMod == 0) {
                     pwModSource = pwmDepth;
                 } else if (pwmMod == 1) {
-                    pwModSource = (lfoTri * 0.5f + 0.5f) * pwmDepth;
+                    pwModSource = (lfoSine * 0.5f + 0.5f) * pwmDepth;
                 } else {
-                    pwModSource = voice.envLevel * pwmDepth;
+                    pwModSource = voice.vcfEnvLevel * pwmDepth;
                 }
-                float pw = clampf(0.5f + pwModSource * 0.45f, 0.05f, 0.95f);
+                float pw = clampf(0.5f - 0.45f * pwModSource, 0.05f, 0.95f);
 
                 float pulse = (voice.phase < pw) ? 1.0f : -1.0f;
                 pulse += polyBlep(voice.phase, dt);
@@ -676,147 +760,201 @@ public:
                 // Sub-Oscillator (-1 octave square)
                 float sub = voice.subFlip ? 1.0f : -1.0f;
 
-                float dcoMix = saw * sawLevel * 0.45f
-                             + pulse * pulseLevel * 0.45f
-                             + sub * subLevel * 0.42f
-                             + whiteNoise * noiseLevel * 0.35f;
+                float dcoMix = saw * sawGain
+                             + pulse * pulseGain
+                             + sub * subGain
+                             + pinkNoise * noiseGain;
 
-                // 1-Pole High-Pass Filter (HPF)
-                float hpfOut = hpfAlpha * (voice.hpfOutPrev + dcoMix - voice.hpfInPrev);
-                voice.hpfInPrev = dcoMix;
-                voice.hpfOutPrev = hpfOut;
+                // 4-Pole Cascaded VCF matching v1.1 Stable frequency equations (lines 363-383)
+                float keyTrackingRatio = std::pow(2.0f, vcfKeyNorm * ((static_cast<float>(voice.note) - 60.0f) / 12.0f));
+                float bendRatio = std::pow(2.0f, vcfBendNorm * (smoothPitchBendSemis_ / 12.0f));
+                float envOctaves = vcfEnvNorm * 6.5f * voice.vcfEnvLevel;
+                float lfoOctaves = filterLfoCents / 1200.0f;
 
-                // 4-Pole 24dB/oct Resonant OTA VCF (IR3109 emulation)
-                float baseCutCents = vcfCutoffParam * 11600.0f; // 20Hz .. ~16kHz
-                float envModCents = vcfEnvParam * voice.envLevel * 8400.0f;
-                float lfoModCents = vcfLfoParam * lfoOut * 3600.0f;
-                float keyModCents = vcfKeyParam * (static_cast<float>(voice.note - 60) * 100.0f);
-                float bendModCents = vcfBendParam * pitchBend_ * 2400.0f;
-
-                float totalCents = baseCutCents + envModCents + lfoModCents + keyModCents + bendModCents;
-                float cutFreq = 20.0f * std::pow(2.0f, totalCents / 1200.0f);
-                cutFreq = clampf(cutFreq, 20.0f, sr * 0.42f);
+                float cutFreq = baseCutoffHz * keyTrackingRatio * bendRatio * std::pow(2.0f, envOctaves + lfoOctaves);
+                cutFreq = clampf(cutFreq, 16.0f, std::min(20000.0f, sr * 0.42f));
 
                 float g = std::tan(kPi * cutFreq * invSr);
                 float G = g / (1.0f + g);
-                float kRes = 3.85f * std::pow(vcfResParam, 1.15f);
 
-                // Soft-saturated feedback path (OTA warmth)
-                float feedbackSig = std::tanh(voice.z4 * 1.15f);
-                float u = (hpfOut - kRes * feedbackSig) / (1.0f + kRes * G * G * G * G);
+                float feedbackSig = std::tanh(voice.z4);
+                float u = (dcoMix - kRes * feedbackSig) / (1.0f + kRes * G * G * G * G);
 
-                voice.z1 += G * (std::tanh(u) - voice.z1);
+                voice.z1 += G * (u - voice.z1);
                 voice.z2 += G * (voice.z1 - voice.z2);
                 voice.z3 += G * (voice.z2 - voice.z3);
                 voice.z4 += G * (voice.z3 - voice.z4);
 
-                float vcaGain = 0.15f + vcaDepth * 0.85f;
-                float voiceSample = voice.z4 * ampEnv * vcaGain * voice.velocity;
-                voiceSum += voiceSample;
+                float voiceOut = voice.z4 * ampEnv * vcaLevel;
+                voiceSum += voiceOut;
             }
 
-            // Normalize polyphonic bus & apply warm analog saturation
-            float monoBus = std::tanh(voiceSum * 0.65f);
+            // 5. Global HPF -> Soft Clipper -> Master Gain (matching v1.1 Stable lines 697-716)
+            const float hpfFreq = HeraTables::getHpfFrequency(smoothedParams_[HPF]);
+            const float hpfRC = 1.0f / (kTwoPi * std::max(10.0f, hpfFreq));
+            const float hpfAlpha = hpfRC / (hpfRC + invSr);
 
-            // 5. Stereo BBD Chorus (Juno-60 I, II, I+II)
-            float stereoL = monoBus;
-            float stereoR = monoBus;
+            float hpfOut = hpfAlpha * (globalHpfOutPrev_ + voiceSum - globalHpfInPrev_);
+            globalHpfInPrev_ = voiceSum;
+            globalHpfOutPrev_ = hpfOut;
 
-            if (chorusI || chorusII) {
-                float chorusRateHz = (chorusI && chorusII) ? 0.95f : (chorusII ? 0.80f : 0.50f);
-                float chorusDepthMs = (chorusI && chorusII) ? 2.6f : (chorusII ? 2.9f : 2.1f);
-                float baseDelayMs = 3.4f;
+            // Musical tape-like soft saturation without harsh clipping: tanh(1.2 * x) / tanh(1.2)
+            float softClipped = std::tanh(1.2f * hpfOut) * normTanh1_2;
+            float preChorusBus = softClipped * ( clampf(smoothedParams_[MasterVolume], 0.0f, 1.0f) * 0.85f );
+
+            // 6. Authentic Roland Juno-60 Stereo BBD Chorus (Modes I, II, I+II with 7500Hz LPF & 180-deg inverted Right wet)
+            float stereoL = preChorusBus;
+            float stereoR = preChorusBus;
+
+            chorusDelayL_.write(preChorusBus);
+            chorusDelayR_.write(preChorusBus);
+
+            const int chorusMode = (chorusI ? 1 : 0) | (chorusII ? 2 : 0);
+            if (chorusMode != 0) {
+                float chorusRateHz = 0.513f;
+                float baseDelaySecL = 0.0040f;
+                float baseDelaySecR = 0.0044f;
+                float modDepthSec = 0.0013f;
+                float dryGain = 0.65f;
+                float wetGain = 0.52f;
+
+                if (chorusMode == 2) {
+                    // Chorus II
+                    chorusRateHz = 0.863f;
+                    baseDelaySecL = 0.0052f;
+                    baseDelaySecR = 0.0058f;
+                    modDepthSec = 0.0024f;
+                    dryGain = 0.48f;
+                    wetGain = 0.68f;
+                } else if (chorusMode == 3) {
+                    // Chorus I + II
+                    chorusRateHz = 1.02f;
+                    baseDelaySecL = 0.0046f;
+                    baseDelaySecR = 0.0050f;
+                    modDepthSec = 0.0016f;
+                    dryGain = 0.50f;
+                    wetGain = 0.60f;
+                }
 
                 chorusPhase_ += chorusRateHz * invSr;
                 if (chorusPhase_ >= 1.0f) chorusPhase_ -= 1.0f;
-                float modTri = 4.0f * std::fabs(chorusPhase_ - 0.5f) - 1.0f;
+                float chorusLfo = std::sin(chorusPhase_ * kTwoPi);
 
-                chorusDelayL_.write(monoBus);
-                chorusDelayR_.write(monoBus);
+                float delaySamplesL = (baseDelaySecL + chorusLfo * modDepthSec) * sr;
+                float delaySamplesR = (baseDelaySecR - chorusLfo * modDepthSec) * sr;
 
-                float delaySamplesL = (baseDelayMs + modTri * chorusDepthMs) * 0.001f * sr;
-                float delaySamplesR = (baseDelayMs - modTri * chorusDepthMs) * 0.001f * sr;
+                float rawWetL = chorusDelayL_.readInterpolated(delaySamplesL);
+                float rawWetR = chorusDelayR_.readInterpolated(delaySamplesR);
 
-                float wetL = chorusDelayL_.readInterpolated(delaySamplesL);
-                float wetR = chorusDelayR_.readInterpolated(delaySamplesR);
+                // 7.5 kHz BBD low-pass reconstruction filter
+                chorusLpfL_ += chorusLpfAlpha * (rawWetL - chorusLpfL_);
+                chorusLpfR_ += chorusLpfAlpha * (rawWetR - chorusLpfR_);
 
-                stereoL = monoBus * 0.65f + wetL * 0.55f;
-                stereoR = monoBus * 0.65f + wetR * 0.55f;
+                // 180-degree inverted polarity on Right wet channel matching v1.1 Stable (line 794)
+                stereoL = preChorusBus * dryGain + chorusLpfL_ * wetGain;
+                stereoR = preChorusBus * dryGain - chorusLpfR_ * wetGain;
             }
 
-            // 6. Stereo Tape Echo Delay
-            if (delayEnabled && delayMixParam > 0.001f) {
-                float echoSecL = 0.06f + delayTimeParam * 0.84f;
-                float echoSecR = echoSecL * 1.02f; // Subtle stereo ping-pong spread
-                float echoSamplesL = echoSecL * sr;
-                float echoSamplesR = echoSecR * sr;
+            // 7. Stereo Tape Echo Delay (matching v1.1 Stable lines 1091-1107)
+            const float delayMix = clampf(smoothedParams_[DelayMix], 0.0f, 1.0f);
+            if (delayEnabled && delayMix > 0.001f) {
+                float baseTimeSec = 0.06f + clampf(smoothedParams_[DelayTime], 0.0f, 1.0f) * 0.69f;
+                float timeL = clampf(baseTimeSec, 0.01f, 1.8f);
+                float timeR = clampf(baseTimeSec * 1.333f, 0.01f, 1.8f);
 
-                float delL = echoDelayL_.readInterpolated(echoSamplesL);
-                float delR = echoDelayR_.readInterpolated(echoSamplesR);
+                float fb = clampf(smoothedParams_[DelayFeedback], 0.0f, 0.85f) * 0.72f * 0.45f;
+                float wet = delayMix * 0.65f;
+                float dry = std::max(0.0f, 1.0f - (wet * 0.35f));
 
-                // Warm tape low-pass in feedback loop
-                echoFilterL_ = delL * 0.65f + echoFilterL_ * 0.35f;
-                echoFilterR_ = delR * 0.65f + echoFilterR_ * 0.35f;
+                float delL = echoDelayL_.readInterpolated(timeL * sr);
+                float delR = echoDelayR_.readInterpolated(timeR * sr);
 
-                echoDelayL_.write(stereoL + echoFilterR_ * delayFeedbackParam);
-                echoDelayR_.write(stereoR + echoFilterL_ * delayFeedbackParam);
+                // 4500 Hz warm tape low-pass absorption filter
+                echoFilterL_ += delayLpfAlpha * (delL - echoFilterL_);
+                echoFilterR_ += delayLpfAlpha * (delR - echoFilterR_);
 
-                stereoL = stereoL * (1.0f - delayMixParam * 0.35f) + echoFilterL_ * delayMixParam;
-                stereoR = stereoR * (1.0f - delayMixParam * 0.35f) + echoFilterR_ * delayMixParam;
+                // Cross-fed stereo feedback loop matching v1.1 Stable (lines 856-865)
+                echoDelayL_.write(stereoL + (echoFilterL_ + echoFilterR_) * fb);
+                echoDelayR_.write(stereoR + (echoFilterR_ + echoFilterL_) * fb);
+
+                stereoL = stereoL * dry + delL * wet;
+                stereoR = stereoR * dry + delR * wet;
             } else {
                 echoDelayL_.write(0.0f);
                 echoDelayR_.write(0.0f);
+                echoFilterL_ = 0.0f;
+                echoFilterR_ = 0.0f;
             }
 
-            // 7. Global Post-Processing Stereo Reverb (Studio Plate & Concert Hall)
-            if (reverbEnabled && reverbMixParam > 0.001f) {
+            // 8. Global Post-Processing Stereo Reverb (matching v1.1 Stable lines 891-999 & 1146-1191)
+            if (reverbEnabled && reverbMixNorm > 0.001f) {
                 float revIn = (stereoL + stereoR) * 0.5f;
                 reverbPreDelay_.write(revIn);
                 float preDelayed = reverbPreDelay_.readInterpolated(preDelaySamples);
 
-                // Early reflections diffusion
-                float diffL = reverbDiffuser2L_.process(reverbDiffuser1L_.process(preDelayed));
-                float diffR = reverbDiffuser2R_.process(reverbDiffuser1R_.process(preDelayed));
+                // 135 Hz Low-Cut High-Pass filter keeping low-end tight and clean
+                float lowCutOut = reverbHpfAlpha * (reverbLowCutOutPrev_ + preDelayed - reverbLowCutInPrev_);
+                reverbLowCutInPrev_ = preDelayed;
+                reverbLowCutOutPrev_ = lowCutOut;
 
-                float combSumL = 0.0f;
-                float combSumR = 0.0f;
+                // Dual Allpass Diffusers
+                float diffL = reverbDiffuser2L_.process(reverbDiffuser1L_.process(lowCutOut));
+                float diffR = reverbDiffuser2R_.process(reverbDiffuser1R_.process(lowCutOut));
+
+                float leftSum = 0.0f;
+                float rightSum = 0.0f;
                 for (int c = 0; c < 6; ++c) {
-                    float cDelay = combBaseSec[c] * timeScale * sr;
-                    float cIn = (c % 2 == 0) ? diffL : diffR;
+                    float cDelaySamples = std::min(0.22f, baseCombTimes[c] * reverbSizeScale) * sr;
+                    float modDepth = (c == 1) ? reverbModDepthSamples : ((c == 4) ? -reverbModDepthSamples : 0.0f);
+                    float cIn = (c < 3) ? diffL : diffR;
                     float cOut = reverbCombs_[c].process(
                         cIn,
-                        cDelay,
+                        cDelaySamples,
                         reverbFeedback,
-                        reverbDamp,
-                        reverbModDepthSamples,
-                        reverbModInc * (1.0f + 0.07f * static_cast<float>(c))
-                    );
-                    if (c % 2 == 0) {
-                        combSumL += cOut;
+                        reverbDampCoef,
+                        modDepth,
+                        reverbModInc
+                    ) * 0.28f;
+
+                    if (c < 3) {
+                        leftSum += cOut;
                     } else {
-                        combSumR += cOut;
+                        rightSum += cOut;
                     }
                 }
 
-                // Stereo cross-matrix for lush spatial tail
-                float revOutL = (combSumL * 0.32f + combSumR * 0.14f);
-                float revOutR = (combSumR * 0.32f + combSumL * 0.14f);
+                // Cross-matrix 0.28 matching v1.1 Stable (lines 933-942)
+                float revOutL = leftSum + rightSum * 0.28f;
+                float revOutR = rightSum + leftSum * 0.28f;
 
-                float dryGain = 1.0f - reverbMixParam * 0.42f;
-                float wetGain = reverbMixParam * 0.88f;
+                float wet = reverbMixNorm * 0.78f;
+                float dry = std::max(0.25f, 1.0f - wet * 0.32f);
 
-                stereoL = stereoL * dryGain + revOutL * wetGain;
-                stereoR = stereoR * dryGain + revOutR * wetGain;
+                stereoL = stereoL * dry + revOutL * wet;
+                stereoR = stereoR * dry + revOutR * wet;
             }
 
-            // 8. Master Volume & Output Soft-Clipper
-            float outL = std::tanh(stereoL * masterVolume * 1.15f);
-            float outR = std::tanh(stereoR * masterVolume * 1.15f);
+            // 9. Master Dynamics Peak Limiter (-1.5 dB threshold, 1ms attack, 120ms release matching v1.1 Stable lines 877-882)
+            float peakAbs = std::max(std::fabs(stereoL), std::fabs(stereoR));
+            if (peakAbs > limiterEnv_) {
+                limiterEnv_ = peakAbs + (limiterEnv_ - peakAbs) * limiterAttackCoef;
+            } else {
+                limiterEnv_ = peakAbs + (limiterEnv_ - peakAbs) * limiterReleaseCoef;
+            }
+
+            float limiterGain = 1.0f;
+            if (limiterEnv_ > limiterThreshold) {
+                float over = limiterEnv_ / limiterThreshold;
+                limiterGain = std::pow(over, -0.875f); // 8:1 compression ratio above -1.5 dB
+            }
+
+            float outL = clampf(stereoL * limiterGain, -1.0f, 1.0f);
+            float outR = clampf(stereoR * limiterGain, -1.0f, 1.0f);
 
             outInterleaved[frame * 2] = outL;
             outInterleaved[frame * 2 + 1] = outR;
 
-            // 9. Write to Oscilloscope Ring Buffer (decimated every 4 samples for clear waveform view)
+            // 10. Write to Oscilloscope Ring Buffer (decimated every 4 samples)
             scopeDecimator_++;
             if (scopeDecimator_ >= 4) {
                 scopeDecimator_ = 0;
@@ -825,46 +963,170 @@ public:
                 waveformWritePos_.store((wPos + 1) % kWaveformBufferSize, std::memory_order_relaxed);
             }
         }
+
+        // Publish active held voices count atomically for UI LEDs
+        int activeCount = 0;
+        for (int i = 0; i < kMaxVoices; ++i) {
+            if (voices_[i].active && !voices_[i].released) {
+                activeCount++;
+            }
+        }
+        activeVoicesCountAtomic_.store(activeCount, std::memory_order_relaxed);
     }
 
 private:
-    void triggerVoiceOnLocked(int midiNote, float velocity) {
-        // 1. Warm Retrigger: if this MIDI note is already playing on a voice, reuse it seamlessly
-        for (int i = 0; i < kMaxVoices; ++i) {
-            if (voices_[i].active && voices_[i].note == midiNote) {
-                voices_[i].trigger(midiNote, velocity, true);
-                return;
-            }
+    void pushEventLockFree(const EngineEvent& ev) {
+        while (producerLock_.test_and_set(std::memory_order_acquire)) {
+            // Short spin only between UI/MIDI producer threads (never blocks audio thread)
         }
-
-        // 2. Round-Robin search for next free or releasing voice
-        for (int i = 0; i < kMaxVoices; ++i) {
-            int idx = (nextVoiceIdx_ + i) % kMaxVoices;
-            if (!voices_[idx].active || !voices_[idx].gate) {
-                nextVoiceIdx_ = (idx + 1) % kMaxVoices;
-                voices_[idx].trigger(midiNote, velocity, true);
-                return;
-            }
+        uint32_t w = eventWriteIdx_.load(std::memory_order_relaxed);
+        uint32_t r = eventReadIdx_.load(std::memory_order_acquire);
+        if (((w + 1) & kEventQueueMask) != (r & kEventQueueMask)) {
+            eventQueue_[w & kEventQueueMask] = ev;
+            eventWriteIdx_.store(w + 1, std::memory_order_release);
         }
-
-        // 3. Steal oldest voice in Round-Robin order with Warm Retrigger (no click)
-        int stealIdx = nextVoiceIdx_;
-        nextVoiceIdx_ = (nextVoiceIdx_ + 1) % kMaxVoices;
-        voices_[stealIdx].trigger(midiNote, velocity, true);
+        producerLock_.clear(std::memory_order_release);
     }
 
-    void triggerVoiceOffLocked(int midiNote) {
-        for (int i = 0; i < kMaxVoices; ++i) {
-            if (voices_[i].active && voices_[i].note == midiNote && voices_[i].gate) {
-                voices_[i].releaseNote();
+    void drainEventsLockFree() {
+        uint32_t r = eventReadIdx_.load(std::memory_order_relaxed);
+        uint32_t w = eventWriteIdx_.load(std::memory_order_acquire);
+        while (r != w) {
+            const EngineEvent& ev = eventQueue_[r & kEventQueueMask];
+            handleEventOnAudioThread(ev);
+            r++;
+        }
+        eventReadIdx_.store(r, std::memory_order_release);
+    }
+
+    void handleEventOnAudioThread(const EngineEvent& ev) {
+        switch (ev.type) {
+            case EventType::NoteOn: {
+                if (arpEnabled_) {
+                    if (std::find(heldNotes_.begin(), heldNotes_.end(), ev.note) == heldNotes_.end()) {
+                        if (heldNotes_.empty()) {
+                            arpSampleCounter_ = 0.0f;
+                            arpGateReleased_ = false;
+                            arpStepIndex_ = 0;
+                        }
+                        heldNotes_.push_back(ev.note);
+                        std::sort(heldNotes_.begin(), heldNotes_.end());
+                    }
+                } else {
+                    triggerVoiceOn(ev.note, ev.velocity);
+                }
+                break;
+            }
+            case EventType::NoteOff: {
+                auto it = std::find(heldNotes_.begin(), heldNotes_.end(), ev.note);
+                if (it != heldNotes_.end()) {
+                    heldNotes_.erase(it);
+                }
+                if (arpEnabled_) {
+                    if (heldNotes_.empty() && arpCurrentNote_ >= 0) {
+                        triggerVoiceOff(arpCurrentNote_);
+                        arpCurrentNote_ = -1;
+                        arpStepIndex_ = 0;
+                    }
+                } else {
+                    triggerVoiceOff(ev.note);
+                }
+                break;
+            }
+            case EventType::AllNotesOff: {
+                heldNotes_.clear();
+                if (arpCurrentNote_ >= 0) {
+                    triggerVoiceOff(arpCurrentNote_);
+                    arpCurrentNote_ = -1;
+                }
+                for (int i = 0; i < kMaxVoices; ++i) {
+                    voices_[i].stopImmediate();
+                }
+                break;
+            }
+            case EventType::ArpConfig: {
+                bool wasEnabled = arpEnabled_;
+                arpEnabled_ = ev.arpEnabled;
+                arpMode_ = clampf(static_cast<float>(ev.arpMode), 0.0f, 2.0f);
+                arpRange_ = std::max(1, std::min(3, ev.arpRange));
+                arpBpm_ = clampf(ev.arpBpm, 40.0f, 260.0f);
+                arpRateDiv_ = std::max(1, ev.arpRateDiv);
+                if (wasEnabled && !arpEnabled_) {
+                    if (arpCurrentNote_ >= 0) {
+                        triggerVoiceOff(arpCurrentNote_);
+                        arpCurrentNote_ = -1;
+                    }
+                    heldNotes_.clear();
+                }
+                break;
             }
         }
     }
 
-    void advanceArpeggiatorStepLocked() {
+    // Authentic 6-Voice Round-Robin + Warm Analog Retrigger + softenSameNoteRelease matching v1.1 Stable (lines 1326-1372)
+    void triggerVoiceOn(int midiNote, float velocity) {
+        int selectedIdx = -1;
+
+        // 1. Search in Round-Robin order for the next completely free/inactive voice
+        for (int i = 0; i < kMaxVoices; ++i) {
+            int idx = (rrIndex_ + i) % kMaxVoices;
+            if (!voices_[idx].active) {
+                selectedIdx = idx;
+                rrIndex_ = (idx + 1) % kMaxVoices;
+                break;
+            }
+        }
+
+        // 2. If all 6 voices are active, pick the oldest voice in release for Warm Retrigger
+        if (selectedIdx < 0) {
+            uint64_t oldestOrder = UINT64_MAX;
+            for (int i = 0; i < kMaxVoices; ++i) {
+                if (voices_[i].released && voices_[i].startOrder < oldestOrder) {
+                    oldestOrder = voices_[i].startOrder;
+                    selectedIdx = i;
+                }
+            }
+            if (selectedIdx >= 0) {
+                rrIndex_ = (selectedIdx + 1) % kMaxVoices;
+            }
+        }
+
+        // 3. If all 6 voices are currently held, steal the oldest voice overall for Warm Retrigger
+        if (selectedIdx < 0) {
+            uint64_t oldestOrder = UINT64_MAX;
+            for (int i = 0; i < kMaxVoices; ++i) {
+                if (voices_[i].startOrder < oldestOrder) {
+                    oldestOrder = voices_[i].startOrder;
+                    selectedIdx = i;
+                }
+            }
+            if (selectedIdx < 0) selectedIdx = 0;
+            rrIndex_ = (selectedIdx + 1) % kMaxVoices;
+        }
+
+        // 4. Softly damp any OTHER voice that is still ringing the exact same MIDI note (16ms RC decay)
+        for (int i = 0; i < kMaxVoices; ++i) {
+            if (i != selectedIdx && voices_[i].active && voices_[i].note == midiNote) {
+                voices_[i].softenSameNoteRelease();
+            }
+        }
+
+        const float rangeFactor = HeraTables::getRangeFactor(targetParams_[DCORange].load(std::memory_order_relaxed));
+        noteOrderCounter_++;
+        voices_[selectedIdx].startVoice(midiNote, velocity, noteOrderCounter_, rangeFactor);
+    }
+
+    void triggerVoiceOff(int midiNote) {
+        for (int i = 0; i < kMaxVoices; ++i) {
+            if (voices_[i].active && !voices_[i].released && voices_[i].note == midiNote) {
+                voices_[i].stopVoice();
+            }
+        }
+    }
+
+    void advanceArpeggiatorStep() {
         if (heldNotes_.empty()) return;
 
-        // Build expanded arpeggio sequence across octaves
         std::vector<int> sequence;
         sequence.reserve(heldNotes_.size() * arpRange_);
         for (int oct = 0; oct < arpRange_; ++oct) {
@@ -888,30 +1150,51 @@ private:
         }
 
         if (arpCurrentNote_ >= 0) {
-            triggerVoiceOffLocked(arpCurrentNote_);
+            triggerVoiceOff(arpCurrentNote_);
         }
 
         int idx = arpStepIndex_ % static_cast<int>(sequence.size());
         arpCurrentNote_ = sequence[idx];
         arpStepIndex_ = (arpStepIndex_ + 1) % static_cast<int>(sequence.size());
-        triggerVoiceOnLocked(arpCurrentNote_, 0.9f);
+        triggerVoiceOn(arpCurrentNote_, 95.0f);
     }
 
-    mutable std::mutex mutex_;
-    float sampleRate_ = 48000.0f;
-    std::array<float, ParamCount> params_{};
-    std::array<JunoVoice, kMaxVoices> voices_{};
-    int nextVoiceIdx_ = 0;
+    // Lock-free Event Queue
+    std::array<EngineEvent, kEventQueueSize> eventQueue_{};
+    std::atomic<uint32_t> eventWriteIdx_{0};
+    std::atomic<uint32_t> eventReadIdx_{0};
+    std::atomic_flag producerLock_ = ATOMIC_FLAG_INIT;
 
-    float pitchBend_ = 0.0f;
-    float modWheel_ = 0.0f;
+    float sampleRate_ = 48000.0f;
+    std::array<std::atomic<float>, ParamCount> targetParams_{};
+    std::array<float, ParamCount> smoothedParams_{};
+
+    std::atomic<float> targetPitchBendSemis_{0.0f};
+    std::atomic<float> targetModWheel_{0.0f};
+    float smoothPitchBendSemis_ = 0.0f;
+    float smoothModWheel_ = 0.0f;
+
+    std::array<JunoVoice, kMaxVoices> voices_{};
+    int rrIndex_ = 0;
+    uint64_t noteOrderCounter_ = 0;
+    std::atomic<int> activeVoicesCountAtomic_{0};
+
+    // Global HPF state
+    float globalHpfInPrev_ = 0.0f;
+    float globalHpfOutPrev_ = 0.0f;
 
     // LFO state
     float lfoPhase_ = 0.0f;
-    float lfoEnv_ = 0.0f;
 
-    // Noise PRNG
+    // Paul Kellet Pink Noise state
     uint32_t noiseSeed_ = 22222u;
+    float pinkB0_ = 0.0f;
+    float pinkB1_ = 0.0f;
+    float pinkB2_ = 0.0f;
+    float pinkB3_ = 0.0f;
+    float pinkB4_ = 0.0f;
+    float pinkB5_ = 0.0f;
+    float pinkB6_ = 0.0f;
 
     // Arpeggiator state
     bool arpEnabled_ = false;
@@ -920,6 +1203,7 @@ private:
     float arpBpm_ = 120.0f;
     int arpRateDiv_ = 8;
     float arpSampleCounter_ = 0.0f;
+    bool arpGateReleased_ = false;
     int arpStepIndex_ = 0;
     int arpCurrentNote_ = -1;
     std::vector<int> heldNotes_;
@@ -928,6 +1212,8 @@ private:
     float chorusPhase_ = 0.0f;
     DelayLine chorusDelayL_;
     DelayLine chorusDelayR_;
+    float chorusLpfL_ = 0.0f;
+    float chorusLpfR_ = 0.0f;
 
     // Stereo Echo Delay state
     DelayLine echoDelayL_;
@@ -937,11 +1223,16 @@ private:
 
     // Global Post-Processing Stereo Reverb (Plate & Hall)
     DelayLine reverbPreDelay_;
+    float reverbLowCutInPrev_ = 0.0f;
+    float reverbLowCutOutPrev_ = 0.0f;
     AllpassFilter reverbDiffuser1L_;
     AllpassFilter reverbDiffuser2L_;
     AllpassFilter reverbDiffuser1R_;
     AllpassFilter reverbDiffuser2R_;
     std::array<ModulatedDampedComb, 6> reverbCombs_;
+
+    // Master Peak Limiter state
+    float limiterEnv_ = 0.0f;
 
     // Oscilloscope Ring Buffer
     std::array<float, kWaveformBufferSize> waveformRing_{};
