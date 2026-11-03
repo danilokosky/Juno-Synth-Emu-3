@@ -34,6 +34,7 @@ class MidiControllerManager(
         private const val KEY_PROFILES_JSON = "profiles_json"
         private const val KEY_PROFILE_ORDER = "profile_order_csv"
         private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
+        private const val KEY_SECTION_PROJECTION_ENABLED = "section_projection_enabled"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -46,6 +47,9 @@ class MidiControllerManager(
 
     val profiles = mutableListOf<MidiMappingProfile>()
     var activeProfileId: String = "launchkey_mk4"
+        private set
+
+    var sectionProjectionEnabled: Boolean = true
         private set
 
     var isMidiLearnActive: Boolean = false
@@ -172,6 +176,7 @@ class MidiControllerManager(
         profiles.clear()
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         activeProfileId = prefs.getString(KEY_ACTIVE_PROFILE_ID, "launchkey_mk4") ?: "launchkey_mk4"
+        sectionProjectionEnabled = prefs.getBoolean(KEY_SECTION_PROJECTION_ENABLED, true)
         val rawJson = prefs.getString(KEY_PROFILES_JSON, null)
         val orderCsv = prefs.getString(KEY_PROFILE_ORDER, null)
 
@@ -284,10 +289,17 @@ class MidiControllerManager(
                 .putString(KEY_PROFILES_JSON, root.toString())
                 .putString(KEY_PROFILE_ORDER, orderList.joinToString(","))
                 .putString(KEY_ACTIVE_PROFILE_ID, activeProfileId)
+                .putBoolean(KEY_SECTION_PROJECTION_ENABLED, sectionProjectionEnabled)
                 .apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    fun setSectionProjection(enabled: Boolean) {
+        sectionProjectionEnabled = enabled
+        saveProfiles()
+        onProfileUpdated()
     }
 
     fun selectProfile(profileId: String) {
