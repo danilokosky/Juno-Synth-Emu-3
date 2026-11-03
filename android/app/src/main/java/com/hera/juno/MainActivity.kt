@@ -321,57 +321,63 @@ fun HeraJunoNativeScreen(
     val mainVerticalScroll = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     val baseDensity = LocalDensity.current
-    // Refine UI DPI scale (0.80x) so the native Android layout matches the crisp desktop/AI Studio preview density
-    val previewMatchedDensity = remember(baseDensity) {
-        Density(
-            density = baseDensity.density * 0.80f,
-            fontScale = baseDensity.fontScale * 0.96f
-        )
-    }
 
-    CompositionLocalProvider(LocalDensity provides previewMatchedDensity) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(JunoBgDark)
-        ) {
-            // Left Vintage Walnut / Rosewood Side Cheek
-            Box(
-                modifier = Modifier
-                    .width(10.dp)
-                    .fillMaxHeight()
-                    .background(Brush.horizontalGradient(listOf(JunoWoodDark, JunoWoodLight, JunoWoodDark)))
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(JunoBgDark)
+    ) {
+        // Dynamically scale density so the virtual viewport width is always ~1090.dp (matching the AI Studio Preview DPI:
+        // LFO + DCO + HPF + VCF + VCA + first fader 'A' of ENV fit across the screen, and remaining faders scroll horizontally!)
+        val targetVirtualWidth = 1090.dp
+        val dpiScale = (maxWidth / targetVirtualWidth).coerceIn(0.75f, 2.6f)
+        val previewMatchedDensity = remember(baseDensity, dpiScale) {
+            Density(
+                density = baseDensity.density * dpiScale,
+                fontScale = baseDensity.fontScale
             )
+        }
 
-            BoxWithConstraints(
+        CompositionLocalProvider(LocalDensity provides previewMatchedDensity) {
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
+                    .fillMaxSize()
+                    .background(JunoBgDark)
             ) {
-                // With 0.80x density scale, compact phone landscape heights (~380..430 native dp) map to ~475..540 scaled dp
-                val isCompactViewport = maxHeight <= 540.dp
-                val firstScreenHeight = if (isCompactViewport) {
-                    maxHeight.coerceAtLeast(320.dp)
-                } else {
-                    (405.dp + (maxHeight - 540.dp) * 0.14f).coerceIn(405.dp, 445.dp)
-                }
-                val keyboardSectionHeight = if (isCompactViewport) {
-                    172.dp
-                } else {
-                    (maxHeight - firstScreenHeight - 48.dp).coerceIn(175.dp, 245.dp)
-                }
-                val responsiveSemitones = when {
-                    maxWidth >= 1120.dp -> 48
-                    maxWidth >= 820.dp -> 36
-                    else -> 29
-                }
-
-                Column(
+                // Left Vintage Walnut / Rosewood Side Cheek
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(mainVerticalScroll)
+                        .width(10.dp)
+                        .fillMaxHeight()
+                        .background(Brush.horizontalGradient(listOf(JunoWoodDark, JunoWoodLight, JunoWoodDark)))
+                )
+
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
                 ) {
-                // FIRST SCREEN VIEWPORT: HEADER + MAIN SYNTHESIZER FADERS RACK + PRESET BAR
+                    // Compact wide phone screens (e.g. Galaxy S25 landscape ~20:9 have virtual maxHeight ~480..550.dp).
+                    // Taller windows / tablets / DeX / 4:3 AI Studio preview have virtual maxHeight ~640..830.dp.
+                    val isCompactViewport = maxHeight <= 560.dp
+                    val firstScreenHeight = if (isCompactViewport) {
+                        maxHeight.coerceAtLeast(320.dp)
+                    } else {
+                        (maxHeight * 0.65f).coerceIn(410.dp, 530.dp)
+                    }
+                    val keyboardSectionHeight = if (isCompactViewport) {
+                        205.dp
+                    } else {
+                        (maxHeight - firstScreenHeight - 10.dp).coerceIn(195.dp, 315.dp)
+                    }
+                    val responsiveSemitones = 36
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(mainVerticalScroll)
+                    ) {
+                        // FIRST SCREEN VIEWPORT: HEADER + MAIN SYNTHESIZER FADERS RACK + PRESET BAR
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -436,7 +442,7 @@ fun HeraJunoNativeScreen(
                     // 1B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Top Separator)
                     JunoRainbowSeparator()
 
-                    // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Ergonomically proportioned across both compact phones and large displays)
+                    // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Matches AI Studio Preview DPI & horizontal scroll behavior)
                     val rackScrollState = rememberScrollState()
                     Row(
                         modifier = Modifier
@@ -445,7 +451,7 @@ fun HeraJunoNativeScreen(
                             .background(Color(0xFF11131A))
                             .horizontalScroll(rackScrollState)
                             .padding(horizontal = 8.dp, vertical = 5.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // SECTION 1: LFO (Rate + Vib Del faders with MAN TRIG button directly below them inside the section)
                         val manTrigActive = (paramState[SynthParam.LFOManualTrig] ?: 0f) >= 0.5f
@@ -456,13 +462,15 @@ fun HeraJunoNativeScreen(
                         ) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
+                                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
                                 modifier = Modifier.fillMaxHeight()
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    modifier = Modifier.fillMaxHeight(0.78f)
+                                    modifier = Modifier
+                                        .heightIn(max = 178.dp)
+                                        .fillMaxHeight(0.68f)
                                 ) {
                                     JunoParamFader(
                                         param = SynthParam.LFORate,
@@ -945,15 +953,65 @@ fun HeraJunoNativeScreen(
                 }
             }
 
+                    // 2A. Visible Horizontal Scrollbar Indicator under the Synth Rack (matching AI Studio Preview)
+                    if (rackScrollState.maxValue > 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .background(Color(0xFF0D0F15))
+                                .pointerInput(rackScrollState.maxValue) {
+                                    detectTapGestures { offset ->
+                                        val w = size.width.toFloat().coerceAtLeast(1f)
+                                        val target = ((offset.x / w) * rackScrollState.maxValue).roundToInt()
+                                        coroutineScope.launch {
+                                            rackScrollState.scrollTo(target.coerceIn(0, rackScrollState.maxValue))
+                                        }
+                                    }
+                                }
+                                .pointerInput(rackScrollState.maxValue) {
+                                    detectDragGestures { change, _ ->
+                                        change.consume()
+                                        val w = size.width.toFloat().coerceAtLeast(1f)
+                                        val target = ((change.position.x / w) * rackScrollState.maxValue).roundToInt()
+                                        coroutineScope.launch {
+                                            rackScrollState.scrollTo(target.coerceIn(0, rackScrollState.maxValue))
+                                        }
+                                    }
+                                }
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val trackW = size.width
+                                val trackH = size.height
+                                drawRoundRect(
+                                    color = Color(0xFF1A1E29),
+                                    size = Size(trackW, trackH),
+                                    cornerRadius = CornerRadius(trackH * 0.5f, trackH * 0.5f)
+                                )
+                                val thumbFraction = (trackW / (trackW + rackScrollState.maxValue.toFloat())).coerceIn(0.18f, 0.85f)
+                                val thumbW = trackW * thumbFraction
+                                val maxThumbOffset = (trackW - thumbW).coerceAtLeast(0f)
+                                val scrollNorm = (rackScrollState.value.toFloat() / rackScrollState.maxValue.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                drawRoundRect(
+                                    color = Color(0xFF4B5563),
+                                    topLeft = Offset(maxThumbOffset * scrollNorm, 0f),
+                                    size = Size(thumbW, trackH),
+                                    cornerRadius = CornerRadius(trackH * 0.5f, trackH * 0.5f)
+                                )
+                            }
+                        }
+                    }
+
                     // 2B. Signature Roland Juno-60 5-Color Metallic Accent Stripe
                     JunoRainbowSeparator()
 
-                    // 2C. FIRST PART OF PRESETS SECTION INCLUDED ON FIRST SCREEN (Slightly reduces synth rack height above so Preset Bar is always visible on main screen!)
+                    // 2C. FIRST PART OF PRESETS SECTION INCLUDED ON FIRST SCREEN
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Color(0xFF090B10))
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                            .padding(horizontal = 6.dp, vertical = 4.dp)
                     ) {
                         VoicingPresetBar(
                             presetIndex = currentPresetIndex,
@@ -1277,6 +1335,7 @@ fun HeraJunoNativeScreen(
             onDismiss = { showSavePresetDialog = false }
         )
     }
+        }
     }
 }
 
@@ -2983,7 +3042,7 @@ private fun SynthModuleCard(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 13.dp, vertical = 9.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             contentAlignment = Alignment.Center
         ) {
             content()
@@ -3052,7 +3111,7 @@ private fun JunoParamFader(
     capColor: Color,
     midiManager: MidiControllerManager,
     uiRevision: Int,
-    heightFraction: Float = 0.86f,
+    heightFraction: Float = 0.72f,
     onValueChange: (Float) -> Unit,
     onNotifyUiChanged: () -> Unit
 ) {
@@ -3065,7 +3124,8 @@ private fun JunoParamFader(
     Box(
         contentAlignment = Alignment.TopCenter,
         modifier = Modifier
-            .width(41.dp)
+            .width(42.dp)
+            .heightIn(max = 195.dp)
             .fillMaxHeight(heightFraction)
     ) {
         // Fixed-dimension Fader Body (Never shifts when MIDI Learn toggles!)
