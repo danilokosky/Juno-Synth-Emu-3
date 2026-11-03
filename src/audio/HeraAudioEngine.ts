@@ -18,6 +18,14 @@ export function getLfoDelaySec(value: number): number {
   return Math.pow(Math.max(0, Math.min(1, value)) * 1.64, 1.923);
 }
 
+export function getDcoLfoPitchCents(value: number): number {
+  const d = Math.max(0, Math.min(1, value));
+  // Smooth musical vibrato curve:
+  // 0..50% fader -> 0..58 cents (fine resolution for expressive musical vibrato)
+  // 50..100% fader -> 58..240 cents (wide synth pitch modulation up to 2.4 semitones)
+  return d * (20 + 220 * Math.pow(d, 2.15));
+}
+
 export function getAttackSec(value: number): number {
   return 0.0099 * Math.exp(5.8 * Math.max(0, Math.min(1, value)));
 }
@@ -69,6 +77,7 @@ class HeraVoiceInstance {
   // Audio-rate LFO modulation gains
   private voiceLfoPitchGain: GainNode;
   private voiceLfoFilterGain: GainNode;
+  private voiceLfoPwmGain: GainNode;
 
   private noiseBuffer: AudioBuffer;
   private releaseTimer: number | null = null;
@@ -132,6 +141,10 @@ class HeraVoiceInstance {
     this.voiceLfoFilterGain.gain.value = 0;
     lfoSource.connect(this.voiceLfoFilterGain);
 
+    this.voiceLfoPwmGain = ctx.createGain();
+    this.voiceLfoPwmGain.gain.value = 0;
+    lfoSource.connect(this.voiceLfoPwmGain);
+
     // Connect LFO filter gain directly to filter detune params (cents)
     this.voiceLfoFilterGain.connect(this.vcfFilter1.detune);
     this.voiceLfoFilterGain.connect(this.vcfFilter2.detune);
@@ -157,6 +170,9 @@ class HeraVoiceInstance {
     this.pulseOsc.connect(this.pulseInvertGain);
     this.pulseInvertGain.connect(this.pulseDelay);
     this.pulseDelay.connect(this.pulseGain);
+
+    // Connect LFO PWM modulation to pulseDelay.delayTime
+    this.voiceLfoPwmGain.connect(this.pulseDelay.delayTime);
 
     this.subOsc = ctx.createOscillator();
     this.subOsc.type = 'square';
@@ -198,7 +214,8 @@ class HeraVoiceInstance {
     velocity: number,
     params: HeraParameters,
     pitchBendSemitones: number,
-    modWheelAmount: number = 0
+    modWheelAmount: number = 0,
+    keepLfoWarm: boolean = false
   ) {
     if (this.releaseTimer !== null) {
       clearTimeout(this.releaseTimer);
@@ -215,10 +232,10 @@ class HeraVoiceInstance {
     this.sameNoteDamped = false;
 
     // Update DCO frequencies, PWM width, and waveform mix levels smoothly
-    this.updateOscillators(params, pitchBendSemitones);
+    this.updateOscillators(params, pitchBendSemitones, true);
 
     // Schedule LFO delay envelope for this voice
-    this.scheduleLfo(params, modWheelAmount, t);
+    this.scheduleLfo(params, modWheelAmount, t, keepLfoWarm || wasActive);
 
     // Filter cutoff calculation & envelope modulation
     this.updateFilter(params, pitchBendSemitones, 1.0, true, wasActive);
@@ -255,7 +272,7 @@ class HeraVoiceInstance {
     }
   }
 
-  updateOscillators(params: HeraParameters, pitchBendSemitones: number, _immediate: boolean = false) {
+  updateOscillators(params: HeraParameters, pitchBendSemitones: number, isNoteOn: boolean = false) {
     const t = this.ctx.currentTime;
     const rangeFactors = [0.5, 1.0, 2.0];
     const rangeFactor = rangeFactors[Math.max(0, Math.min(2, Math.floor(params.DCORange)))];
@@ -265,10 +282,9 @@ class HeraVoiceInstance {
 
     const totalDetune = pitchBendSemitones * 100;
 
-    const pwm = params.DCOPWMDepth;
-    const pulseWidthRatio = 0.5 - 0.45 * Math.max(-0.95, Math.min(0.95, pwm));
-    const period = 1 / Math.max(10, this.baseFreq);
-    const delayTime = Math.max(0.00005, Math.min(0.04, period * pulseWidthRatio));
+    const pwm = Math.max(0, Math.min(1, params.DCOPWMDepth));
+    const pwmMod = Math.round(params.DCOPWMMod ?? 0);
+    const period = 1 / Math.max(20, this.baseFreq);
 
     this.holdParam(this.sawOsc.frequency, t);
     this.holdParam(this.pulseOsc.frequency, t);
@@ -277,6 +293,7 @@ class HeraVoiceInstance {
     this.holdParam(this.pulseOsc.detune, t);
     this.holdParam(this.subOsc.detune, t);
     this.holdParam(this.pulseDelay.delayTime, t);
+    this.holdParam(this.voiceLfoPwmGain.gain, t);
 
     // Smooth 1.2ms micro-transition prevents delay-line & oscillator discontinuities at high BPM (150-260 BPM)
     this.sawOsc.frequency.setTargetAtTime(this.baseFreq, t, 0.0012);
@@ -287,7 +304,42 @@ class HeraVoiceInstance {
     this.pulseOsc.detune.setTargetAtTime(totalDetune, t, 0.0015);
     this.subOsc.detune.setTargetAtTime(totalDetune, t, 0.0015);
 
-    this.pulseDelay.delayTime.setTargetAtTime(delayTime, t, 0.0015);
+    if (pwmMod === 1) {
+      // PWM = LFO: center pulse at 50% duty cycle and modulate delayTime via global LFO
+      const centerDelay = Math.max(0.00005, Math.min(0.04, period * 0.5));
+      const lfoPwmDepthSec = Math.min(centerDelay * 0.82, period * 0.40 * pwm);
+      this.pulseDelay.delayTime.setTargetAtTime(centerDelay, t, 0.002);
+      this.voiceLfoPwmGain.gain.setTargetAtTime(lfoPwmDepthSec, t, 0.005);
+    } else if (pwmMod === 2) {
+      // PWM = ENV: modulate pulse width with ADSR envelope
+      this.voiceLfoPwmGain.gain.setTargetAtTime(0, t, 0.005);
+      const baseDelay = Math.max(0.00005, Math.min(0.04, period * 0.5));
+      const peakDelay = Math.max(0.00005, Math.min(0.04, period * (0.5 - 0.42 * pwm)));
+      const sustainDelay = Math.max(
+        0.00005,
+        Math.min(0.04, period * (0.5 - 0.42 * pwm * params.ENVSustain))
+      );
+      if (isNoteOn) {
+        const attackSec = Math.max(0.004, getAttackSec(params.ENVAttack));
+        const decaySec = Math.max(0.006, getDecaySec(params.ENVDecay));
+        this.pulseDelay.delayTime.setTargetAtTime(peakDelay, t, attackSec * 0.35);
+        if (params.ENVSustain < 0.99) {
+          this.pulseDelay.delayTime.setTargetAtTime(sustainDelay, t + attackSec, decaySec * 0.33);
+        }
+      } else {
+        this.pulseDelay.delayTime.setTargetAtTime(
+          this.released ? baseDelay : sustainDelay,
+          t,
+          0.005
+        );
+      }
+    } else {
+      // PWM = MAN: manual static pulse width control
+      this.voiceLfoPwmGain.gain.setTargetAtTime(0, t, 0.005);
+      const pulseWidthRatio = 0.5 - 0.45 * Math.max(-0.95, Math.min(0.95, pwm));
+      const delayTime = Math.max(0.00005, Math.min(0.04, period * pulseWidthRatio));
+      this.pulseDelay.delayTime.setTargetAtTime(delayTime, t, 0.0015);
+    }
 
     this.updateOscillatorLevels(params);
   }
@@ -305,50 +357,46 @@ class HeraVoiceInstance {
     this.noiseGain.gain.setTargetAtTime(params.DCONoiseLevel * 0.12, t, 0.005);
   }
 
-  scheduleLfo(params: HeraParameters, modWheelAmount: number, t: number) {
-    const targetPitchCents = (params.DCOPitchModDepth * 320) + (modWheelAmount * 320);
+  scheduleLfo(
+    params: HeraParameters,
+    modWheelAmount: number,
+    t: number,
+    keepLfoWarm: boolean = false
+  ) {
+    const targetPitchCents =
+      getDcoLfoPitchCents(params.DCOPitchModDepth) + getDcoLfoPitchCents(modWheelAmount);
     const targetFilterCents = params.VCFLFO * 2600;
     const delaySec = getLfoDelaySec(params.LFODelay);
 
     this.holdParam(this.voiceLfoPitchGain.gain, t);
     this.holdParam(this.voiceLfoFilterGain.gain, t);
 
-    if (delaySec < 0.02) {
-      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.005);
-      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.005);
+    if (delaySec < 0.02 || keepLfoWarm) {
+      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.006);
+      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.006);
     } else {
-      this.voiceLfoPitchGain.gain.setTargetAtTime(0, t, 0.005);
-      this.voiceLfoFilterGain.gain.setTargetAtTime(0, t, 0.005);
+      // Smooth continuous RC capacitor fade-in starting immediately at t (never dead-muted at 0)
+      const tau = Math.max(0.015, delaySec * 0.35);
+      this.voiceLfoPitchGain.gain.setValueAtTime(targetPitchCents * 0.2, t);
+      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, tau);
 
-      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t + delaySec, 0.12);
-      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t + delaySec, 0.12);
+      this.voiceLfoFilterGain.gain.setValueAtTime(targetFilterCents * 0.2, t);
+      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, tau);
     }
   }
 
   updateLfoDepth(params: HeraParameters, modWheelAmount: number) {
-    if (!this.active) return;
     const t = this.ctx.currentTime;
-    const targetPitchCents = (params.DCOPitchModDepth * 320) + (modWheelAmount * 320);
+    const targetPitchCents =
+      getDcoLfoPitchCents(params.DCOPitchModDepth) + getDcoLfoPitchCents(modWheelAmount);
     const targetFilterCents = params.VCFLFO * 2600;
-
-    const delaySec = getLfoDelaySec(params.LFODelay);
-    const elapsed = t - this.startTime;
 
     this.holdParam(this.voiceLfoPitchGain.gain, t);
     this.holdParam(this.voiceLfoFilterGain.gain, t);
 
-    if (delaySec >= 0.02 && elapsed < delaySec) {
-      const remainingDelay = delaySec - elapsed;
-      this.voiceLfoPitchGain.gain.setTargetAtTime(0, t, 0.005);
-      this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t + remainingDelay, 0.12);
-
-      this.voiceLfoFilterGain.gain.setTargetAtTime(0, t, 0.005);
-      this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t + remainingDelay, 0.12);
-      return;
-    }
-
-    this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.01);
-    this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.01);
+    // Apply immediately when moving DCO LFO, VCF LFO, or ModWheel so depth control is 100% responsive
+    this.voiceLfoPitchGain.gain.setTargetAtTime(targetPitchCents, t, 0.008);
+    this.voiceLfoFilterGain.gain.setTargetAtTime(targetFilterCents, t, 0.008);
   }
 
   updateFilter(
@@ -1358,14 +1406,25 @@ export class HeraSynthesizerEngine {
 
     // Softly damp any OTHER voice that is still ringing the exact same MIDI note
     // so rapid single-note arpeggios articulate cleanly without phase build-up
+    let anyOtherVoiceActive = this.arpConfig.enabled;
     for (const v of this.voices) {
-      if (v !== selectedVoice && v.active && v.note === note) {
-        v.softenSameNoteRelease();
+      if (v !== selectedVoice && v.active) {
+        anyOtherVoiceActive = true;
+        if (v.note === note) {
+          v.softenSameNoteRelease();
+        }
       }
     }
 
     if (selectedVoice) {
-      selectedVoice.start(note, velocity, this.params, this.pitchBendSemitones, this.modWheelAmount);
+      selectedVoice.start(
+        note,
+        velocity,
+        this.params,
+        this.pitchBendSemitones,
+        this.modWheelAmount,
+        anyOtherVoiceActive
+      );
     }
 
     this.broadcastVoiceStatus();
@@ -1434,7 +1493,7 @@ export class HeraSynthesizerEngine {
     const t = this.ctx.currentTime;
     this.voices.forEach(v => {
       if (v.active) {
-        v.scheduleLfo(this.params, this.modWheelAmount, t);
+        v.scheduleLfo(this.params, this.modWheelAmount, t, false);
       }
     });
   }
@@ -1457,9 +1516,7 @@ export class HeraSynthesizerEngine {
     this.modWheelAmount = value;
     if (this.ctx) {
       this.voices.forEach(v => {
-        if (v.active) {
-          v.updateLfoDepth(this.params, this.modWheelAmount);
-        }
+        v.updateLfoDepth(this.params, this.modWheelAmount);
       });
     }
   }
@@ -1478,9 +1535,7 @@ export class HeraSynthesizerEngine {
       this.globalLfoOsc.frequency.setTargetAtTime(getLfoRateHz(value as number), this.ctx.currentTime, 0.015);
     } else if (param === 'LFODelay' || param === 'DCOPitchModDepth' || param === 'VCFLFO') {
       this.voices.forEach(v => {
-        if (v.active) {
-          v.updateLfoDepth(this.params, this.modWheelAmount);
-        }
+        v.updateLfoDepth(this.params, this.modWheelAmount);
       });
     } else if (param === 'MasterVolume') {
       this.setMasterVolume(value as number);

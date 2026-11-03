@@ -1155,6 +1155,18 @@ export class MidiManager {
           }
         }
 
+        if (strictMatchedParams.length === 0 && cc === 1) {
+          const lfoCh = this.sectionChannels.lfo ?? 0;
+          const isLfoChMatch = lfoCh === 0 || msgChannel === lfoCh;
+          if (isKeysChannelMatch || isLfoChMatch) {
+            if (this.paramToCC.DCOPitchModDepth === 1) {
+              strictMatchedParams.push('DCOPitchModDepth');
+            } else {
+              this.synth.setModWheel(normalized);
+            }
+          }
+        }
+
         for (const targetParam of strictMatchedParams) {
           let paramValue: number = normalized;
 

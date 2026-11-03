@@ -74,6 +74,14 @@ struct HeraTables {
         return std::pow(x * 1.64f, 1.923f);
     }
 
+    static float getDcoLfoPitchCents(float v) {
+        float d = clampf(v, 0.0f, 1.0f);
+        // Smooth musical vibrato curve matching HeraAudioEngine.ts:
+        // 0..50% fader -> 0..58 cents (fine resolution for expressive musical vibrato)
+        // 50..100% fader -> 58..240 cents (wide synth pitch modulation up to 2.4 semitones)
+        return d * (20.0f + 220.0f * std::pow(d, 2.15f));
+    }
+
     static float getAttackSec(float v) {
         float x = clampf(v, 0.0f, 1.0f);
         return std::max(0.004f, 0.0099f * std::exp(5.8f * x));
@@ -163,7 +171,7 @@ struct JunoVoice {
     float envLevel = 0.0f;
     float vcfEnvLevel = 0.0f;
     float gateEnvLevel = 0.0f;
-    float lfoDelayElapsedSec = 0.0f;
+    float lfoDelayEnv = 1.0f;
 
     // 4-pole cascaded lowpass state (never zeroed while ringing -> Warm Retrigger)
     float z1 = 0.0f;
@@ -171,7 +179,7 @@ struct JunoVoice {
     float z3 = 0.0f;
     float z4 = 0.0f;
 
-    void startVoice(int midiNote, float vel, uint64_t orderCounter, float rangeFactor) {
+    void startVoice(int midiNote, float vel, uint64_t orderCounter, float rangeFactor, float initialLfoEnv) {
         bool wasActive = active;
         note = midiNote;
         startOrder = orderCounter;
@@ -192,7 +200,7 @@ struct JunoVoice {
         envLevel = std::max(0.0f, envLevel);
         vcfEnvLevel = std::max(0.0f, vcfEnvLevel);
         gateEnvLevel = std::max(0.0f, gateEnvLevel);
-        lfoDelayElapsedSec = 0.0f;
+        lfoDelayEnv = wasActive ? std::max(lfoDelayEnv, initialLfoEnv) : initialLfoEnv;
         envStage = EnvStage::Attack;
     }
 
@@ -708,19 +716,17 @@ public:
                     continue;
                 }
 
-                // Per-voice LFO delay envelope matching v1.1 scheduleLfo
-                float voiceLfoEnv = 0.0f;
-                bool lfoActiveForVoice = (lfoTrigMode == 1) ? (!voice.released) : lfoManualTrig;
-                if (lfoActiveForVoice) {
-                    voice.lfoDelayElapsedSec += invSr;
-                    if (lfoDelaySec < 0.02f) {
-                        voiceLfoEnv = 1.0f;
-                    } else if (voice.lfoDelayElapsedSec >= lfoDelaySec) {
-                        float afterDelay = voice.lfoDelayElapsedSec - lfoDelaySec;
-                        voiceLfoEnv = 1.0f - std::exp(-afterDelay / 0.12f);
-                    }
+                // Per-voice LFO delay RC capacitor envelope matching HeraAudioEngine.ts
+                if (lfoDelaySec < 0.02f || lfoManualTrig) {
+                    voice.lfoDelayEnv += fastSmooth * (1.0f - voice.lfoDelayEnv);
+                } else {
+                    float lfoChargeCoef = 1.0f - std::exp(-invSr / std::max(0.015f, lfoDelaySec * 0.35f));
+                    voice.lfoDelayEnv += lfoChargeCoef * (1.0f - voice.lfoDelayEnv);
                 }
-                const float pitchLfoCents = lfoSine * ((pitchModDepth * 320.0f * voiceLfoEnv) + (smoothModWheel_ * 320.0f));
+                const float voiceLfoEnv = clampf(voice.lfoDelayEnv, 0.20f, 1.0f);
+                const float dcoPitchCents = HeraTables::getDcoLfoPitchCents(pitchModDepth);
+                const float modWheelCents = HeraTables::getDcoLfoPitchCents(smoothModWheel_);
+                const float pitchLfoCents = lfoSine * ((dcoPitchCents * voiceLfoEnv) + modWheelCents);
                 const float filterLfoCents = lfoSine * (vcfLfoNorm * 2600.0f * std::max(voiceLfoEnv, smoothModWheel_));
 
                 // Target DCO frequency with 1.2ms micro-glide (matching v1.1 setTargetAtTime(..., 0.0012))
@@ -1105,15 +1111,22 @@ private:
         }
 
         // 4. Softly damp any OTHER voice that is still ringing the exact same MIDI note (16ms RC decay)
+        //    and preserve warm LFO delay charge across legato/arpeggio voices
+        float maxActiveLfoEnv = arpEnabled_ ? 1.0f : 0.20f;
         for (int i = 0; i < kMaxVoices; ++i) {
-            if (i != selectedIdx && voices_[i].active && voices_[i].note == midiNote) {
-                voices_[i].softenSameNoteRelease();
+            if (i != selectedIdx && voices_[i].active) {
+                maxActiveLfoEnv = std::max(maxActiveLfoEnv, voices_[i].lfoDelayEnv);
+                if (voices_[i].note == midiNote) {
+                    voices_[i].softenSameNoteRelease();
+                }
             }
         }
 
         const float rangeFactor = HeraTables::getRangeFactor(targetParams_[DCORange].load(std::memory_order_relaxed));
+        const float lfoDelaySec = HeraTables::getLfoDelaySec(targetParams_[LFODelay].load(std::memory_order_relaxed));
+        const float initialLfoEnv = (lfoDelaySec < 0.02f) ? 1.0f : maxActiveLfoEnv;
         noteOrderCounter_++;
-        voices_[selectedIdx].startVoice(midiNote, velocity, noteOrderCounter_, rangeFactor);
+        voices_[selectedIdx].startVoice(midiNote, velocity, noteOrderCounter_, rangeFactor, initialLfoEnv);
     }
 
     void triggerVoiceOff(int midiNote) {

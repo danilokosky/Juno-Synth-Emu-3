@@ -651,13 +651,22 @@ class MidiControllerManager(
             return
         }
 
-        // 3. Mod Wheel (CC1) fallback if not mapped on this channel
+        // 3. Mod Wheel / DCO LFO (CC1) fallback on KEYS or LFO channel if not matched above
         val keysCh = prof.sectionChannels[MidiSection.KEYS] ?: 0
-        if (cc == 1 && (keysCh == 0 || keysCh == channel)) {
-            currentModWheel = (min(100, value) / 100f).coerceIn(0f, 1f)
-            val b = currentPitchBend
-            val m = currentModWheel
-            mainHandler.post { onPitchBend(b, m) }
+        val lfoCh = prof.sectionChannels[MidiSection.LFO] ?: 0
+        if (cc == 1 && (keysCh == 0 || keysCh == channel || lfoCh == 0 || lfoCh == channel)) {
+            if (prof.paramToCC[SynthParam.DCOPitchModDepth.key] == 1) {
+                val newVal = computeParamValueFromCC(SynthParam.DCOPitchModDepth, value)
+                mainHandler.post {
+                    onParamChanged(SynthParam.DCOPitchModDepth, newVal)
+                    onProfileUpdated()
+                }
+            } else {
+                currentModWheel = (min(100, value) / 100f).coerceIn(0f, 1f)
+                val b = currentPitchBend
+                val m = currentModWheel
+                mainHandler.post { onPitchBend(b, m) }
+            }
         }
     }
 
