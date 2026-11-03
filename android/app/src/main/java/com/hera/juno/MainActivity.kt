@@ -38,12 +38,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +55,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 // Authentic Roland Juno-60 Color Palette
@@ -192,13 +195,13 @@ fun HeraJunoNativeScreen(
     var currentPresetIndex by remember { mutableIntStateOf(0) }
     val currentPreset = allPresets.getOrElse(currentPresetIndex) { PresetRepository.FACTORY_PRESETS.first() }
 
-    // Arpeggiator State
+    // Arpeggiator State (Full Arpeggiator section is toggled via the ARP button next to Presets)
     var arpEnabled by remember { mutableStateOf(false) }
     var arpMode by remember { mutableIntStateOf(0) } // 0=UP, 1=UP/DN, 2=DOWN
     var arpRange by remember { mutableIntStateOf(1) } // 1..3
     var arpRateDiv by remember { mutableIntStateOf(8) } // 4, 8, 16
     var arpBpm by remember { mutableFloatStateOf(120f) }
-    var arpExpanded by remember { mutableStateOf(true) }
+    var arpExpanded by remember { mutableStateOf(false) }
 
     // Keyboard & Modals State
     var showKeyboard by remember { mutableStateOf(true) }
@@ -316,50 +319,58 @@ fun HeraJunoNativeScreen(
     val mappedCount = activeProfile.paramToCC.size
 
     val mainVerticalScroll = rememberScrollState()
-
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(JunoBgDark)
-    ) {
-        // Left Vintage Walnut / Rosewood Side Cheek
-        Box(
-            modifier = Modifier
-                .width(10.dp)
-                .fillMaxHeight()
-                .background(Brush.horizontalGradient(listOf(JunoWoodDark, JunoWoodLight, JunoWoodDark)))
+    val coroutineScope = rememberCoroutineScope()
+    val baseDensity = LocalDensity.current
+    // Refine UI DPI scale (0.80x) so the native Android layout matches the crisp desktop/AI Studio preview density
+    val previewMatchedDensity = remember(baseDensity) {
+        Density(
+            density = baseDensity.density * 0.80f,
+            fontScale = baseDensity.fontScale * 0.96f
         )
+    }
 
-        BoxWithConstraints(
+    CompositionLocalProvider(LocalDensity provides previewMatchedDensity) {
+        Row(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
+                .fillMaxSize()
+                .background(JunoBgDark)
         ) {
-            val isCompactViewport = maxHeight <= 440.dp
-            // On compact phone screens (e.g. Galaxy S25 landscape), Header + Synth Rack + Preset Bar fill 100% of the first screen.
-            // On taller/larger screens (tablets, foldables, desktop/DeX, AI Studio preview), cap the top synth rack to an ergonomic
-            // hardware proportion (395dp..430dp) so faders never over-stretch and the Arpeggiator + Keyboard appear right below on screen!
-            val firstScreenHeight = if (isCompactViewport) {
-                maxHeight.coerceAtLeast(270.dp)
-            } else {
-                (395.dp + (maxHeight - 440.dp) * 0.14f).coerceIn(395.dp, 430.dp)
-            }
-            val keyboardSectionHeight = if (isCompactViewport) {
-                162.dp
-            } else {
-                (maxHeight - firstScreenHeight - 48.dp).coerceIn(162.dp, 236.dp)
-            }
-            val responsiveSemitones = when {
-                maxWidth >= 1100.dp -> 48
-                maxWidth >= 820.dp -> 36
-                else -> 29
-            }
-
-            Column(
+            // Left Vintage Walnut / Rosewood Side Cheek
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(mainVerticalScroll)
+                    .width(10.dp)
+                    .fillMaxHeight()
+                    .background(Brush.horizontalGradient(listOf(JunoWoodDark, JunoWoodLight, JunoWoodDark)))
+            )
+
+            BoxWithConstraints(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
             ) {
+                // With 0.80x density scale, compact phone landscape heights (~380..430 native dp) map to ~475..540 scaled dp
+                val isCompactViewport = maxHeight <= 540.dp
+                val firstScreenHeight = if (isCompactViewport) {
+                    maxHeight.coerceAtLeast(320.dp)
+                } else {
+                    (405.dp + (maxHeight - 540.dp) * 0.14f).coerceIn(405.dp, 445.dp)
+                }
+                val keyboardSectionHeight = if (isCompactViewport) {
+                    172.dp
+                } else {
+                    (maxHeight - firstScreenHeight - 48.dp).coerceIn(175.dp, 245.dp)
+                }
+                val responsiveSemitones = when {
+                    maxWidth >= 1120.dp -> 48
+                    maxWidth >= 820.dp -> 36
+                    else -> 29
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(mainVerticalScroll)
+                ) {
                 // FIRST SCREEN VIEWPORT: HEADER + MAIN SYNTHESIZER FADERS RACK + PRESET BAR
                 Column(
                     modifier = Modifier
@@ -406,8 +417,6 @@ fun HeraJunoNativeScreen(
                         onNotifyUiChanged = onNotifyUiChanged,
                         onOpenChannelsModal = { showChannelsDialog = true },
                         onToggleProfileExpanded = { showProfileDialog = !showProfileDialog },
-                        showKeyboard = showKeyboard,
-                        onToggleKeyboard = { showKeyboard = !showKeyboard },
                         onPanic = {
                             holdSustain = false
                             onPanicAllNotesOff()
@@ -952,12 +961,41 @@ fun HeraJunoNativeScreen(
                             allPresets = allPresets,
                             userPresetCount = userPresets.size,
                             isTimbresExpanded = showPresetsDialog,
+                            arpEnabled = arpEnabled,
+                            isArpExpanded = arpExpanded,
+                            showKeyboard = showKeyboard,
                             midiManager = midiManager,
                             uiRevision = rev,
                             onNotifyUiChanged = onNotifyUiChanged,
                             onPrevPreset = { applyPreset(currentPresetIndex - 1) },
                             onNextPreset = { applyPreset(currentPresetIndex + 1) },
-                            onToggleTimbresExpanded = { showPresetsDialog = !showPresetsDialog },
+                            onToggleTimbresExpanded = {
+                                val next = !showPresetsDialog
+                                showPresetsDialog = next
+                                if (next && isCompactViewport && mainVerticalScroll.value < 80) {
+                                    coroutineScope.launch {
+                                        mainVerticalScroll.animateScrollTo(140)
+                                    }
+                                }
+                            },
+                            onToggleArpExpanded = {
+                                val next = !arpExpanded
+                                arpExpanded = next
+                                if (next && isCompactViewport && mainVerticalScroll.value < 60) {
+                                    coroutineScope.launch {
+                                        mainVerticalScroll.animateScrollTo(95)
+                                    }
+                                }
+                            },
+                            onToggleKeyboard = {
+                                val next = !showKeyboard
+                                showKeyboard = next
+                                if (next && isCompactViewport && mainVerticalScroll.value < 80) {
+                                    coroutineScope.launch {
+                                        mainVerticalScroll.animateScrollTo(180)
+                                    }
+                                }
+                            },
                             onSaveUserPreset = { showSavePresetDialog = true },
                             onExportPreset = {
                                 val safeName = currentPreset.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
@@ -971,7 +1009,7 @@ fun HeraJunoNativeScreen(
                 // END OF FIRST SCREEN VIEWPORT (Header + Synth Fader Rack + Preset Bar fill 100% of first screen!)
                 }
 
-                // 3. BELOW-THE-FOLD SECTION (Appears when scrolling down: Expanded Timbres Browser + Arpeggiator + Piano Keyboard)
+                // 3. BELOW-THE-FOLD SECTION (Expanded Timbres Browser + Full Expandable Arpeggiator + Piano Keyboard)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -997,32 +1035,30 @@ fun HeraJunoNativeScreen(
                         )
                     }
 
-                    // 3B. ARPEGGIATOR BAR (Visible when scrolling down)
-                    ArpeggiatorKeyboardBar(
-                    arpEnabled = arpEnabled,
-                    onToggleArp = {
-                        arpEnabled = !arpEnabled
-                        if (!arpEnabled && !holdSustain) onPanicAllNotesOff()
-                    },
-                    arpMode = arpMode,
-                    onSelectArpMode = { arpMode = it },
-                    arpRange = arpRange,
-                    onSelectArpRange = { arpRange = it },
-                    arpRateDiv = arpRateDiv,
-                    onSelectArpRateDiv = { arpRateDiv = it },
-                    arpBpm = arpBpm,
-                    onArpBpmChange = { arpBpm = it },
-                    holdSustain = holdSustain,
-                    onToggleHold = {
-                        val next = !holdSustain
-                        holdSustain = next
-                        if (!next) onPanicAllNotesOff()
-                    },
-                    arpExpanded = arpExpanded,
-                    onToggleExpanded = { arpExpanded = !arpExpanded },
-                    showKeyboard = showKeyboard,
-                    onToggleKeyboard = { showKeyboard = !showKeyboard }
-                )
+                    // 3B. FULL ARPEGGIATOR SECTION (Encompassed entirely by the ARP button next to Presets)
+                    if (arpExpanded) {
+                        ArpeggiatorKeyboardBar(
+                            arpEnabled = arpEnabled,
+                            onToggleArp = {
+                                arpEnabled = !arpEnabled
+                                if (!arpEnabled && !holdSustain) onPanicAllNotesOff()
+                            },
+                            arpMode = arpMode,
+                            onSelectArpMode = { arpMode = it },
+                            arpRange = arpRange,
+                            onSelectArpRange = { arpRange = it },
+                            arpRateDiv = arpRateDiv,
+                            onSelectArpRateDiv = { arpRateDiv = it },
+                            arpBpm = arpBpm,
+                            onArpBpmChange = { arpBpm = it },
+                            holdSustain = holdSustain,
+                            onToggleHold = {
+                                val next = !holdSustain
+                                holdSustain = next
+                                if (!next) onPanicAllNotesOff()
+                            }
+                        )
+                    }
 
                 // 3C. KEYBOARD CONTROLS + BENDER/MOD WHEELS + MULTI-TOUCH POLYPHONIC KEYBOARD
                 if (showKeyboard) {
@@ -1241,6 +1277,7 @@ fun HeraJunoNativeScreen(
             onDismiss = { showSavePresetDialog = false }
         )
     }
+    }
 }
 
 /**
@@ -1386,8 +1423,6 @@ private fun TopHeaderBar(
     onNotifyUiChanged: () -> Unit,
     onOpenChannelsModal: () -> Unit,
     onToggleProfileExpanded: () -> Unit,
-    showKeyboard: Boolean,
-    onToggleKeyboard: () -> Unit,
     onPanic: () -> Unit
 ) {
     val headerScroll = rememberScrollState()
@@ -1799,33 +1834,11 @@ private fun TopHeaderBar(
                 )
             }
 
-            // GROUP 4: Keyboard Visibility Toggle & Panic Button
+            // GROUP 4: Panic Button (Keyboard toggle moved next to ARP in the Preset bar)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (showKeyboard) Color(0xFF261A0B) else Color(0xFF161922))
-                        .border(
-                            1.dp,
-                            if (showKeyboard) JunoOrange else Color(0xFF2B3244),
-                            RoundedCornerShape(4.dp)
-                        )
-                        .clickable { onToggleKeyboard() }
-                        .padding(horizontal = 5.5.dp, vertical = 2.5.dp)
-                ) {
-                    Text(
-                        text = if (showKeyboard) "TECLADO ▲" else "TECLADO ▼",
-                        color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
-                        fontSize = 8.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -1984,12 +1997,17 @@ private fun VoicingPresetBar(
     allPresets: List<HeraPreset>,
     userPresetCount: Int,
     isTimbresExpanded: Boolean,
+    arpEnabled: Boolean,
+    isArpExpanded: Boolean,
+    showKeyboard: Boolean,
     midiManager: MidiControllerManager,
     uiRevision: Int,
     onNotifyUiChanged: () -> Unit,
     onPrevPreset: () -> Unit,
     onNextPreset: () -> Unit,
     onToggleTimbresExpanded: () -> Unit,
+    onToggleArpExpanded: () -> Unit,
+    onToggleKeyboard: () -> Unit,
     onSaveUserPreset: () -> Unit,
     onExportPreset: () -> Unit,
     onImportPreset: () -> Unit
@@ -2342,6 +2360,86 @@ private fun VoicingPresetBar(
                     fontWeight = FontWeight.Bold
                 )
             }
+
+            // ARP Expand/Collapse Button (Placed next to Presets, encompassing the entire Arpeggiator section)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(
+                        when {
+                            arpEnabled -> Color(0xFF33240D)
+                            isArpExpanded -> Color(0xFF241B0D)
+                            else -> Color(0xFF181C28)
+                        }
+                    )
+                    .border(
+                        1.dp,
+                        when {
+                            arpEnabled -> JunoAmberLed
+                            isArpExpanded -> Color(0xFFF59E0B)
+                            else -> Color(0xFF2D3548)
+                        },
+                        RoundedCornerShape(3.5.dp)
+                    )
+                    .clickable { onToggleArpExpanded() }
+                    .padding(horizontal = 9.dp)
+            ) {
+                if (arpEnabled) {
+                    Box(
+                        modifier = Modifier
+                            .size(5.5.dp)
+                            .clip(CircleShape)
+                            .background(JunoAmberLed)
+                    )
+                }
+                Text(
+                    text = "ARP",
+                    color = if (arpEnabled || isArpExpanded) Color(0xFFFBBF24) else Color(0xFFD1D5DB),
+                    fontSize = 7.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = if (isArpExpanded) "▴" else "▾",
+                    color = if (arpEnabled || isArpExpanded) Color(0xFFFBBF24) else Color(0xFF9CA3AF),
+                    fontSize = 7.8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Show/Hide Keyboard Button (Placed right next to ARP)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(if (showKeyboard) Color(0xFF261A0B) else Color(0xFF181C28))
+                    .border(
+                        1.dp,
+                        if (showKeyboard) JunoOrange else Color(0xFF2D3548),
+                        RoundedCornerShape(3.5.dp)
+                    )
+                    .clickable { onToggleKeyboard() }
+                    .padding(horizontal = 9.dp)
+            ) {
+                Text(
+                    text = "TECLADO",
+                    color = if (showKeyboard) JunoAmberLed else Color(0xFFD1D5DB),
+                    fontSize = 7.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = if (showKeyboard) "▴" else "▾",
+                    color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
+                    fontSize = 7.8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
@@ -2521,7 +2619,7 @@ private fun VoicingTimbresInlineBrowser(
 }
 
 /**
- * Compact Arpeggiator Bar inside the Keyboard Section (matching Web Arpeggiator.tsx):
+ * Full Arpeggiator Panel (Toggled as a complete unit via the `ARP` button next to Presets):
  * Houses ARP ON/OFF, Mode (UP, U/D, DOWN), Range (1, 2, 3 Oct), Division (1/4, 1/8, 1/16),
  * HOLD toggle, and BPM control.
  */
@@ -2538,11 +2636,7 @@ private fun ArpeggiatorKeyboardBar(
     arpBpm: Float,
     onArpBpmChange: (Float) -> Unit,
     holdSustain: Boolean,
-    onToggleHold: () -> Unit,
-    arpExpanded: Boolean,
-    onToggleExpanded: () -> Unit,
-    showKeyboard: Boolean,
-    onToggleKeyboard: () -> Unit
+    onToggleHold: () -> Unit
 ) {
     val modeNames = listOf("UP", "U/D", "DOWN")
     val rateLabels = listOf("1/4" to 4, "1/8" to 8, "1/16" to 16)
@@ -2554,290 +2648,237 @@ private fun ArpeggiatorKeyboardBar(
             .background(Color(0xFF0C0E14), RoundedCornerShape(5.dp))
             .border(1.dp, Color(0xFF202534), RoundedCornerShape(5.dp))
             .horizontalScroll(arpScroll)
-            .padding(horizontal = 6.dp, vertical = 3.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // Main ARP ON/OFF Button
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .clip(RoundedCornerShape(3.dp))
+                .background(if (arpEnabled) Color(0xFFFBBF24) else Color(0xFF161A24))
+                .border(
+                    1.dp,
+                    if (arpEnabled) Color(0xFFFDE68A) else Color(0xFF2D3446),
+                    RoundedCornerShape(3.dp)
+                )
+                .clickable { onToggleArp() }
+                .padding(horizontal = 8.dp, vertical = 2.5.dp)
+        ) {
+            Text(
+                text = if (arpEnabled) "ARP ON" else "ARP OFF",
+                color = if (arpEnabled) Color.Black else Color(0xFF9CA3AF),
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Black
+            )
+        }
+
+        // Quick Status Badges
+        Box(
+            modifier = Modifier
+                .background(Color(0xFF131720), RoundedCornerShape(3.dp))
+                .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
+                .padding(horizontal = 5.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = modeNames.getOrElse(arpMode) { "UP" },
+                color = Color(0xFFD1D5DB),
+                fontSize = 7.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .background(Color(0xFF131720), RoundedCornerShape(3.dp))
+                .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
+                .padding(horizontal = 5.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = "$arpRange ${if (arpRange == 1) "OCT" else "OCTS"}",
+                color = Color(0xFFD1D5DB),
+                fontSize = 7.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .background(Color(0xFF131720), RoundedCornerShape(3.dp))
+                .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
+                .padding(horizontal = 5.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = "${arpBpm.roundToInt()} BPM",
+                color = JunoAmberLed,
+                fontSize = 7.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+
+        // Inline Mode Selector
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier.padding(start = 2.dp)
         ) {
-            // Main ARP ON/OFF Button
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(if (arpEnabled) Color(0xFFFBBF24) else Color(0xFF161A24))
-                    .border(
-                        1.dp,
-                        if (arpEnabled) Color(0xFFFDE68A) else Color(0xFF2D3446),
-                        RoundedCornerShape(3.dp)
-                    )
-                    .clickable { onToggleArp() }
-                    .padding(horizontal = 7.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (arpEnabled) "ARP ON" else "ARP OFF",
-                    color = if (arpEnabled) Color.Black else Color(0xFF9CA3AF),
-                    fontSize = 8.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Black
-                )
-            }
-
-            // Quick Status Badges
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
-                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
-                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
-            ) {
-                Text(
-                    text = modeNames.getOrElse(arpMode) { "UP" },
-                    color = Color(0xFFD1D5DB),
-                    fontSize = 7.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
-                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
-                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
-            ) {
-                Text(
-                    text = "$arpRange ${if (arpRange == 1) "OCT" else "OCTS"}",
-                    color = Color(0xFFD1D5DB),
-                    fontSize = 7.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
-                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
-                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
-            ) {
-                Text(
-                    text = "${arpBpm.roundToInt()} BPM",
-                    color = JunoAmberLed,
-                    fontSize = 7.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-
-            if (arpExpanded) {
-                // Inline Mode Selector
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
-                    modifier = Modifier.padding(start = 3.dp)
-                ) {
-                    Text(
-                        text = "MODO:",
-                        color = Color(0xFF6B7280),
-                        fontSize = 7.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    for (i in modeNames.indices) {
-                        val sel = arpMode == i
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (sel) JunoAmberLed else Color(0xFF151924))
-                                .border(
-                                    1.dp,
-                                    if (sel) Color(0xFFFDE68A) else Color(0xFF272E40),
-                                    RoundedCornerShape(3.dp)
-                                )
-                                .clickable { onSelectArpMode(i) }
-                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                        ) {
-                            Text(
-                                text = modeNames[i],
-                                color = if (sel) Color.Black else Color(0xFF9CA3AF),
-                                fontSize = 7.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                    }
-                }
-
-                // Inline Range Selector (Octaves)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
-                    modifier = Modifier.padding(start = 3.dp)
-                ) {
-                    Text(
-                        text = "OITAVAS:",
-                        color = Color(0xFF6B7280),
-                        fontSize = 7.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    for (r in 1..3) {
-                        val sel = arpRange == r
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (sel) JunoAmberLed else Color(0xFF151924))
-                                .border(
-                                    1.dp,
-                                    if (sel) Color(0xFFFDE68A) else Color(0xFF272E40),
-                                    RoundedCornerShape(3.dp)
-                                )
-                                .clickable { onSelectArpRange(r) }
-                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                        ) {
-                            Text(
-                                text = "${r}x",
-                                color = if (sel) Color.Black else Color(0xFF9CA3AF),
-                                fontSize = 7.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                    }
-                }
-
-                // Inline Rate Division Selector
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
-                    modifier = Modifier.padding(start = 3.dp)
-                ) {
-                    Text(
-                        text = "DIV:",
-                        color = Color(0xFF6B7280),
-                        fontSize = 7.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    for ((label, divVal) in rateLabels) {
-                        val sel = arpRateDiv == divVal
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (sel) Color(0xFF38BDF8) else Color(0xFF151924))
-                                .border(
-                                    1.dp,
-                                    if (sel) Color(0xFFBAE6FD) else Color(0xFF272E40),
-                                    RoundedCornerShape(3.dp)
-                                )
-                                .clickable { onSelectArpRateDiv(divVal) }
-                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (sel) Color.Black else Color(0xFF9CA3AF),
-                                fontSize = 7.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                    }
-                }
-
-                // HOLD Toggle
+            Text(
+                text = "MODO:",
+                color = Color(0xFF6B7280),
+                fontSize = 7.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+            for (i in modeNames.indices) {
+                val sel = arpMode == i
                 Box(
                     modifier = Modifier
-                        .padding(start = 3.dp)
                         .clip(RoundedCornerShape(3.dp))
-                        .background(if (holdSustain) JunoAmberLed else Color(0xFF151924))
+                        .background(if (sel) JunoAmberLed else Color(0xFF151924))
                         .border(
                             1.dp,
-                            if (holdSustain) Color(0xFFFDE68A) else Color(0xFF272E40),
+                            if (sel) Color(0xFFFDE68A) else Color(0xFF272E40),
                             RoundedCornerShape(3.dp)
                         )
-                        .clickable { onToggleHold() }
-                        .padding(horizontal = 5.5.dp, vertical = 1.5.dp)
+                        .clickable { onSelectArpMode(i) }
+                        .padding(horizontal = 5.5.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = if (holdSustain) "HOLD ON" else "HOLD OFF",
-                        color = if (holdSustain) Color.Black else Color(0xFF9CA3AF),
+                        text = modeNames[i],
+                        color = if (sel) Color.Black else Color(0xFF9CA3AF),
                         fontSize = 7.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
                     )
                 }
+            }
+        }
 
-                // BPM Horizontal Slider
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    modifier = Modifier.padding(start = 3.dp)
+        // Inline Range Selector (Octaves)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier.padding(start = 2.dp)
+        ) {
+            Text(
+                text = "OITAVAS:",
+                color = Color(0xFF6B7280),
+                fontSize = 7.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+            for (r in 1..3) {
+                val sel = arpRange == r
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (sel) JunoAmberLed else Color(0xFF151924))
+                        .border(
+                            1.dp,
+                            if (sel) Color(0xFFFDE68A) else Color(0xFF272E40),
+                            RoundedCornerShape(3.dp)
+                        )
+                        .clickable { onSelectArpRange(r) }
+                        .padding(horizontal = 5.5.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "BPM:",
-                        color = Color(0xFF6B7280),
+                        text = "${r}x",
+                        color = if (sel) Color.Black else Color(0xFF9CA3AF),
                         fontSize = 7.sp,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    HorizontalTouchStrip(
-                        value = ((arpBpm - 40f) / 200f).coerceIn(0f, 1f),
-                        accentColor = JunoAmberLed,
-                        springCenter = false,
-                        width = 64.dp,
-                        onChange = { norm -> onArpBpmChange(40f + norm * 200f) },
-                        onRelease = {}
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
             }
         }
 
-        Spacer(Modifier.width(6.dp))
-
-        // Right side: Collapse/Expand Arpeggiator & Show/Hide Keyboard Keys
+        // Inline Rate Division Selector
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier.padding(start = 2.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(Color(0xFF141822))
-                    .border(1.dp, Color(0xFF283042), RoundedCornerShape(3.dp))
-                    .clickable { onToggleExpanded() }
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (arpExpanded) "AJUSTES ▲" else "AJUSTES ▼",
-                    color = Color(0xFFD1D5DB),
-                    fontSize = 7.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(if (showKeyboard) Color(0xFF1D1710) else Color(0xFF141822))
-                    .border(
-                        1.dp,
-                        if (showKeyboard) JunoOrange else Color(0xFF283042),
-                        RoundedCornerShape(3.dp)
+            Text(
+                text = "DIV:",
+                color = Color(0xFF6B7280),
+                fontSize = 7.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+            for ((label, divVal) in rateLabels) {
+                val sel = arpRateDiv == divVal
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (sel) Color(0xFF38BDF8) else Color(0xFF151924))
+                        .border(
+                            1.dp,
+                            if (sel) Color(0xFFBAE6FD) else Color(0xFF272E40),
+                            RoundedCornerShape(3.dp)
+                        )
+                        .clickable { onSelectArpRateDiv(divVal) }
+                        .padding(horizontal = 5.5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = label,
+                        color = if (sel) Color.Black else Color(0xFF9CA3AF),
+                        fontSize = 7.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold
                     )
-                    .clickable { onToggleKeyboard() }
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (showKeyboard) "OCULTAR TECLAS ▲" else "MOSTRAR TECLAS ▼",
-                    color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
-                    fontSize = 7.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
+                }
             }
+        }
+
+        // HOLD Toggle
+        Box(
+            modifier = Modifier
+                .padding(start = 2.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(if (holdSustain) JunoAmberLed else Color(0xFF151924))
+                .border(
+                    1.dp,
+                    if (holdSustain) Color(0xFFFDE68A) else Color(0xFF272E40),
+                    RoundedCornerShape(3.dp)
+                )
+                .clickable { onToggleHold() }
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = if (holdSustain) "HOLD ON" else "HOLD OFF",
+                color = if (holdSustain) Color.Black else Color(0xFF9CA3AF),
+                fontSize = 7.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+
+        // BPM Horizontal Slider
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(start = 2.dp)
+        ) {
+            Text(
+                text = "BPM:",
+                color = Color(0xFF6B7280),
+                fontSize = 7.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+            HorizontalTouchStrip(
+                value = ((arpBpm - 40f) / 200f).coerceIn(0f, 1f),
+                accentColor = JunoAmberLed,
+                springCenter = false,
+                width = 72.dp,
+                onChange = { norm -> onArpBpmChange(40f + norm * 200f) },
+                onRelease = {}
+            )
         }
     }
 }
@@ -2942,7 +2983,7 @@ private fun SynthModuleCard(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 15.dp, vertical = 10.dp),
+                .padding(horizontal = 13.dp, vertical = 9.dp),
             contentAlignment = Alignment.Center
         ) {
             content()
@@ -3024,7 +3065,7 @@ private fun JunoParamFader(
     Box(
         contentAlignment = Alignment.TopCenter,
         modifier = Modifier
-            .width(44.dp)
+            .width(41.dp)
             .fillMaxHeight(heightFraction)
     ) {
         // Fixed-dimension Fader Body (Never shifts when MIDI Learn toggles!)
