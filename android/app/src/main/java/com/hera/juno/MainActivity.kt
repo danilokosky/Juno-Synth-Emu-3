@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -331,14 +332,12 @@ fun HeraJunoNativeScreen(
             .fillMaxSize()
             .background(JunoBgDark)
     ) {
-        // Ergonomic responsive density:
-        // On compact phones (e.g. Galaxy S25 landscape maxWidth < 960dp), scale gently (0.84f..1.0f) to fit.
-        // On large screens / tablets / DeX / monitors (maxWidth >= 960dp), maintain native 1.0f scale so elements don't artificially blow up between small window and full screen!
-        val dpiScale = if (maxWidth < 960.dp) {
-            (maxWidth / 960.dp).coerceIn(0.84f, 1.0f)
-        } else {
-            1.0f
-        }
+        // Ergonomic density matching the Google AI Studio Preview layout:
+        // The reference canvas height is ~520.dp, which fits the complete console (Header + Faders + Presets + Arp bar + Keyboard)
+        // By scaling Compose Density based on (maxHeight / 520.dp), on large screens/monitors (e.g. 1080p, 1440p) or large windows,
+        // all UI elements scale up proportionally together! This prevents tiny microscopic DPI and eliminates empty black dead zones,
+        // while preserving the exact same ratio of fader travel, font size, and spacing across small and large screens!
+        val dpiScale = (maxHeight / 520.dp).coerceIn(0.75f, 2.6f)
         val previewMatchedDensity = remember(baseDensity, dpiScale) {
             Density(
                 density = baseDensity.density * dpiScale,
@@ -365,20 +364,8 @@ fun HeraJunoNativeScreen(
                         .weight(1f)
                         .fillMaxHeight()
                 ) {
-                    // Compact wide phone screens (e.g. Galaxy S25 landscape ~20:9 have virtual maxHeight ~480..550.dp).
-                    // Taller windows / tablets / DeX / 4:3 AI Studio preview have virtual maxHeight ~640..830.dp.
                     val isCompactViewport = maxHeight <= 560.dp
-                    val keyboardSectionHeight = if (isCompactViewport) {
-                        210.dp
-                    } else {
-                        (maxHeight * 0.32f).coerceIn(200.dp, 280.dp)
-                    }
-                    val firstScreenHeight = if (isCompactViewport) {
-                        maxHeight.coerceAtLeast(320.dp)
-                    } else {
-                        val nonKeyboardH = if (showKeyboard) (maxHeight - keyboardSectionHeight - 8.dp) else maxHeight
-                        nonKeyboardH.coerceAtLeast(360.dp)
-                    }
+                    val keyboardSectionHeight = 190.dp
                     val responsiveSemitones = if (maxWidth >= 1200.dp) 48 else 36
 
                     Column(
@@ -386,12 +373,6 @@ fun HeraJunoNativeScreen(
                             .fillMaxSize()
                             .verticalScroll(mainVerticalScroll)
                     ) {
-                        // FIRST SCREEN VIEWPORT: HEADER + MAIN SYNTHESIZER FADERS RACK + PRESET BAR
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(firstScreenHeight)
-                ) {
                     // 1. TOP ROLAND HEADER BAR (Branding with VOICES next to JUNO-60 + Scope + Distinct MIDI & Master Controls)
                     TopHeaderBar(
                         activeVoiceCount = activeVoiceCount,
@@ -456,10 +437,10 @@ fun HeraJunoNativeScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
+                            .height(205.dp)
                             .background(Color(0xFF11131A))
                             .horizontalScroll(rackScrollState)
-                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // SECTION 1: LFO (Rate + Vib Del faders with MAN TRIG button directly below them inside the section)
@@ -477,9 +458,7 @@ fun HeraJunoNativeScreen(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    modifier = Modifier
-                                        .heightIn(max = 260.dp)
-                                        .fillMaxHeight(0.82f)
+                                    modifier = Modifier.height(152.dp)
                                 ) {
                                     JunoParamFader(
                                         param = SynthParam.LFORate,
@@ -1073,11 +1052,29 @@ fun HeraJunoNativeScreen(
                             }
                         )
                     }
-                // END OF FIRST SCREEN VIEWPORT (Header + Synth Fader Rack + Preset Bar fill 100% of first screen!)
-                }
 
-                // 3. BELOW-THE-FOLD SECTION (Expanded Timbres Browser + Full Expandable Arpeggiator + Piano Keyboard)
-                Column(
+                    // 2D. Dedicated Roland Arpeggiator Quick Status Bar (matching Screenshot_20261103_003110_Chrome_80e31999.jpg)
+                    ArpQuickStatusBar(
+                        arpEnabled = arpEnabled,
+                        arpMode = arpMode,
+                        arpRange = arpRange,
+                        arpBpm = arpBpm,
+                        isArpExpanded = arpExpanded,
+                        showKeyboard = showKeyboard,
+                        onToggleArp = {
+                            arpEnabled = !arpEnabled
+                            if (!arpEnabled && !holdSustain) onPanicAllNotesOff()
+                        },
+                        onToggleAdjustments = {
+                            arpExpanded = !arpExpanded
+                        },
+                        onToggleKeyboard = {
+                            showKeyboard = !showKeyboard
+                        }
+                    )
+
+                    // 3. BELOW SECTION (Expanded Timbres Browser + Full Expandable Arpeggiator Adjustments + Piano Keyboard)
+                    Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color(0xFF090B10))
@@ -2096,14 +2093,282 @@ private fun MidiProfileInlineDrawer(
     }
 }
 
+@Composable
+private fun ChevronLeftIcon(modifier: Modifier = Modifier.size(10.dp), color: Color = Color(0xFFE5E7EB)) {
+    Canvas(modifier = modifier) {
+        val path = Path().apply {
+            moveTo(size.width * 0.65f, size.height * 0.18f)
+            lineTo(size.width * 0.32f, size.height * 0.50f)
+            lineTo(size.width * 0.65f, size.height * 0.82f)
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+    }
+}
+
+@Composable
+private fun ChevronRightIcon(modifier: Modifier = Modifier.size(10.dp), color: Color = Color(0xFFE5E7EB)) {
+    Canvas(modifier = modifier) {
+        val path = Path().apply {
+            moveTo(size.width * 0.35f, size.height * 0.18f)
+            lineTo(size.width * 0.68f, size.height * 0.50f)
+            lineTo(size.width * 0.35f, size.height * 0.82f)
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+    }
+}
+
+@Composable
+private fun FloppySaveIcon(modifier: Modifier = Modifier.size(13.dp), color: Color = Color(0xFFFBBF24)) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeW = 1.3.dp.toPx()
+        val path = Path().apply {
+            moveTo(w * 0.15f, h * 0.15f)
+            lineTo(w * 0.70f, h * 0.15f)
+            lineTo(w * 0.88f, h * 0.33f)
+            lineTo(w * 0.88f, h * 0.85f)
+            lineTo(w * 0.15f, h * 0.85f)
+            close()
+        }
+        drawPath(path, color, style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawRect(
+            color = color,
+            topLeft = Offset(w * 0.32f, h * 0.15f),
+            size = Size(w * 0.36f, h * 0.30f),
+            style = Stroke(width = strokeW)
+        )
+        drawRect(
+            color = color,
+            topLeft = Offset(w * 0.28f, h * 0.55f),
+            size = Size(w * 0.44f, h * 0.30f),
+            style = Stroke(width = strokeW)
+        )
+    }
+}
+
+@Composable
+private fun DownloadTrayIcon(modifier: Modifier = Modifier.size(13.dp), color: Color = Color(0xFF34D399)) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeW = 1.3.dp.toPx()
+        val tray = Path().apply {
+            moveTo(w * 0.18f, h * 0.62f)
+            lineTo(w * 0.18f, h * 0.85f)
+            lineTo(w * 0.82f, h * 0.85f)
+            lineTo(w * 0.82f, h * 0.62f)
+        }
+        drawPath(tray, color, style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawLine(color, Offset(w * 0.50f, h * 0.15f), Offset(w * 0.50f, h * 0.62f), strokeWidth = strokeW, cap = StrokeCap.Round)
+        val head = Path().apply {
+            moveTo(w * 0.32f, h * 0.46f)
+            lineTo(w * 0.50f, h * 0.64f)
+            lineTo(w * 0.68f, h * 0.46f)
+        }
+        drawPath(head, color, style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
+@Composable
+private fun UploadTrayIcon(modifier: Modifier = Modifier.size(13.dp), color: Color = Color(0xFF38BDF8)) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeW = 1.3.dp.toPx()
+        val tray = Path().apply {
+            moveTo(w * 0.18f, h * 0.62f)
+            lineTo(w * 0.18f, h * 0.85f)
+            lineTo(w * 0.82f, h * 0.85f)
+            lineTo(w * 0.82f, h * 0.62f)
+        }
+        drawPath(tray, color, style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawLine(color, Offset(w * 0.50f, h * 0.65f), Offset(w * 0.50f, h * 0.18f), strokeWidth = strokeW, cap = StrokeCap.Round)
+        val head = Path().apply {
+            moveTo(w * 0.32f, h * 0.34f)
+            lineTo(w * 0.50f, h * 0.16f)
+            lineTo(w * 0.68f, h * 0.34f)
+        }
+        drawPath(head, color, style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
+@Composable
+private fun HamburgerLinesIcon(modifier: Modifier = Modifier.size(11.dp), color: Color = Color(0xFFFBBF24)) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeW = 1.3.dp.toPx()
+        drawLine(color, Offset(w * 0.10f, h * 0.22f), Offset(w * 0.90f, h * 0.22f), strokeWidth = strokeW, cap = StrokeCap.Round)
+        drawLine(color, Offset(w * 0.10f, h * 0.50f), Offset(w * 0.90f, h * 0.50f), strokeWidth = strokeW, cap = StrokeCap.Round)
+        drawLine(color, Offset(w * 0.10f, h * 0.78f), Offset(w * 0.90f, h * 0.78f), strokeWidth = strokeW, cap = StrokeCap.Round)
+    }
+}
+
+@Composable
+private fun ArpQuickStatusBar(
+    arpEnabled: Boolean,
+    arpMode: Int,
+    arpRange: Int,
+    arpBpm: Float,
+    isArpExpanded: Boolean,
+    showKeyboard: Boolean,
+    onToggleArp: () -> Unit,
+    onToggleAdjustments: () -> Unit,
+    onToggleKeyboard: () -> Unit
+) {
+    val modeNames = listOf("UP", "U/D", "DOWN")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF090B10))
+            .padding(horizontal = 8.dp, vertical = 3.5.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // [ ARP OFF / ON ]
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(if (arpEnabled) Color(0xFFFBBF24) else Color(0xFF161A24))
+                    .border(1.dp, if (arpEnabled) Color(0xFFFDE68A) else Color(0xFF2D3446), RoundedCornerShape(3.5.dp))
+                    .clickable { onToggleArp() }
+                    .padding(horizontal = 9.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = if (arpEnabled) "ARP ON" else "ARP OFF",
+                    color = if (arpEnabled) Color.Black else Color(0xFF9CA3AF),
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black
+                )
+            }
+
+            // Mode badge [ UP ]
+            Box(
+                modifier = Modifier
+                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
+                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
+            ) {
+                Text(
+                    text = modeNames.getOrElse(arpMode) { "UP" },
+                    color = Color(0xFFD1D5DB),
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Range badge [ 1 OCT ]
+            Box(
+                modifier = Modifier
+                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
+                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
+            ) {
+                Text(
+                    text = "$arpRange ${if (arpRange == 1) "OCT" else "OCTS"}",
+                    color = Color(0xFFD1D5DB),
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // BPM badge [ 120 BPM ]
+            Box(
+                modifier = Modifier
+                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
+                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
+            ) {
+                Text(
+                    text = "${arpBpm.roundToInt()} BPM",
+                    color = JunoAmberLed,
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+
+        // Right side: [ ⚙ AJUSTES ▾ ] and [ TECLADO ▾ ]
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(if (isArpExpanded) Color(0xFF2B2112) else Color(0xFF161A24))
+                    .border(1.dp, if (isArpExpanded) JunoAmberLed else Color(0xFF2D3446), RoundedCornerShape(3.5.dp))
+                    .clickable { onToggleAdjustments() }
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = "⚙ AJUSTES",
+                    color = if (isArpExpanded) JunoAmberLed else Color(0xFFD1D5DB),
+                    fontSize = 7.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = if (isArpExpanded) "▴" else "▾",
+                    color = if (isArpExpanded) JunoAmberLed else Color(0xFF9CA3AF),
+                    fontSize = 7.8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(if (showKeyboard) Color(0xFF261A0B) else Color(0xFF161A24))
+                    .border(1.dp, if (showKeyboard) JunoOrange else Color(0xFF2D3446), RoundedCornerShape(3.5.dp))
+                    .clickable { onToggleKeyboard() }
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = "TECLADO",
+                    color = if (showKeyboard) JunoAmberLed else Color(0xFFD1D5DB),
+                    fontSize = 7.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = if (showKeyboard) "▴" else "▾",
+                    color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
+                    fontSize = 7.8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
 /**
  * ULTRA-SLIM VOICING / PATCH BAR & INLINE EXPANDABLE TIMBRES BROWSER:
  * - Drastically reduced thickness
- * - Removed "VOICING" word and "FACTORY" label; shows only the preset name next to BANK and PATCH
- *   (or "Factory #xx" if the voice has no name)
- * - Buttons: "◀", "▶", "SALVAR", "↓ DOWNLOAD", "↑ UPLOAD", and "TIMBRES"
- * - Pressing "TIMBRES" expands the window downwards inline within the Timbres section (no pop-up!),
- *   showing all banks and patches in order.
+ * - Buttons matching Screenshot_20261103_003912_Chrome.jpg:
+ *   [ < ] [ > ] [ 💾 Save ] [ 📥 XML ] [ 📤 Load ] [ ≡ PRESETS (56) ▾ ]
  */
 @Composable
 private fun VoicingPresetBar(
@@ -2255,28 +2520,28 @@ private fun VoicingPresetBar(
 
         Spacer(Modifier.width(12.dp))
 
-        // RIGHT: Wider, More Spaced Navigation Arrows (Responding to MIDI Program Change) & Preset Action Options
+        // RIGHT: Action buttons matching Screenshot_20261103_003912_Chrome.jpg:
+        // [ < ] [ > ] [ 💾 Save ] [ 📥 XML ] [ 📤 Load ] [ ≡ PRESETS (56) ▾ ]
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Prev Timbre Arrow (Wider & comfortable + MIDI Program Change mapping support)
+            // [ < ] Prev Chevron
             Box(contentAlignment = Alignment.Center) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .width(34.dp)
-                        .height(22.dp)
-                        .clip(RoundedCornerShape(3.5.dp))
-                        .background(if (prevWaiting) Color(0xFF0A2236) else Color(0xFF181C28))
+                        .size(width = 28.dp, height = 24.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (prevWaiting) Color(0xFF0A2236) else Color(0xFF161922))
                         .border(
                             width = if (prevWaiting) 1.5.dp else 1.dp,
                             color = when {
                                 prevWaiting -> Color(0xFF38BDF8)
                                 isLearnMode -> Color(0xFF0369A1)
-                                else -> Color(0xFF2D3548)
+                                else -> Color(0xFF2B3244)
                             },
-                            shape = RoundedCornerShape(3.5.dp)
+                            shape = RoundedCornerShape(4.dp)
                         )
                         .clickable {
                             if (isLearnMode) {
@@ -2287,14 +2552,7 @@ private fun VoicingPresetBar(
                             }
                         }
                 ) {
-                    Text(
-                        text = "◀",
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        lineHeight = 9.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                    )
+                    ChevronLeftIcon(modifier = Modifier.size(10.dp), color = Color(0xFFE5E7EB))
                 }
 
                 MidiCcBalloonBadge(
@@ -2317,23 +2575,22 @@ private fun VoicingPresetBar(
                 )
             }
 
-            // Next Timbre Arrow (Wider & comfortable + MIDI Program Change mapping support)
+            // [ > ] Next Chevron
             Box(contentAlignment = Alignment.Center) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .width(34.dp)
-                        .height(22.dp)
-                        .clip(RoundedCornerShape(3.5.dp))
-                        .background(if (nextWaiting) Color(0xFF0A2236) else Color(0xFF181C28))
+                        .size(width = 28.dp, height = 24.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (nextWaiting) Color(0xFF0A2236) else Color(0xFF161922))
                         .border(
                             width = if (nextWaiting) 1.5.dp else 1.dp,
                             color = when {
                                 nextWaiting -> Color(0xFF38BDF8)
                                 isLearnMode -> Color(0xFF0369A1)
-                                else -> Color(0xFF2D3548)
+                                else -> Color(0xFF2B3244)
                             },
-                            shape = RoundedCornerShape(3.5.dp)
+                            shape = RoundedCornerShape(4.dp)
                         )
                         .clickable {
                             if (isLearnMode) {
@@ -2344,14 +2601,7 @@ private fun VoicingPresetBar(
                             }
                         }
                 ) {
-                    Text(
-                        text = "▶",
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        lineHeight = 9.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                    )
+                    ChevronRightIcon(modifier = Modifier.size(10.dp), color = Color(0xFFE5E7EB))
                 }
 
                 MidiCcBalloonBadge(
@@ -2374,86 +2624,93 @@ private fun VoicingPresetBar(
                 )
             }
 
-            // SALVAR
-            Box(
-                contentAlignment = Alignment.Center,
+            // [ 💾 Save ]
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.5.dp),
                 modifier = Modifier
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(3.5.dp))
-                    .background(Color(0xFF21190D))
-                    .border(1.dp, JunoAmberLed, RoundedCornerShape(3.5.dp))
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF1B160E))
+                    .border(1.dp, Color(0xFF3D2E14), RoundedCornerShape(4.dp))
                     .clickable { onSaveUserPreset() }
                     .padding(horizontal = 9.dp)
             ) {
+                FloppySaveIcon(modifier = Modifier.size(13.dp), color = Color(0xFFFBBF24))
                 Text(
-                    text = "SALVAR",
-                    color = JunoAmberLed,
-                    fontSize = 7.8.sp,
+                    text = "Save",
+                    color = Color(0xFFFBBF24),
+                    fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.Bold
                 )
             }
 
-            // ↓ DOWNLOAD
-            Box(
-                contentAlignment = Alignment.Center,
+            // [ 📥 XML ]
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.5.dp),
                 modifier = Modifier
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(3.5.dp))
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(Color(0xFF0D1E18))
-                    .border(1.dp, JunoGreenReady, RoundedCornerShape(3.5.dp))
+                    .border(1.dp, Color(0xFF1B3D30), RoundedCornerShape(4.dp))
                     .clickable { onExportPreset() }
                     .padding(horizontal = 9.dp)
             ) {
+                DownloadTrayIcon(modifier = Modifier.size(13.dp), color = Color(0xFF34D399))
                 Text(
-                    text = "↓ DOWNLOAD",
-                    color = Color(0xFF6EE7B7),
-                    fontSize = 7.8.sp,
+                    text = "XML",
+                    color = Color(0xFFE5E7EB),
+                    fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.Bold
                 )
             }
 
-            // ↑ UPLOAD
-            Box(
-                contentAlignment = Alignment.Center,
+            // [ 📤 Load ]
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.5.dp),
                 modifier = Modifier
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(3.5.dp))
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(Color(0xFF0D1B29))
-                    .border(1.dp, JunoCyanLearn, RoundedCornerShape(3.5.dp))
+                    .border(1.dp, Color(0xFF1B334D), RoundedCornerShape(4.dp))
                     .clickable { onImportPreset() }
                     .padding(horizontal = 9.dp)
             ) {
+                UploadTrayIcon(modifier = Modifier.size(13.dp), color = Color(0xFF38BDF8))
                 Text(
-                    text = "↑ UPLOAD",
-                    color = Color(0xFF7DD3FC),
-                    fontSize = 7.8.sp,
+                    text = "Load",
+                    color = Color(0xFFE5E7EB),
+                    fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.Bold
                 )
             }
 
-            // TIMBRES Inline Expand Button
+            // [ ≡ PRESETS (56) ▾ ]
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.5.dp),
                 modifier = Modifier
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(3.5.dp))
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(if (isTimbresExpanded) Color(0xFF33240D) else Color(0xFF241B0D))
                     .border(
                         1.dp,
                         if (isTimbresExpanded) Color(0xFFFDE68A) else Color(0xFFF59E0B),
-                        RoundedCornerShape(3.5.dp)
+                        RoundedCornerShape(4.dp)
                     )
                     .clickable { onToggleTimbresExpanded() }
                     .padding(horizontal = 9.dp)
             ) {
+                HamburgerLinesIcon(modifier = Modifier.size(11.dp), color = Color(0xFFFBBF24))
                 Text(
-                    text = "TIMBRES (${allPresets.size})",
+                    text = "PRESETS (${allPresets.size})",
                     color = Color(0xFFFBBF24),
-                    fontSize = 7.8.sp,
+                    fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold
                 )
@@ -2469,87 +2726,7 @@ private fun VoicingPresetBar(
                 Text(
                     text = if (isTimbresExpanded) "▴" else "▾",
                     color = Color(0xFFFBBF24),
-                    fontSize = 7.8.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // ARP Expand/Collapse Button (Placed next to Presets, encompassing the entire Arpeggiator section)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(3.5.dp))
-                    .background(
-                        when {
-                            arpEnabled -> Color(0xFF33240D)
-                            isArpExpanded -> Color(0xFF241B0D)
-                            else -> Color(0xFF181C28)
-                        }
-                    )
-                    .border(
-                        1.dp,
-                        when {
-                            arpEnabled -> JunoAmberLed
-                            isArpExpanded -> Color(0xFFF59E0B)
-                            else -> Color(0xFF2D3548)
-                        },
-                        RoundedCornerShape(3.5.dp)
-                    )
-                    .clickable { onToggleArpExpanded() }
-                    .padding(horizontal = 9.dp)
-            ) {
-                if (arpEnabled) {
-                    Box(
-                        modifier = Modifier
-                            .size(5.5.dp)
-                            .clip(CircleShape)
-                            .background(JunoAmberLed)
-                    )
-                }
-                Text(
-                    text = "ARP",
-                    color = if (arpEnabled || isArpExpanded) Color(0xFFFBBF24) else Color(0xFFD1D5DB),
-                    fontSize = 7.8.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                Text(
-                    text = if (isArpExpanded) "▴" else "▾",
-                    color = if (arpEnabled || isArpExpanded) Color(0xFFFBBF24) else Color(0xFF9CA3AF),
-                    fontSize = 7.8.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Show/Hide Keyboard Button (Placed right next to ARP)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(3.5.dp))
-                    .background(if (showKeyboard) Color(0xFF261A0B) else Color(0xFF181C28))
-                    .border(
-                        1.dp,
-                        if (showKeyboard) JunoOrange else Color(0xFF2D3548),
-                        RoundedCornerShape(3.5.dp)
-                    )
-                    .clickable { onToggleKeyboard() }
-                    .padding(horizontal = 9.dp)
-            ) {
-                Text(
-                    text = "TECLADO",
-                    color = if (showKeyboard) JunoAmberLed else Color(0xFFD1D5DB),
-                    fontSize = 7.8.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                Text(
-                    text = if (showKeyboard) "▴" else "▾",
-                    color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
-                    fontSize = 7.8.sp,
+                    fontSize = 8.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -3019,7 +3196,7 @@ private fun SynthModuleCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .width(IntrinsicSize.Max)
-            .fillMaxHeight()
+            .height(205.dp)
             .clip(RoundedCornerShape(5.dp))
             .background(Color(0xFF0B0D13))
             .border(1.dp, Color(0xFF1F2533), RoundedCornerShape(5.dp))
@@ -3182,8 +3359,7 @@ private fun JunoParamFader(
         contentAlignment = Alignment.TopCenter,
         modifier = Modifier
             .width(42.dp)
-            .heightIn(max = 285.dp)
-            .fillMaxHeight(heightFraction)
+            .height(152.dp)
     ) {
         // Fixed-dimension Fader Body (Never shifts when MIDI Learn toggles!)
         Column(
