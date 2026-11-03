@@ -85,6 +85,8 @@ class MainActivity : ComponentActivity() {
     private val paramStateMap = mutableStateMapOf<SynthParam, Float>()
     private val activeNotesState = mutableStateListOf<Int>()
     private var uiRevision by mutableIntStateOf(0)
+    private var pitchBendState by mutableFloatStateOf(0f)
+    private var modWheelState by mutableFloatStateOf(0f)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,6 +119,8 @@ class MainActivity : ComponentActivity() {
                 NativeSynthBridge.noteOff(note)
             },
             onPitchBend = { bend, mod ->
+                pitchBendState = bend
+                modWheelState = mod
                 NativeSynthBridge.setPitchBend(bend, mod)
             },
             onParamChanged = { param, value ->
@@ -139,6 +143,13 @@ class MainActivity : ComponentActivity() {
                         activeNotes = activeNotesState,
                         midiManager = mgr,
                         uiRevision = uiRevision,
+                        pitchBendState = pitchBendState,
+                        modWheelState = modWheelState,
+                        onUpdatePitchMod = { bend, mod ->
+                            pitchBendState = bend
+                            modWheelState = mod
+                            NativeSynthBridge.setPitchBend(bend, mod)
+                        },
                         onNotifyUiChanged = { uiRevision++ },
                         onUpdateParam = { param, value ->
                             paramStateMap[param] = value
@@ -190,6 +201,9 @@ fun HeraJunoNativeScreen(
     activeNotes: List<Int>,
     midiManager: MidiControllerManager,
     uiRevision: Int,
+    pitchBendState: Float,
+    modWheelState: Float,
+    onUpdatePitchMod: (Float, Float) -> Unit,
     onNotifyUiChanged: () -> Unit,
     onUpdateParam: (SynthParam, Float) -> Unit,
     onTriggerNoteOn: (Int, Float) -> Unit,
@@ -215,8 +229,8 @@ fun HeraJunoNativeScreen(
     var holdSustain by remember { mutableStateOf(false) }
     var showKeyShortcuts by remember { mutableStateOf(true) }
     var baseOctave by remember { mutableIntStateOf(3) } // C3..C5
-    var pitchBendUi by remember { mutableFloatStateOf(0f) }
-    var modWheelUi by remember { mutableFloatStateOf(0f) }
+    val pitchBendUi = pitchBendState
+    val modWheelUi = modWheelState
     var isMasterMuted by remember { mutableStateOf(false) }
     var preMuteMasterVolume by remember { mutableFloatStateOf(0.8f) }
 
@@ -1322,19 +1336,17 @@ fun HeraJunoNativeScreen(
                                     label = "PITCH",
                                     param = SynthParam.PitchWheel,
                                     midiManager = midiManager,
-                                    uiRevision = midiUiRevision,
-                                    onNotifyUiChanged = notifyMidiUiChanged,
+                                    uiRevision = rev,
+                                    onNotifyUiChanged = onNotifyUiChanged,
                                     value = pitchBendUi,
                                     springCenter = true,
                                     valueLabel = if (kotlin.math.abs(pitchBendUi) < 0.02f) "CTR" else if (pitchBendUi > 0) "+${(pitchBendUi * 100).roundToInt()}%" else "${(pitchBendUi * 100).roundToInt()}%",
                                     valueColor = JunoAmberLed,
                                     onChange = { norm ->
-                                        pitchBendUi = norm.coerceIn(-1f, 1f)
-                                        NativeSynthBridge.setPitchBend(pitchBendUi, modWheelUi)
+                                        onUpdatePitchMod(norm.coerceIn(-1f, 1f), modWheelUi)
                                     },
                                     onRelease = {
-                                        pitchBendUi = 0f
-                                        NativeSynthBridge.setPitchBend(0f, modWheelUi)
+                                        onUpdatePitchMod(0f, modWheelUi)
                                     },
                                     modifier = Modifier
                                         .weight(1f)
@@ -1345,15 +1357,14 @@ fun HeraJunoNativeScreen(
                                     label = "MOD",
                                     param = SynthParam.ModWheel,
                                     midiManager = midiManager,
-                                    uiRevision = midiUiRevision,
-                                    onNotifyUiChanged = notifyMidiUiChanged,
+                                    uiRevision = rev,
+                                    onNotifyUiChanged = onNotifyUiChanged,
                                     value = modWheelUi,
                                     springCenter = false,
                                     valueLabel = "${(modWheelUi * 100).roundToInt()}%",
                                     valueColor = Color(0xFF38BDF8),
                                     onChange = { norm ->
-                                        modWheelUi = norm.coerceIn(0f, 1f)
-                                        NativeSynthBridge.setPitchBend(pitchBendUi, modWheelUi)
+                                        onUpdatePitchMod(pitchBendUi, norm.coerceIn(0f, 1f))
                                     },
                                     onRelease = {},
                                     modifier = Modifier
@@ -4386,13 +4397,11 @@ private fun VerticalWheel(
     onRelease: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    @Suppress("UNUSED_EXPRESSION")
-    uiRevision
-
+    val revIgnore = uiRevision
     val isLearnMode = midiManager.isMidiLearnActive
-    val isWaitingCC = isLearnMode && midiManager.activeLearnTargetKey == param.key
-    val mappedCC = midiManager.getMappedCCForParam(param)
-    val mappedChannel = midiManager.getChannelForParam(param)
+    val isWaitingCC = isLearnMode && midiManager.learningTargetKey == param.key
+    val mappedCC = remember(revIgnore, param) { midiManager.getMappedCC(param.key) }
+    val mappedChannel = remember(revIgnore, param) { midiManager.getMappedChannel(param.key) }
     val currentVal by rememberUpdatedState(value)
 
     Box(
@@ -4412,8 +4421,8 @@ private fun VerticalWheel(
                                 shape = RoundedCornerShape(4.dp)
                             )
                             .clickable {
-                                midiManager.activeLearnTargetKey =
-                                    if (midiManager.activeLearnTargetKey == param.key) null else param.key
+                                midiManager.learningTargetKey =
+                                    if (midiManager.learningTargetKey == param.key) null else param.key
                                 onNotifyUiChanged()
                             }
                     } else {
@@ -4443,8 +4452,8 @@ private fun VerticalWheel(
                     .pointerInput(springCenter, isLearnMode) {
                         detectTapGestures { offset ->
                             if (isLearnMode) {
-                                midiManager.activeLearnTargetKey =
-                                    if (midiManager.activeLearnTargetKey == param.key) null else param.key
+                                midiManager.learningTargetKey =
+                                    if (midiManager.learningTargetKey == param.key) null else param.key
                                 onNotifyUiChanged()
                             } else {
                                 val h = size.height.toFloat().coerceAtLeast(1f)
@@ -4461,8 +4470,8 @@ private fun VerticalWheel(
                         detectDragGestures(
                             onDrag = { change, _ ->
                                 change.consume()
-                                if (isLearnMode && midiManager.activeLearnTargetKey != param.key) {
-                                    midiManager.activeLearnTargetKey = param.key
+                                if (isLearnMode && midiManager.learningTargetKey != param.key) {
+                                    midiManager.learningTargetKey = param.key
                                     onNotifyUiChanged()
                                 }
                                 val h = size.height.toFloat().coerceAtLeast(1f)
@@ -4559,15 +4568,12 @@ private fun VerticalWheel(
             mappedChannel = mappedChannel,
             isWaitingCC = isWaitingCC,
             onSelectForLearn = {
-                midiManager.activeLearnTargetKey =
-                    if (midiManager.activeLearnTargetKey == param.key) null else param.key
+                midiManager.learningTargetKey =
+                    if (midiManager.learningTargetKey == param.key) null else param.key
                 onNotifyUiChanged()
             },
             onClearMapping = {
-                midiManager.unmapParam(param)
-                if (midiManager.activeLearnTargetKey == param.key) {
-                    midiManager.activeLearnTargetKey = null
-                }
+                midiManager.clearMappingForParam(param.key)
                 onNotifyUiChanged()
             },
             modifier = Modifier

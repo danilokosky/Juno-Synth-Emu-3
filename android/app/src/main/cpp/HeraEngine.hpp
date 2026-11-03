@@ -485,7 +485,6 @@ public:
         const float rangeFactor = HeraTables::getRangeFactor(targetParams_[DCORange].load(std::memory_order_relaxed));
         const int pwmMod = static_cast<int>(std::round(targetParams_[DCOPWMMod].load(std::memory_order_relaxed)));
         const int vcaType = static_cast<int>(std::round(targetParams_[VCAType].load(std::memory_order_relaxed)));
-        const int lfoTrigMode = static_cast<int>(std::round(targetParams_[LFOTrigMode].load(std::memory_order_relaxed)));
         const bool lfoManualTrig = targetParams_[LFOManualTrig].load(std::memory_order_relaxed) >= 0.5f;
         const bool chorusI = targetParams_[ChorusI].load(std::memory_order_relaxed) >= 0.5f;
         const bool chorusII = targetParams_[ChorusII].load(std::memory_order_relaxed) >= 0.5f;
