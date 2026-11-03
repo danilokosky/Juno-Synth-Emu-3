@@ -111,7 +111,15 @@ export const KEYS_CHANNEL_PARAMS: ReadonlySet<keyof HeraParameters> = new Set<ke
   'DCONoiseLevel',  // VCO/DCO Noise Level
 ]);
 
-export type MidiMappableAction = 'prevPreset' | 'nextPreset' | 'lfoTrig' | 'arpToggle' | 'arpHold';
+export type MidiMappableAction =
+  | 'prevPreset'
+  | 'nextPreset'
+  | 'selectPreset'
+  | 'lfoTrig'
+  | 'arpToggle'
+  | 'arpHold';
+
+export type MidiPresetChangeMode = 'program_change' | 'custom';
 
 export function getSectionForParam(param: keyof HeraParameters): MidiSectionId {
   switch (param) {
@@ -262,7 +270,9 @@ export interface MidiControllerProfile {
   paramToChannel?: Partial<Record<keyof HeraParameters, number>>;
   mapping?: Record<number, keyof HeraParameters>; // Legacy migration support
   actionMapping: Record<number, MidiMappableAction>;
+  actionToCC?: Partial<Record<MidiMappableAction, number>>;
   actionToChannel?: Partial<Record<MidiMappableAction, number>>;
+  presetChangeMode?: MidiPresetChangeMode;
   keysChannel: number;
   effectsChannel: number;
   sectionChannels: MidiSectionChannels;
@@ -346,12 +356,16 @@ export class MidiManager {
     this.sectionChannels
   );
   private actionMapping: Record<number, MidiMappableAction> = buildDefaultActionMapping();
+  private actionToCC: Partial<Record<MidiMappableAction, number>> = {};
   private actionToChannel: Partial<Record<MidiMappableAction, number>> = {};
+  private presetChangeMode: MidiPresetChangeMode = 'program_change';
   private profiles: MidiControllerProfile[] = [];
   private activeProfileId: string = DEFAULT_PROFILE_ID;
 
   private activeLearnParam: keyof HeraParameters | null = null;
   private activeLearnAction: MidiMappableAction | null = null;
+  private lastLearnedPresetAction: MidiMappableAction | null = null;
+  private lastLearnedPresetTimestamp: number = 0;
 
   // Deduplication state between Web MIDI and Android Native MIDI Bridge
   private lastMsgSig: number = -1;
@@ -435,6 +449,22 @@ export class MidiManager {
         mergedParamToCC = { ...defaultMap };
       }
 
+      const rawActionMapping = { ...(prof.actionMapping || {}) };
+      const mergedActionToCC: Partial<Record<MidiMappableAction, number>> = {
+        ...(prof.actionToCC || {}),
+      };
+      for (const [ccStr, act] of Object.entries(rawActionMapping)) {
+        if (act && mergedActionToCC[act] === undefined) {
+          mergedActionToCC[act] = Number(ccStr);
+        }
+      }
+      const rebuiltActionMapping: Record<number, MidiMappableAction> = {};
+      for (const [act, ccNum] of Object.entries(mergedActionToCC)) {
+        if (ccNum !== undefined) {
+          rebuiltActionMapping[ccNum] = act as MidiMappableAction;
+        }
+      }
+
       return {
         ...prof,
         paramToCC: mergedParamToCC,
@@ -442,8 +472,10 @@ export class MidiManager {
           ...buildDefaultParamToChannel(mergedParamToCC, mergedSections),
           ...(prof.paramToChannel || {}),
         },
-        actionMapping: { ...(prof.actionMapping || {}) },
+        actionMapping: rebuiltActionMapping,
+        actionToCC: mergedActionToCC,
         actionToChannel: { ...(prof.actionToChannel || {}) },
+        presetChangeMode: prof.presetChangeMode === 'custom' ? 'custom' : 'program_change',
         keysChannel: mergedSections.keys,
         effectsChannel: typeof prof.effectsChannel === 'number' ? prof.effectsChannel : 0,
         sectionChannels: mergedSections,
@@ -469,16 +501,34 @@ export class MidiManager {
       ...buildDefaultParamToChannel(this.paramToCC, this.sectionChannels),
       ...(active.paramToChannel || {}),
     };
+    this.actionToCC = { ...(active.actionToCC || {}) };
     this.actionMapping = { ...(active.actionMapping || buildDefaultActionMapping()) };
+    for (const [ccStr, act] of Object.entries(this.actionMapping)) {
+      if (act && this.actionToCC[act] === undefined) {
+        this.actionToCC[act] = Number(ccStr);
+      }
+    }
     this.actionToChannel = { ...(active.actionToChannel || {}) };
+    this.presetChangeMode = active.presetChangeMode === 'custom' ? 'custom' : 'program_change';
     this.keysChannel = this.sectionChannels.keys;
     this.effectsChannel = active.effectsChannel ?? 0;
 
     this.persistProfilesToStorage();
   }
 
+  private rebuildActionMappingFromActionToCC() {
+    const out: Record<number, MidiMappableAction> = {};
+    for (const [act, ccNum] of Object.entries(this.actionToCC)) {
+      if (ccNum !== undefined) {
+        out[ccNum] = act as MidiMappableAction;
+      }
+    }
+    this.actionMapping = out;
+  }
+
   private persistProfilesToStorage() {
     this.keysChannel = this.sectionChannels.keys;
+    this.rebuildActionMappingFromActionToCC();
 
     // Sync current state into the active profile slot first (Auto-Save into active profile)
     this.profiles = this.profiles.map((p) =>
@@ -488,7 +538,9 @@ export class MidiManager {
             paramToCC: { ...this.paramToCC },
             paramToChannel: { ...this.paramToChannel },
             actionMapping: { ...this.actionMapping },
+            actionToCC: { ...this.actionToCC },
             actionToChannel: { ...this.actionToChannel },
+            presetChangeMode: this.presetChangeMode,
             keysChannel: this.keysChannel,
             effectsChannel: this.effectsChannel,
             sectionChannels: { ...this.sectionChannels },
@@ -532,13 +584,24 @@ export class MidiManager {
       paramToCC: { ...p.paramToCC },
       paramToChannel: { ...(p.paramToChannel || {}) },
       actionMapping: { ...p.actionMapping },
+      actionToCC: { ...(p.actionToCC || {}) },
       actionToChannel: { ...(p.actionToChannel || {}) },
+      presetChangeMode: p.presetChangeMode === 'custom' ? 'custom' : 'program_change',
       sectionChannels: { ...p.sectionChannels },
     }));
   }
 
   getActiveProfileId(): string {
     return this.activeProfileId;
+  }
+
+  getPresetChangeMode(): MidiPresetChangeMode {
+    return this.presetChangeMode;
+  }
+
+  setPresetChangeMode(mode: MidiPresetChangeMode) {
+    this.presetChangeMode = mode === 'custom' ? 'custom' : 'program_change';
+    this.persistProfilesToStorage();
   }
 
   selectProfile(profileId: string) {
@@ -548,8 +611,15 @@ export class MidiManager {
     this.activeProfileId = target.id;
     this.paramToCC = { ...target.paramToCC };
     this.paramToChannel = { ...(target.paramToChannel || {}) };
+    this.actionToCC = { ...(target.actionToCC || {}) };
     this.actionMapping = { ...target.actionMapping };
+    for (const [ccStr, act] of Object.entries(this.actionMapping)) {
+      if (act && this.actionToCC[act] === undefined) {
+        this.actionToCC[act] = Number(ccStr);
+      }
+    }
     this.actionToChannel = { ...(target.actionToChannel || {}) };
+    this.presetChangeMode = target.presetChangeMode === 'custom' ? 'custom' : 'program_change';
     this.sectionChannels = {
       ...buildDefaultSectionChannels(target.keysChannel ?? 1, target.effectsChannel ?? 0),
       ...(target.sectionChannels || {}),
@@ -563,15 +633,17 @@ export class MidiManager {
     this.onActionMappingChanged?.(this.getActionMapping());
   }
 
-  createProfile(name: string): MidiControllerProfile {
-    const trimmed = name.trim() || `Perfil ${this.profiles.length + 1}`;
+  createProfile(name?: string): MidiControllerProfile {
+    const trimmed = (name || '').trim() || `User ${this.profiles.length}`;
     const newProfile: MidiControllerProfile = {
       id: `profile-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: trimmed,
       paramToCC: { ...this.paramToCC },
       paramToChannel: { ...this.paramToChannel },
       actionMapping: { ...this.actionMapping },
+      actionToCC: { ...this.actionToCC },
       actionToChannel: { ...this.actionToChannel },
+      presetChangeMode: this.presetChangeMode,
       keysChannel: this.keysChannel,
       effectsChannel: this.effectsChannel,
       sectionChannels: { ...this.sectionChannels },
@@ -583,6 +655,15 @@ export class MidiManager {
     this.onMappingChanged?.(this.getMapping());
     this.onActionMappingChanged?.(this.getActionMapping());
     return newProfile;
+  }
+
+  renameProfile(profileId: string, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    this.profiles = this.profiles.map((p) =>
+      p.id === profileId ? { ...p, name: trimmed } : p
+    );
+    this.persistProfilesToStorage();
   }
 
   deleteProfile(profileId: string) {
@@ -627,7 +708,7 @@ export class MidiManager {
     }
 
     // Update any learned action channel in this section
-    for (const actionKey of Object.values(this.actionMapping)) {
+    for (const actionKey of Object.keys(this.actionToCC) as MidiMappableAction[]) {
       if (getSectionForAction(actionKey) === section) {
         if (clamped === 0) {
           delete this.actionToChannel[actionKey];
@@ -670,7 +751,7 @@ export class MidiManager {
       }
     }
 
-    for (const actionKey of Object.values(this.actionMapping)) {
+    for (const actionKey of Object.keys(this.actionToCC) as MidiMappableAction[]) {
       if (clamped === 0) {
         delete this.actionToChannel[actionKey];
       } else {
@@ -812,8 +893,7 @@ export class MidiManager {
         ? learnedChannel
         : sectionCh;
 
-    // Only remove an existing mapping if it uses the exact same CC on the exact same effective channel!
-    // Same CC on different MIDI channels (e.g. CC7 on CH1 vs CC7 on CH2 vs CC7 on CH6) must never collide.
+    // 1. Remove any existing parameter mapping using the same CC on the same effective channel (or OMNI)
     for (const [p, existingCC] of Object.entries(this.paramToCC)) {
       const paramKey = p as keyof HeraParameters;
       if (paramKey === param || existingCC !== cc) continue;
@@ -830,6 +910,21 @@ export class MidiManager {
       }
     }
 
+    // 2. Also remove any conflicting Action mapping using the same CC on the same channel (or OMNI)
+    for (const [actKey, existingCC] of Object.entries(this.actionToCC)) {
+      const actionKey = actKey as MidiMappableAction;
+      if (existingCC !== cc) continue;
+      const otherEffectiveCh = this.getChannelForAction(actionKey);
+      if (
+        otherEffectiveCh === effectiveChannel ||
+        otherEffectiveCh === 0 ||
+        effectiveChannel === 0
+      ) {
+        delete this.actionToCC[actionKey];
+        delete this.actionToChannel[actionKey];
+      }
+    }
+
     this.paramToCC[param] = cc;
     if (effectiveChannel >= 1 && effectiveChannel <= 16) {
       this.paramToChannel[param] = effectiveChannel;
@@ -839,6 +934,7 @@ export class MidiManager {
 
     this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping(), param, cc);
+    this.onActionMappingChanged?.(this.getActionMapping());
   }
 
   unmapParam(param: keyof HeraParameters) {
@@ -911,37 +1007,82 @@ export class MidiManager {
   }
 
   mapActionCC(cc: number, action: MidiMappableAction, learnedChannel?: number) {
-    for (const [k, v] of Object.entries(this.actionMapping)) {
-      if (v === action) delete this.actionMapping[Number(k)];
-    }
-    this.actionMapping[cc] = action;
     const section = getSectionForAction(action);
     const sectionCh = this.sectionChannels[section] ?? 0;
-    if (learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16) {
-      this.actionToChannel[action] = learnedChannel;
-    } else if (sectionCh >= 1 && sectionCh <= 16) {
-      this.actionToChannel[action] = sectionCh;
+    const effectiveChannel =
+      learnedChannel !== undefined && learnedChannel >= 1 && learnedChannel <= 16
+        ? learnedChannel
+        : sectionCh;
+
+    // 1. Remove any conflicting parameter mapping on the same CC + channel (or OMNI) so old mappings never stay active!
+    for (const [p, existingCC] of Object.entries(this.paramToCC)) {
+      const paramKey = p as keyof HeraParameters;
+      if (existingCC !== cc) continue;
+      const otherEffectiveCh = this.getChannelForParam(paramKey);
+      if (
+        otherEffectiveCh === effectiveChannel ||
+        otherEffectiveCh === 0 ||
+        effectiveChannel === 0
+      ) {
+        delete this.paramToCC[paramKey];
+        delete this.paramToChannel[paramKey];
+      }
+    }
+
+    // 2. Remove any conflicting action mapping on the same CC + channel (or OMNI)
+    for (const [actKey, existingCC] of Object.entries(this.actionToCC)) {
+      const otherAction = actKey as MidiMappableAction;
+      if (otherAction === action || existingCC !== cc) continue;
+      const otherEffectiveCh = this.getChannelForAction(otherAction);
+      if (
+        otherEffectiveCh === effectiveChannel ||
+        otherEffectiveCh === 0 ||
+        effectiveChannel === 0
+      ) {
+        delete this.actionToCC[otherAction];
+        delete this.actionToChannel[otherAction];
+      }
+    }
+
+    // 3. Assign the new CC/PC code to this action
+    this.actionToCC[action] = cc;
+    if (effectiveChannel >= 1 && effectiveChannel <= 16) {
+      this.actionToChannel[action] = effectiveChannel;
     } else {
       delete this.actionToChannel[action];
     }
+
+    // 4. Automatically switch presetChangeMode to 'custom' when mapping a preset selection action
+    if (action === 'prevPreset' || action === 'nextPreset' || action === 'selectPreset') {
+      this.presetChangeMode = 'custom';
+      this.lastLearnedPresetAction = action;
+      this.lastLearnedPresetTimestamp = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+
     this.persistProfilesToStorage();
+    this.onMappingChanged?.(this.getMapping());
     this.onActionMappingChanged?.(this.getActionMapping(), action, cc);
   }
 
   unmapAction(action: MidiMappableAction) {
-    for (const [k, v] of Object.entries(this.actionMapping)) {
-      if (v === action) delete this.actionMapping[Number(k)];
-    }
+    delete this.actionToCC[action];
     delete this.actionToChannel[action];
     this.persistProfilesToStorage();
     this.onActionMappingChanged?.(this.getActionMapping());
   }
 
   getActionMapping(): Record<number, MidiMappableAction> {
+    this.rebuildActionMappingFromActionToCC();
     return { ...this.actionMapping };
   }
 
+  getActionToCCMap(): Partial<Record<MidiMappableAction, number>> {
+    return { ...this.actionToCC };
+  }
+
   getCCForAction(action: MidiMappableAction): number | null {
+    const cc = this.actionToCC[action];
+    if (cc !== undefined) return cc;
     for (const [ccStr, a] of Object.entries(this.actionMapping)) {
       if (a === action) return Number(ccStr);
     }
@@ -960,8 +1101,10 @@ export class MidiManager {
   resetToDefaultMapping() {
     this.paramToCC = buildDefaultParamToCC();
     this.paramToChannel = buildDefaultParamToChannel(this.paramToCC, this.sectionChannels);
+    this.actionToCC = {};
     this.actionMapping = buildDefaultActionMapping();
     this.actionToChannel = {};
+    this.presetChangeMode = 'program_change';
     this.persistProfilesToStorage();
     this.onMappingChanged?.(this.getMapping());
     this.onActionMappingChanged?.(this.getActionMapping());
@@ -1102,10 +1245,45 @@ export class MidiManager {
       }
       case 0xc: {
         // Program Change (0xCn program)
-        this.onMidiActivity?.(undefined, undefined, msgChannel);
-        if (!isArpPresetsChannelMatch) return;
         const programNumber = data1;
-        this.onProgramChange?.(programNumber);
+        const pcCode = 1000 + programNumber;
+        this.onMidiActivity?.(pcCode, programNumber, msgChannel);
+
+        // 1. MIDI Learn interception for Actions (including Bank Select + Program Change combo within 250ms):
+        if (this.activeLearnAction) {
+          const learned = this.activeLearnAction;
+          this.mapActionCC(pcCode, learned, msgChannel);
+          this.activeLearnAction = null;
+          this.onActionTriggered?.(learned, programNumber);
+          return;
+        } else if (
+          this.lastLearnedPresetAction &&
+          now - this.lastLearnedPresetTimestamp < 250
+        ) {
+          // Controller sent Bank Select (CC0/CC32) right before Program Change — upgrade mapping to PC code
+          const learned = this.lastLearnedPresetAction;
+          this.mapActionCC(pcCode, learned, msgChannel);
+          this.onActionTriggered?.(learned, programNumber);
+          return;
+        }
+
+        // 2. Check if this Program Change is mapped to a Custom Action ('prevPreset', 'nextPreset', 'selectPreset'):
+        let matchedCustomAction = false;
+        for (const [actKey, mappedCode] of Object.entries(this.actionToCC)) {
+          const action = actKey as MidiMappableAction;
+          if (mappedCode === pcCode && this.doesActionMatchChannel(action, msgChannel)) {
+            this.onActionTriggered?.(action, programNumber);
+            matchedCustomAction = true;
+          }
+        }
+        if (matchedCustomAction) {
+          return;
+        }
+
+        // 3. Only execute standard Program Change preset selection if presetChangeMode === 'program_change'
+        if (this.presetChangeMode === 'program_change' && isArpPresetsChannelMatch) {
+          this.onProgramChange?.(programNumber);
+        }
         break;
       }
       case 0xb: {
@@ -1127,18 +1305,34 @@ export class MidiManager {
         // 2. MIDI Learn interception for Actions:
         if (this.activeLearnAction) {
           const learned = this.activeLearnAction;
+          const isMomentaryAction =
+            learned === 'prevPreset' || learned === 'nextPreset' || learned === 'lfoTrig';
+          if (isMomentaryAction && value === 0) {
+            // Ignore button release (value 0) when waiting to learn a momentary trigger
+            return;
+          }
           this.mapActionCC(cc, learned, msgChannel);
           this.activeLearnAction = null;
+          if (learned === 'selectPreset' || value >= 1) {
+            this.onActionTriggered?.(learned, value);
+          }
+          return;
         }
 
-        // 3. Check if CC triggers an Action on the matching MIDI channel
-        // Rule: 0 = OFF, >= 1 = ON
-        const targetAction = this.actionMapping[cc];
-        if (targetAction && this.doesActionMatchChannel(targetAction, msgChannel)) {
-          if (targetAction === 'arpToggle' || targetAction === 'arpHold') {
-            this.onActionTriggered?.(targetAction, value);
-          } else if (value >= 1) {
-            this.onActionTriggered?.(targetAction, value);
+        // 3. Check if CC triggers any Action on the matching MIDI channel
+        for (const [actKey, mappedCode] of Object.entries(this.actionToCC)) {
+          if (mappedCode !== cc) continue;
+          const targetAction = actKey as MidiMappableAction;
+          if (this.doesActionMatchChannel(targetAction, msgChannel)) {
+            if (
+              targetAction === 'arpToggle' ||
+              targetAction === 'arpHold' ||
+              targetAction === 'selectPreset'
+            ) {
+              this.onActionTriggered?.(targetAction, value);
+            } else if (value >= 1) {
+              this.onActionTriggered?.(targetAction, value);
+            }
           }
         }
 
@@ -1170,7 +1364,7 @@ export class MidiManager {
         for (const targetParam of strictMatchedParams) {
           let paramValue: number = normalized;
 
-          // Handle switches & buttons: 0 is OFF (0), >= 1 is ON (1)
+          // Handle 3-position switches (0, 1, 2) and 2-position switches (0, 1)
           if (targetParam === 'DCORange' || targetParam === 'DCOPWMMod') {
             if (value <= 0) {
               paramValue = 0;
@@ -1179,7 +1373,7 @@ export class MidiManager {
             } else if (value === 2) {
               paramValue = 2;
             } else {
-              paramValue = clampedCC < 50 ? 1 : 2;
+              paramValue = value < 64 ? 1 : 2;
             }
           } else if (
             targetParam === 'VCAType' ||

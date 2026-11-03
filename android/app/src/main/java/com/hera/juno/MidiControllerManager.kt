@@ -14,10 +14,11 @@ import kotlin.math.roundToInt
 
 data class MidiMappingProfile(
     val id: String,
-    val name: String,
+    var name: String,
     val paramToCC: MutableMap<String, Int>,
     val paramToChannel: MutableMap<String, Int>,
-    val sectionChannels: MutableMap<MidiSection, Int>
+    val sectionChannels: MutableMap<MidiSection, Int>,
+    var presetChangeMode: String = "program_change" // "program_change" or "custom"
 )
 
 class MidiControllerManager(
@@ -31,6 +32,7 @@ class MidiControllerManager(
     companion object {
         private const val PREFS_NAME = "hera_native_midi_profiles_v3"
         private const val KEY_PROFILES_JSON = "profiles_json"
+        private const val KEY_PROFILE_ORDER = "profile_order_csv"
         private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
     }
 
@@ -49,6 +51,10 @@ class MidiControllerManager(
     var isMidiLearnActive: Boolean = false
     var learningTargetKey: String? = null
     var lastLearnedInfo: String? = null
+
+    // Tracks recent preset button learn in case hardware sends Bank Select CC + Program Change in one press
+    private var lastLearnedPresetTargetKey: String? = null
+    private var lastLearnedPresetTimeMs: Long = 0L
 
     var onPresetStep: ((Int) -> Unit)? = null
     var onProgramChange: ((Int) -> Unit)? = null
@@ -143,7 +149,8 @@ class MidiControllerManager(
             name = "Launchkey MK4",
             paramToCC = paramCC,
             paramToChannel = paramCh,
-            sectionChannels = sectionCh
+            sectionChannels = sectionCh,
+            presetChangeMode = "program_change"
         )
     }
 
@@ -154,7 +161,8 @@ class MidiControllerManager(
             name = name,
             paramToCC = mutableMapOf(),
             paramToChannel = mutableMapOf(),
-            sectionChannels = sectionCh
+            sectionChannels = sectionCh,
+            presetChangeMode = "custom"
         )
     }
 
@@ -163,6 +171,9 @@ class MidiControllerManager(
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         activeProfileId = prefs.getString(KEY_ACTIVE_PROFILE_ID, "launchkey_mk4") ?: "launchkey_mk4"
         val rawJson = prefs.getString(KEY_PROFILES_JSON, null)
+        val orderCsv = prefs.getString(KEY_PROFILE_ORDER, null)
+
+        val loadedMap = mutableMapOf<String, MidiMappingProfile>()
 
         if (!rawJson.isNullOrBlank()) {
             try {
@@ -172,6 +183,8 @@ class MidiControllerManager(
                     val id = keys.next()
                     val obj = root.getJSONObject(id)
                     val name = obj.optString("name", id)
+                    val presetMode = obj.optString("presetChangeMode", "program_change")
+                        .let { if (it == "custom" || it == "program_change") it else "program_change" }
                     val ccMap = mutableMapOf<String, Int>()
                     val chMap = mutableMapOf<String, Int>()
                     val secMap = MidiSection.entries.associateWith { 0 }.toMutableMap()
@@ -208,27 +221,46 @@ class MidiControllerManager(
                         }
                     }
 
-                    profiles.add(MidiMappingProfile(id, name, ccMap, chMap, secMap))
+                    loadedMap[id] = MidiMappingProfile(id, name, ccMap, chMap, secMap, presetMode)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
+        if (!orderCsv.isNullOrBlank()) {
+            for (id in orderCsv.split(",")) {
+                val trimmed = id.trim()
+                val prof = loadedMap.remove(trimmed)
+                if (prof != null) {
+                    profiles.add(prof)
+                }
+            }
+        }
+        for ((_, prof) in loadedMap) {
+            profiles.add(prof)
+        }
+
         if (profiles.none { it.id == "launchkey_mk4" }) {
             profiles.add(0, createLaunchkeyMk4DefaultProfile())
         }
-        if (profiles.none { it.id == "custom_user" }) {
+        if (profiles.size == 1 && rawJson.isNullOrBlank()) {
             profiles.add(createGenericProfile("custom_user", "Custom User"))
+        }
+        if (profiles.none { it.id == activeProfileId }) {
+            activeProfileId = profiles.first().id
         }
     }
 
     fun saveProfiles() {
         try {
             val root = JSONObject()
+            val orderList = mutableListOf<String>()
             for (prof in profiles) {
+                orderList.add(prof.id)
                 val obj = JSONObject()
                 obj.put("name", prof.name)
+                obj.put("presetChangeMode", prof.presetChangeMode)
 
                 val ccObj = JSONObject()
                 for ((k, v) in prof.paramToCC) ccObj.put(k, v)
@@ -248,6 +280,7 @@ class MidiControllerManager(
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY_PROFILES_JSON, root.toString())
+                .putString(KEY_PROFILE_ORDER, orderList.joinToString(","))
                 .putString(KEY_ACTIVE_PROFILE_ID, activeProfileId)
                 .apply()
         } catch (e: Exception) {
@@ -261,6 +294,59 @@ class MidiControllerManager(
             saveProfiles()
             onProfileUpdated()
         }
+    }
+
+    fun createProfile(customName: String? = null): MidiMappingProfile {
+        val current = getActiveProfile()
+        val nextNum = profiles.size + 1
+        val finalName = customName?.trim()?.takeIf { it.isNotEmpty() } ?: "Perfil $nextNum"
+        val newId = "profile_${System.currentTimeMillis()}"
+        val newProfile = MidiMappingProfile(
+            id = newId,
+            name = finalName,
+            paramToCC = current.paramToCC.toMutableMap(),
+            paramToChannel = current.paramToChannel.toMutableMap(),
+            sectionChannels = current.sectionChannels.toMutableMap(),
+            presetChangeMode = current.presetChangeMode
+        )
+        profiles.add(newProfile)
+        activeProfileId = newId
+        saveProfiles()
+        onProfileUpdated()
+        return newProfile
+    }
+
+    fun renameProfile(profileId: String, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return
+        val target = profiles.find { it.id == profileId } ?: return
+        target.name = trimmed
+        saveProfiles()
+        onProfileUpdated()
+    }
+
+    fun deleteProfile(profileId: String) {
+        if (profileId == "launchkey_mk4" || profiles.size <= 1) return
+        val removed = profiles.removeAll { it.id == profileId }
+        if (removed) {
+            if (activeProfileId == profileId) {
+                activeProfileId = profiles.first().id
+            }
+            saveProfiles()
+            onProfileUpdated()
+        }
+    }
+
+    fun setPresetChangeMode(mode: String) {
+        val valid = if (mode == "custom") "custom" else "program_change"
+        val prof = getActiveProfile()
+        prof.presetChangeMode = valid
+        saveProfiles()
+        onProfileUpdated()
+    }
+
+    fun getPresetChangeMode(): String {
+        return getActiveProfile().presetChangeMode
     }
 
     fun resetActiveProfileToFactory() {
@@ -515,36 +601,65 @@ class MidiControllerManager(
         }
     }
 
+    private fun assignLearnedMapping(
+        prof: MidiMappingProfile,
+        targetKey: String,
+        targetParam: SynthParam,
+        code: Int,
+        channel: Int
+    ) {
+        // Remove any conflicting parameter that uses the same code (CC or PC) on the same channel or OMNI
+        val toRemove = prof.paramToCC.filter { (otherKey, otherCode) ->
+            if (otherKey == targetKey || otherCode != code) return@filter false
+            val otherParam = SynthParam.fromKey(otherKey) ?: return@filter false
+            val otherCh = getEffectiveChannelForParam(prof, otherKey, otherParam)
+            otherCh == channel || otherCh == 0 || channel == 0
+        }.keys.toList()
+
+        for (k in toRemove) {
+            prof.paramToCC.remove(k)
+            prof.paramToChannel.remove(k)
+        }
+
+        prof.paramToCC[targetKey] = code
+        prof.paramToChannel[targetKey] = channel
+
+        if (targetParam == SynthParam.PresetPrev ||
+            targetParam == SynthParam.PresetNext ||
+            targetParam == SynthParam.PresetSelect
+        ) {
+            prof.presetChangeMode = "custom"
+        }
+
+        learningTargetKey = null
+        val codeLabel = if (code >= 1000) "PC${code - 1000}" else "CC$code"
+        lastLearnedInfo = "${targetParam.label} -> $codeLabel (CH$channel)"
+        saveProfiles()
+        mainHandler.post { onProfileUpdated() }
+    }
+
     private fun handleProgramChange(channel: Int, programNumber: Int) {
         val prof = getActiveProfile()
         val pcCode = 1000 + programNumber.coerceIn(0, 127)
+        val now = System.currentTimeMillis()
 
-        // 1. If MIDI Learn is active on PresetPrev or PresetNext, map this Program Change (PC#) and its exact channel!
-        val targetKey = learningTargetKey
-        if (isMidiLearnActive && targetKey != null) {
-            val targetParam = SynthParam.fromKey(targetKey)
-            if (targetParam == SynthParam.PresetPrev || targetParam == SynthParam.PresetNext) {
-                val toRemove = prof.paramToCC.filter { (otherKey, otherCode) ->
-                    if (otherKey == targetKey || otherCode != pcCode) return@filter false
-                    val otherParam = SynthParam.fromKey(otherKey) ?: return@filter false
-                    val otherCh = getEffectiveChannelForParam(prof, otherKey, otherParam)
-                    otherCh == channel
-                }.keys.toList()
-                for (k in toRemove) {
-                    prof.paramToCC.remove(k)
-                    prof.paramToChannel.remove(k)
-                }
-                prof.paramToCC[targetKey] = pcCode
-                prof.paramToChannel[targetKey] = channel
-                learningTargetKey = null
-                lastLearnedInfo = "${targetParam.label} -> PC$programNumber (CH$channel)"
-                saveProfiles()
-                mainHandler.post { onProfileUpdated() }
+        // 1. If MIDI Learn is active on PresetPrev, PresetNext, or PresetSelect (or if a Bank Select CC just arrived < 250ms ago for a preset target),
+        //    map this Program Change (PC#) and its exact channel!
+        val activeTargetKey = learningTargetKey ?: if (now - lastLearnedPresetTimeMs < 250L) lastLearnedPresetTargetKey else null
+        if (isMidiLearnActive && activeTargetKey != null) {
+            val targetParam = SynthParam.fromKey(activeTargetKey)
+            if (targetParam == SynthParam.PresetPrev ||
+                targetParam == SynthParam.PresetNext ||
+                targetParam == SynthParam.PresetSelect
+            ) {
+                lastLearnedPresetTargetKey = null
+                lastLearnedPresetTimeMs = 0L
+                assignLearnedMapping(prof, activeTargetKey, targetParam, pcCode, channel)
                 return
             }
         }
 
-        // 2. Check if PresetPrev or PresetNext is mapped to this Program Change code on this channel
+        // 2. Check if PresetPrev, PresetNext, or PresetSelect is mapped to this Program Change code on this channel
         val prevCode = prof.paramToCC[SynthParam.PresetPrev.key]
         val prevCh = getEffectiveChannelForParam(prof, SynthParam.PresetPrev.key, SynthParam.PresetPrev)
         if (prevCode == pcCode && (prevCh == 0 || prevCh == channel)) {
@@ -565,13 +680,25 @@ class MidiControllerManager(
             return
         }
 
-        // 3. Standard MIDI Program Change fallback on ARP_PRESETS or KEYS channel
-        val arpSecCh = prof.sectionChannels[MidiSection.ARP_PRESETS] ?: 0
-        val keysSecCh = prof.sectionChannels[MidiSection.KEYS] ?: 0
-        if (arpSecCh == 0 || arpSecCh == channel || keysSecCh == 0 || keysSecCh == channel) {
+        val selectCode = prof.paramToCC[SynthParam.PresetSelect.key]
+        val selectCh = getEffectiveChannelForParam(prof, SynthParam.PresetSelect.key, SynthParam.PresetSelect)
+        if (selectCode == pcCode && (selectCh == 0 || selectCh == channel)) {
             mainHandler.post {
                 onProgramChange?.invoke(programNumber)
                 onProfileUpdated()
+            }
+            return
+        }
+
+        // 3. Standard MIDI Program Change fallback ONLY when presetChangeMode == "program_change"
+        if (prof.presetChangeMode == "program_change") {
+            val arpSecCh = prof.sectionChannels[MidiSection.ARP_PRESETS] ?: 0
+            val keysSecCh = prof.sectionChannels[MidiSection.KEYS] ?: 0
+            if (arpSecCh == 0 || arpSecCh == channel || keysSecCh == 0 || keysSecCh == channel) {
+                mainHandler.post {
+                    onProgramChange?.invoke(programNumber)
+                    onProfileUpdated()
+                }
             }
         }
     }
@@ -579,37 +706,30 @@ class MidiControllerManager(
     private fun handleControlChange(channel: Int, cc: Int, value: Int) {
         val prof = getActiveProfile()
 
-        // Ignore Bank Select / Select Change (CC 0 MSB and CC 32 LSB) for Preset Arrows so they only respond to Program Change or dedicated triggers
-        val isBankSelectChange = (cc == 0 || cc == 32)
-
         // 1. MIDI Learn active with a selected control: capture BOTH the CC number AND the exact incoming MIDI channel (1..16)!
         val targetKey = learningTargetKey
         if (isMidiLearnActive && targetKey != null) {
             val targetParam = SynthParam.fromKey(targetKey)
             if (targetParam != null) {
-                // Preset navigation arrows must NOT learn Bank Select / Select Change (CC 0 / CC 32)
-                if ((targetParam == SynthParam.PresetPrev || targetParam == SynthParam.PresetNext) && isBankSelectChange) {
+                val isPresetTarget = targetParam == SynthParam.PresetPrev ||
+                    targetParam == SynthParam.PresetNext ||
+                    targetParam == SynthParam.PresetSelect
+                val isMomentaryButton = targetParam == SynthParam.PresetPrev ||
+                    targetParam == SynthParam.PresetNext ||
+                    targetParam == SynthParam.LFOManualTrig
+
+                // Ignore button release (value == 0) or Bank Select 0 prefix on momentary buttons during learn
+                if (isMomentaryButton && value == 0) {
                     return
                 }
-                // Only remove an existing mapping if it uses the exact same CC on the exact same effective channel!
-                // Same CC on different MIDI channels (e.g. CC7 on CH1 vs CC7 on CH2 vs CC7 on CH6) must NEVER overwrite each other.
-                val toRemove = prof.paramToCC.filter { (otherKey, otherCC) ->
-                    if (otherKey == targetKey || otherCC != cc) return@filter false
-                    val otherParam = SynthParam.fromKey(otherKey) ?: return@filter false
-                    val otherEffectiveCh = getEffectiveChannelForParam(prof, otherKey, otherParam)
-                    otherEffectiveCh == channel
-                }.keys.toList()
 
-                for (k in toRemove) {
-                    prof.paramToCC.remove(k)
-                    prof.paramToChannel.remove(k)
+                if (isPresetTarget) {
+                    lastLearnedPresetTargetKey = targetKey
+                    lastLearnedPresetTimeMs = System.currentTimeMillis()
                 }
 
-                prof.paramToCC[targetKey] = cc
-                prof.paramToChannel[targetKey] = channel
-                learningTargetKey = null
-                lastLearnedInfo = "${targetParam.label} -> CC$cc (CH$channel)"
-                saveProfiles()
+                assignLearnedMapping(prof, targetKey, targetParam, cc, channel)
+                return
             }
         }
 
@@ -621,9 +741,6 @@ class MidiControllerManager(
         for ((paramKey, mappedCC) in prof.paramToCC) {
             if (mappedCC != cc) continue
             val param = SynthParam.fromKey(paramKey) ?: continue
-            if ((param == SynthParam.PresetPrev || param == SynthParam.PresetNext) && isBankSelectChange) {
-                continue
-            }
             val effectiveCh = getEffectiveChannelForParam(prof, paramKey, param)
             if (effectiveCh == channel || effectiveCh == 0) {
                 matchedParams.add(param)
@@ -635,10 +752,13 @@ class MidiControllerManager(
                 for (param in matchedParams) {
                     when (param) {
                         SynthParam.PresetPrev -> {
-                            if (value >= 64) onPresetStep?.invoke(-1)
+                            if (value >= 1) onPresetStep?.invoke(-1)
                         }
                         SynthParam.PresetNext -> {
-                            if (value >= 64) onPresetStep?.invoke(1)
+                            if (value >= 1) onPresetStep?.invoke(1)
+                        }
+                        SynthParam.PresetSelect -> {
+                            onProgramChange?.invoke(value.coerceAtLeast(0))
                         }
                         else -> {
                             val newVal = computeParamValueFromCC(param, value)
@@ -672,17 +792,15 @@ class MidiControllerManager(
 
     private fun computeParamValueFromCC(param: SynthParam, ccValue: Int): Float {
         // User specification:
-        // - Switch/Toggle: 0 = OFF (0f), >= 1 = ON (1f)
-        // - Multi-position selector: DCORange / DCOPWMMod
+        // - 3-position switches (DCORange, DCOPWMMod): discrete values 0 -> 0f, 1 -> 1f, 2 -> 2f (fallback < 64 -> 1f, >= 64 -> 2f)
+        // - 2-position switches/toggles: 0 = OFF (0f), >= 1 = ON (1f)
         // - Continuous Fader: 0..100 mapped directly to 0.0..1.0, values > 100 clamped to 100 (1.0f)
         return when (param) {
-            SynthParam.DCORange -> when {
-                ccValue == 0 -> 0f
-                ccValue < 64 -> 1f
-                else -> 2f
-            }
+            SynthParam.DCORange,
             SynthParam.DCOPWMMod -> when {
-                ccValue == 0 -> 0f
+                ccValue <= 0 -> 0f
+                ccValue == 1 -> 1f
+                ccValue == 2 -> 2f
                 ccValue < 64 -> 1f
                 else -> 2f
             }

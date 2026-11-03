@@ -1818,7 +1818,7 @@ private fun TopHeaderBar(
                         .background(Color(0xFF232A3A))
                 )
 
-                // PERFIL Selector (Expands downwards inline instead of opening a pop-up!)
+                // PERFIL Selector (Expands downwards inline + direct '+' button to add/rename profile)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -1857,6 +1857,31 @@ private fun TopHeaderBar(
                             color = JunoGreenReady,
                             fontSize = 7.5.sp,
                             fontWeight = FontWeight.Bold
+                        )
+                    }
+                    // Direct '+' Button to add/manage MIDI profiles
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Color(0xFF0F2922))
+                            .border(1.dp, JunoGreenReady, RoundedCornerShape(3.dp))
+                            .clickable {
+                                if (!isProfileExpanded) {
+                                    onToggleProfileExpanded()
+                                } else {
+                                    midiManager.createProfile()
+                                    onNotifyUiChanged()
+                                }
+                            }
+                            .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                    ) {
+                        Text(
+                            text = "+",
+                            color = Color(0xFF6EE7B7),
+                            fontSize = 8.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black
                         )
                     }
                 }
@@ -2042,7 +2067,12 @@ private fun MidiProfileInlineDrawer(
 ) {
     val revIgnore = uiRevision
     val activeId = remember(revIgnore) { midiManager.activeProfileId }
+    val activeProf = remember(revIgnore) { midiManager.getActiveProfile() }
     val scroll = rememberScrollState()
+
+    // Dialog mode: null, "create", or "rename"
+    var dialogMode by remember { mutableStateOf<String?>(null) }
+    var editingName by remember { mutableStateOf("") }
 
     Row(
         modifier = Modifier
@@ -2059,7 +2089,7 @@ private fun MidiProfileInlineDrawer(
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Text(
-                text = "SELECIONAR PERFIL MIDI:",
+                text = "PERFIS MIDI:",
                 color = JunoGreenReady,
                 fontSize = 7.5.sp,
                 fontFamily = FontFamily.Monospace,
@@ -2082,7 +2112,6 @@ private fun MidiProfileInlineDrawer(
                         .clickable {
                             midiManager.selectProfile(prof.id)
                             onNotifyUiChanged()
-                            onCollapse()
                         }
                         .padding(horizontal = 7.dp, vertical = 3.dp)
                 ) {
@@ -2099,7 +2128,68 @@ private fun MidiProfileInlineDrawer(
                         fontSize = 7.sp,
                         fontFamily = FontFamily.Monospace
                     )
+                    if (prof.id != "launchkey_mk4" && midiManager.profiles.size > 1) {
+                        Text(
+                            text = "✕",
+                            color = Color(0xFFFCA5A5),
+                            fontSize = 7.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier
+                                .padding(start = 2.dp)
+                                .clickable {
+                                    midiManager.deleteProfile(prof.id)
+                                    onNotifyUiChanged()
+                                }
+                        )
+                    }
                 }
+            }
+
+            // [ + ] Add New Profile Button
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF0D2820))
+                    .border(1.dp, JunoGreenReady, RoundedCornerShape(4.dp))
+                    .clickable {
+                        editingName = "Perfil ${midiManager.profiles.size + 1}"
+                        dialogMode = "create"
+                    }
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = "+ NOVO PERFIL",
+                    color = Color(0xFF6EE7B7),
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            // [ ✎ ] Rename Active Profile Button
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF14212E))
+                    .border(1.dp, JunoCyanLearn, RoundedCornerShape(4.dp))
+                    .clickable {
+                        editingName = activeProf.name
+                        dialogMode = "rename"
+                    }
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = "✎ RENOMEAR",
+                    color = Color(0xFF7DD3FC),
+                    fontSize = 7.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
             }
         }
 
@@ -2144,6 +2234,59 @@ private fun MidiProfileInlineDrawer(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
+            }
+        }
+    }
+
+    if (dialogMode != null) {
+        val isCreate = dialogMode == "create"
+        Dialog(onDismissRequest = { dialogMode = null }) {
+            Column(
+                modifier = Modifier
+                    .width(340.dp)
+                    .background(Color(0xFF0E121B), RoundedCornerShape(10.dp))
+                    .border(1.5.dp, if (isCreate) JunoGreenReady else JunoCyanLearn, RoundedCornerShape(10.dp))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = if (isCreate) "ADICIONAR NOVO PERFIL MIDI" else "RENOMEAR PERFIL MIDI",
+                    color = if (isCreate) JunoGreenReady else JunoCyanLearn,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                OutlinedTextField(
+                    value = editingName,
+                    onValueChange = { editingName = it },
+                    singleLine = true,
+                    label = { Text("Nome do Perfil MIDI") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    SmallHeaderButton(text = "CANCELAR", onClick = { dialogMode = null })
+                    Spacer(Modifier.width(8.dp))
+                    SmallHeaderButton(
+                        text = if (isCreate) "CRIAR PERFIL" else "SALVAR NOME",
+                        bgColor = if (isCreate) JunoGreenReady else JunoCyanLearn,
+                        borderColor = if (isCreate) JunoGreenReady else JunoCyanLearn,
+                        textColor = Color.Black,
+                        onClick = {
+                            val trimmed = editingName.trim()
+                            if (trimmed.isNotEmpty()) {
+                                if (isCreate) {
+                                    midiManager.createProfile(trimmed)
+                                } else {
+                                    midiManager.renameProfile(activeId, trimmed)
+                                }
+                                onNotifyUiChanged()
+                                dialogMode = null
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -2344,6 +2487,11 @@ private fun VoicingPresetBar(
     val nextMappedCh = remember(revIgnore) { midiManager.getMappedChannel(SynthParam.PresetNext.key) }
     val nextWaiting = isLearnMode && midiManager.learningTargetKey == SynthParam.PresetNext.key
 
+    val selectMappedCC = remember(revIgnore) { midiManager.getMappedCC(SynthParam.PresetSelect.key) }
+    val selectMappedCh = remember(revIgnore) { midiManager.getMappedChannel(SynthParam.PresetSelect.key) }
+    val selectWaiting = isLearnMode && midiManager.learningTargetKey == SynthParam.PresetSelect.key
+    val isProgramChangeMode = remember(revIgnore) { midiManager.getPresetChangeMode() == "program_change" }
+
     val displayVoiceName = remember(preset, presetIndex) {
         val trimmed = preset.name.trim()
         if (trimmed.isEmpty() || trimmed.equals("Unnamed", ignoreCase = true) || trimmed.equals("Sem Nome", ignoreCase = true)) {
@@ -2363,94 +2511,130 @@ private fun VoicingPresetBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // LEFT: BANK + PATCH (with top titles & centered Red LED digits) + Divider + PRESET NAME (with top title & preset name)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .background(Color(0xFF07090D), RoundedCornerShape(4.dp))
-                .border(1.dp, Color(0xFF1D2230), RoundedCornerShape(4.dp))
-                .clickable { onToggleTimbresExpanded() }
-                .padding(horizontal = 10.dp, vertical = 5.dp)
-        ) {
-            // BANK Column (Title above + Centered Red LED box below)
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = "BANK",
-                    color = Color(0xFF9CA3AF),
-                    fontSize = 6.8.sp,
-                    lineHeight = 7.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                )
-                JunoRedLedDigitBox(
-                    text = if (preset.isUserPreset) "U" else bankNumber.toString()
-                )
-            }
-
-            // PATCH Column (Title above + Centered Red LED box below)
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = "PATCH",
-                    color = Color(0xFF9CA3AF),
-                    fontSize = 6.8.sp,
-                    lineHeight = 7.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                )
-                JunoRedLedDigitBox(
-                    text = patchNumber.toString()
-                )
-            }
-
-            // Vertical Divider
-            Box(
+        // LEFT: BANK + PATCH (with top titles & centered Red LED digits) + Divider + PRESET NAME (mappable for Custom Program in MIDI Learn!)
+        Box(contentAlignment = Alignment.Center) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
-                    .width(1.dp)
-                    .height(30.dp)
-                    .background(Color(0xFF202636))
-            )
-
-            // PRESET NAME Column (Title above + Preset Name below)
-            Column(
-                horizontalAlignment = Alignment.Start,
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier.widthIn(min = 125.dp, max = 200.dp)
+                    .background(if (selectWaiting) Color(0xFF0A2236) else Color(0xFF07090D), RoundedCornerShape(4.dp))
+                    .border(
+                        width = if (selectWaiting) 1.5.dp else 1.dp,
+                        color = when {
+                            selectWaiting -> Color(0xFF38BDF8)
+                            isLearnMode -> Color(0xFF0369A1)
+                            else -> Color(0xFF1D2230)
+                        },
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .clickable {
+                        if (isLearnMode) {
+                            midiManager.learningTargetKey = SynthParam.PresetSelect.key
+                            onNotifyUiChanged()
+                        } else {
+                            onToggleTimbresExpanded()
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
-                Text(
-                    text = "PRESET NAME",
-                    color = Color(0xFF9CA3AF),
-                    fontSize = 6.8.sp,
-                    lineHeight = 7.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                )
-                Box(
-                    contentAlignment = Alignment.CenterStart,
-                    modifier = Modifier.height(22.dp)
+                // BANK Column (Title above + Centered Red LED box below)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
-                        text = displayVoiceName,
-                        color = JunoAmberLed,
-                        fontSize = 11.sp,
-                        lineHeight = 11.sp,
+                        text = "BANK",
+                        color = Color(0xFF9CA3AF),
+                        fontSize = 6.8.sp,
+                        lineHeight = 7.sp,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        fontWeight = FontWeight.Bold,
                         style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                     )
+                    JunoRedLedDigitBox(
+                        text = if (preset.isUserPreset) "U" else bankNumber.toString()
+                    )
+                }
+
+                // PATCH Column (Title above + Centered Red LED box below)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = "PATCH",
+                        color = Color(0xFF9CA3AF),
+                        fontSize = 6.8.sp,
+                        lineHeight = 7.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                    )
+                    JunoRedLedDigitBox(
+                        text = patchNumber.toString()
+                    )
+                }
+
+                // Vertical Divider
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(30.dp)
+                        .background(Color(0xFF202636))
+                )
+
+                // PRESET NAME Column (Title above + Preset Name below)
+                Column(
+                    horizontalAlignment = Alignment.Start,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.widthIn(min = 125.dp, max = 200.dp)
+                ) {
+                    Text(
+                        text = "PRESET NAME",
+                        color = Color(0xFF9CA3AF),
+                        fontSize = 6.8.sp,
+                        lineHeight = 7.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                    )
+                    Box(
+                        contentAlignment = Alignment.CenterStart,
+                        modifier = Modifier.height(22.dp)
+                    ) {
+                        Text(
+                            text = displayVoiceName,
+                            color = JunoAmberLed,
+                            fontSize = 11.sp,
+                            lineHeight = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                        )
+                    }
                 }
             }
+
+            MidiCcBalloonBadge(
+                mappedCC = selectMappedCC,
+                mappedChannel = selectMappedCh,
+                isLearnMode = isLearnMode,
+                isWaitingCC = selectWaiting,
+                preferProgramChangeLabel = isProgramChangeMode,
+                onSelectForLearn = {
+                    midiManager.learningTargetKey = SynthParam.PresetSelect.key
+                    onNotifyUiChanged()
+                },
+                onClearMapping = {
+                    midiManager.clearMappingForParam(SynthParam.PresetSelect.key)
+                    onNotifyUiChanged()
+                },
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .zIndex(30f)
+            )
         }
 
         Spacer(Modifier.width(10.dp))
@@ -2494,7 +2678,7 @@ private fun VoicingPresetBar(
                     mappedChannel = prevMappedCh,
                     isLearnMode = isLearnMode,
                     isWaitingCC = prevWaiting,
-                    preferProgramChangeLabel = true,
+                    preferProgramChangeLabel = isProgramChangeMode,
                     onSelectForLearn = {
                         midiManager.learningTargetKey = SynthParam.PresetPrev.key
                         onNotifyUiChanged()
@@ -2543,7 +2727,7 @@ private fun VoicingPresetBar(
                     mappedChannel = nextMappedCh,
                     isLearnMode = isLearnMode,
                     isWaitingCC = nextWaiting,
-                    preferProgramChangeLabel = true,
+                    preferProgramChangeLabel = isProgramChangeMode,
                     onSelectForLearn = {
                         midiManager.learningTargetKey = SynthParam.PresetNext.key
                         onNotifyUiChanged()
@@ -4508,12 +4692,13 @@ private fun MidiChannelsDialog(
 ) {
     val revIgnore = uiRevision
     val prof = remember(revIgnore) { midiManager.getActiveProfile() }
+    val presetMode = prof.presetChangeMode
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .width(440.dp)
-                .heightIn(max = 360.dp)
+                .width(460.dp)
+                .heightIn(max = 390.dp)
                 .background(Color(0xFF0E121B), RoundedCornerShape(10.dp))
                 .border(1.5.dp, JunoCyanLearn, RoundedCornerShape(10.dp))
                 .padding(12.dp)
@@ -4540,21 +4725,21 @@ private fun MidiChannelsDialog(
                 SmallHeaderButton(text = "✕", onClick = onDismiss)
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
 
             // Apply to all FX sections quick bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF161B28), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "APLICAR A TODAS SEÇÕES FX:",
                     color = JunoCyanLearn,
-                    fontSize = 11.sp,
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -4589,7 +4774,58 @@ private fun MidiChannelsDialog(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
+
+            // Preset Change Mode Option (Program Change vs Custom Program)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF181424), RoundedCornerShape(6.dp))
+                    .border(1.dp, Color(0xFF3B2F5E), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "MUDANÇA DE PRESETS (TIMBRES):",
+                        color = JunoAmberLed,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = if (presetMode == "custom") "Custom Program (CC / PC mapeado nos botões)" else "Program Change (Padrão MIDI PC 0..127)",
+                        color = Color(0xFF9CA3AF),
+                        fontSize = 9.sp
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val isStdPc = presetMode == "program_change"
+                    SmallHeaderButton(
+                        text = "PROGRAM CHANGE",
+                        bgColor = if (isStdPc) JunoAmberLed else Color(0xFF161922),
+                        borderColor = if (isStdPc) JunoAmberLed else Color(0xFF2E3548),
+                        textColor = if (isStdPc) Color.Black else Color(0xFFE5E7EB),
+                        onClick = {
+                            midiManager.setPresetChangeMode("program_change")
+                            onNotifyUiChanged()
+                        }
+                    )
+                    val isCustomPrg = presetMode == "custom"
+                    SmallHeaderButton(
+                        text = "CUSTOM PROGRAM",
+                        bgColor = if (isCustomPrg) JunoCyanLearn else Color(0xFF161922),
+                        borderColor = if (isCustomPrg) JunoCyanLearn else Color(0xFF2E3548),
+                        textColor = if (isCustomPrg) Color.Black else Color(0xFFE5E7EB),
+                        onClick = {
+                            midiManager.setPresetChangeMode("custom")
+                            onNotifyUiChanged()
+                        }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
 
             Column(
                 modifier = Modifier
@@ -4600,6 +4836,7 @@ private fun MidiChannelsDialog(
                 for (sec in MidiSection.entries) {
                     val ch = prof.sectionChannels[sec] ?: 0
                     val isKeys = sec == MidiSection.KEYS
+                    val isArpPresets = sec == MidiSection.ARP_PRESETS
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -4617,8 +4854,12 @@ private fun MidiChannelsDialog(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = sec.subtitle,
-                                color = Color(0xFF9CA3AF),
+                                text = if (isArpPresets) {
+                                    "Modo: ${if (presetMode == "custom") "CUSTOM PROGRAM" else "PROGRAM CHANGE"}"
+                                } else {
+                                    sec.subtitle
+                                },
+                                color = if (isArpPresets) JunoCyanLearn else Color(0xFF9CA3AF),
                                 fontSize = 10.sp
                             )
                         }
@@ -4627,6 +4868,19 @@ private fun MidiChannelsDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            if (isArpPresets) {
+                                SmallHeaderButton(
+                                    text = if (presetMode == "custom") "CUSTOM" else "PC",
+                                    bgColor = if (presetMode == "custom") Color(0xFF0A2538) else Color(0xFF241D0B),
+                                    borderColor = if (presetMode == "custom") JunoCyanLearn else JunoAmberLed,
+                                    textColor = if (presetMode == "custom") JunoCyanLearn else JunoAmberLed,
+                                    onClick = {
+                                        val nextMode = if (presetMode == "custom") "program_change" else "custom"
+                                        midiManager.setPresetChangeMode(nextMode)
+                                        onNotifyUiChanged()
+                                    }
+                                )
+                            }
                             SmallHeaderButton(
                                 text = "-",
                                 onClick = {

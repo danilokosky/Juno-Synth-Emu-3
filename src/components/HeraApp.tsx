@@ -5,6 +5,7 @@ import {
   MidiManager,
   MidiDevice,
   MidiMappableAction,
+  MidiPresetChangeMode,
   MidiControllerProfile,
   MidiSectionId,
   MidiSectionChannels,
@@ -40,7 +41,9 @@ import {
   Check,
   Plus,
   ChevronDown,
-  Trash2
+  Trash2,
+  Pencil,
+  X
 } from 'lucide-react';
 
 import { AtariCartridgeIcon } from './AtariCartridgeIcon';
@@ -157,6 +160,8 @@ export const HeraApp: React.FC = () => {
   const [currentMidiMapping, setCurrentMidiMapping] = useState<Record<number, keyof HeraParameters>>({});
   const [paramToCCMap, setParamToCCMap] = useState<Partial<Record<keyof HeraParameters, number>>>({});
   const [currentMidiActionMapping, setCurrentMidiActionMapping] = useState<Record<number, MidiMappableAction>>({});
+  const [actionToCCMap, setActionToCCMap] = useState<Partial<Record<MidiMappableAction, number>>>({});
+  const [presetChangeMode, setPresetChangeMode] = useState<MidiPresetChangeMode>('program_change');
 
   // MIDI Controller Profiles State (Default: Launchkey MK4, auto-saved on every mapping/channel change)
   const [midiProfiles, setMidiProfiles] = useState<MidiControllerProfile[]>([]);
@@ -164,6 +169,8 @@ export const HeraApp: React.FC = () => {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState<boolean>(false);
   const [isCreatingProfile, setIsCreatingProfile] = useState<boolean>(false);
   const [newProfileName, setNewProfileName] = useState<string>('');
+  const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
+  const [renameProfileValue, setRenameProfileValue] = useState<string>('');
   const profileDropdownRef = useRef<HTMLDivElement | null>(null);
 
   // Interactive MIDI Learn Mode State
@@ -172,6 +179,11 @@ export const HeraApp: React.FC = () => {
   const [selectedLearnAction, setSelectedLearnAction] = useState<MidiMappableAction | null>(null);
   const [lastLearnedInfo, setLastLearnedInfo] = useState<{ param: string; cc: number } | null>(null);
   const loadPresetByIndexRef = useRef<((index: number) => void) | null>(null);
+  const presetNavRef = useRef<{
+    prev: () => void;
+    next: () => void;
+    loadByIndex: (index: number) => void;
+  } | null>(null);
   const arpActionsRef = useRef<{
     toggleArp: () => void;
     toggleHold: () => void;
@@ -203,6 +215,8 @@ export const HeraApp: React.FC = () => {
     setCurrentMidiMapping(midiMgr.getMapping());
     setParamToCCMap(midiMgr.getParamToCCMap());
     setCurrentMidiActionMapping(midiMgr.getActionMapping());
+    setActionToCCMap(midiMgr.getActionToCCMap());
+    setPresetChangeMode(midiMgr.getPresetChangeMode());
     setMidiProfiles(midiMgr.getProfiles());
     setActiveMidiProfileId(midiMgr.getActiveProfileId());
 
@@ -213,19 +227,25 @@ export const HeraApp: React.FC = () => {
       setMidiEffectsChannel(fxCh);
       setMidiSectionChannels({ ...sectionChs });
       setParamToCCMap(midiMgr.getParamToCCMap());
+      setActionToCCMap(midiMgr.getActionToCCMap());
+      setPresetChangeMode(midiMgr.getPresetChangeMode());
     });
 
     midiMgr.setOnProgramChange((programNumber: number) => {
-      loadPresetByIndexRef.current?.(programNumber);
+      if (presetNavRef.current) {
+        presetNavRef.current.loadByIndex(programNumber);
+      } else {
+        loadPresetByIndexRef.current?.(programNumber);
+      }
     });
 
     midiMgr.setOnActionTriggered((action, rawValue) => {
       if (action === 'prevPreset') {
-        const btn = document.querySelector('[title*="Preset Anterior"]') as HTMLButtonElement | null;
-        btn?.click();
+        presetNavRef.current?.prev();
       } else if (action === 'nextPreset') {
-        const btn = document.querySelector('[title*="Próximo Preset"]') as HTMLButtonElement | null;
-        btn?.click();
+        presetNavRef.current?.next();
+      } else if (action === 'selectPreset') {
+        presetNavRef.current?.loadByIndex(rawValue);
       } else if (action === 'lfoTrig') {
         synthEngine.triggerManualLfo();
       } else if (action === 'arpToggle') {
@@ -239,6 +259,8 @@ export const HeraApp: React.FC = () => {
 
     midiMgr.setOnActionMappingChanged((actionMap, learnedAction, learnedCC) => {
       setCurrentMidiActionMapping({ ...actionMap });
+      setActionToCCMap(midiMgr.getActionToCCMap());
+      setPresetChangeMode(midiMgr.getPresetChangeMode());
       if (learnedAction && learnedCC !== undefined) {
         setSelectedLearnAction(null);
         setLastLearnedInfo({ param: String(learnedAction), cc: learnedCC });
@@ -398,27 +420,48 @@ export const HeraApp: React.FC = () => {
     setCurrentMidiMapping(midiManagerInstance.getMapping());
     setParamToCCMap(midiManagerInstance.getParamToCCMap());
     setCurrentMidiActionMapping(midiManagerInstance.getActionMapping());
+    setActionToCCMap(midiManagerInstance.getActionToCCMap());
+    setPresetChangeMode(midiManagerInstance.getPresetChangeMode());
     setMidiKeysChannel(midiManagerInstance.getKeysChannel());
     setMidiEffectsChannel(midiManagerInstance.getEffectsChannel());
     setMidiSectionChannels(midiManagerInstance.getSectionChannels());
     setIsProfileMenuOpen(false);
     setIsCreatingProfile(false);
+    setRenamingProfileId(null);
   };
 
   const handleCreateMidiProfile = () => {
     if (!midiManagerInstance) return;
     const created = midiManagerInstance.createProfile(
-      newProfileName.trim() || `Perfil ${midiProfiles.length + 1}`
+      newProfileName.trim() || `User ${midiProfiles.length}`
     );
     setMidiProfiles(midiManagerInstance.getProfiles());
     setActiveMidiProfileId(created.id);
     setCurrentMidiMapping(midiManagerInstance.getMapping());
     setParamToCCMap(midiManagerInstance.getParamToCCMap());
     setCurrentMidiActionMapping(midiManagerInstance.getActionMapping());
+    setActionToCCMap(midiManagerInstance.getActionToCCMap());
+    setPresetChangeMode(midiManagerInstance.getPresetChangeMode());
     setMidiSectionChannels(midiManagerInstance.getSectionChannels());
     setNewProfileName('');
     setIsCreatingProfile(false);
     setIsProfileMenuOpen(false);
+  };
+
+  const handleConfirmRenameProfile = (profileId: string) => {
+    if (!midiManagerInstance) return;
+    const trimmed = renameProfileValue.trim();
+    if (trimmed) {
+      midiManagerInstance.renameProfile(profileId, trimmed);
+      setMidiProfiles(midiManagerInstance.getProfiles());
+    }
+    setRenamingProfileId(null);
+    setRenameProfileValue('');
+  };
+
+  const handlePresetChangeModeUpdate = (mode: MidiPresetChangeMode) => {
+    setPresetChangeMode(mode);
+    midiManagerInstance?.setPresetChangeMode(mode);
   };
 
   const handleDeleteMidiProfile = (e: React.MouseEvent, profileId: string) => {
@@ -430,6 +473,8 @@ export const HeraApp: React.FC = () => {
     setCurrentMidiMapping(midiManagerInstance.getMapping());
     setParamToCCMap(midiManagerInstance.getParamToCCMap());
     setCurrentMidiActionMapping(midiManagerInstance.getActionMapping());
+    setActionToCCMap(midiManagerInstance.getActionToCCMap());
+    setPresetChangeMode(midiManagerInstance.getPresetChangeMode());
     setMidiSectionChannels(midiManagerInstance.getSectionChannels());
   };
 
@@ -466,6 +511,11 @@ export const HeraApp: React.FC = () => {
   };
 
   const getMappedActionCC = (action: MidiMappableAction): number | null => {
+    const direct = actionToCCMap[action];
+    if (direct !== undefined) return direct;
+    if (midiManagerInstance) {
+      return midiManagerInstance.getCCForAction(action);
+    }
     for (const [ccStr, a] of Object.entries(currentMidiActionMapping)) {
       if (a === action) return Number(ccStr);
     }
@@ -487,6 +537,7 @@ export const HeraApp: React.FC = () => {
   const handleUnmapAction = (action: MidiMappableAction) => {
     midiManagerInstance?.unmapAction(action);
     setCurrentMidiActionMapping(midiManagerInstance?.getActionMapping() || {});
+    setActionToCCMap(midiManagerInstance?.getActionToCCMap() || {});
     if (selectedLearnAction === action) {
       setSelectedLearnAction(null);
       midiManagerInstance?.setLearnAction(null);
@@ -621,10 +672,44 @@ export const HeraApp: React.FC = () => {
                           </select>
                         </div>
 
+                        {/* Preset Change Mode Selector (Program Change vs Custom Program) */}
+                        <div className="px-2.5 py-1.5 bg-zinc-900/90 border-b border-zinc-800 flex flex-col gap-1">
+                          <span className="text-[8px] font-bold text-amber-400 uppercase tracking-wider">
+                            Mudança de Presets (Timbres):
+                          </span>
+                          <div className="grid grid-cols-2 gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handlePresetChangeModeUpdate('program_change')}
+                              className={`px-1.5 py-1 rounded text-[8.5px] font-mono font-bold border cursor-pointer transition-colors ${
+                                presetChangeMode === 'program_change'
+                                  ? 'bg-sky-600 text-white border-sky-400 shadow-sm'
+                                  : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                              }`}
+                              title="Usa mensagens padrão MIDI Program Change (PC 0..127) para selecionar os timbres diretamente"
+                            >
+                              PROGRAM CHANGE
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handlePresetChangeModeUpdate('custom')}
+                              className={`px-1.5 py-1 rounded text-[8.5px] font-mono font-bold border cursor-pointer transition-colors ${
+                                presetChangeMode === 'custom'
+                                  ? 'bg-amber-500 text-black border-amber-300 font-black shadow-sm'
+                                  : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                              }`}
+                              title="Usa apenas o botão/knob customizado mapeado via MIDI Learn em <, > ou no visor de Preset"
+                            >
+                              CUSTOM PROGRAM
+                            </button>
+                          </div>
+                        </div>
+
                         {/* Per-Section Channel List */}
                         <div className="max-h-64 overflow-y-auto divide-y divide-zinc-900 px-1">
                           {MIDI_SECTIONS.map((sec) => {
                             const isKeys = sec.id === 'keys';
+                            const isArpPresets = sec.id === 'arpPresets';
                             const currentCh = midiSectionChannels[sec.id] ?? (isKeys ? 1 : 0);
                             return (
                               <div
@@ -642,30 +727,52 @@ export const HeraApp: React.FC = () => {
                                   <span className="text-[7.5px] text-zinc-500 truncate">
                                     {isKeys
                                       ? 'Notas, PitchBend, Master, VCA e Levels DCO'
+                                      : isArpPresets
+                                      ? `Modo: ${presetChangeMode === 'custom' ? 'Custom Program (MIDI Learn)' : 'Program Change Padrão'}`
                                       : `Seção ${sec.shortLabel} (MIDI Learn / CC)`}
                                   </span>
                                 </div>
-                                <select
-                                  value={currentCh}
-                                  onChange={(e) =>
-                                    handleMidiSectionChannelChange(sec.id, Number(e.target.value))
-                                  }
-                                  aria-label={`Selecionar Canal MIDI para ${sec.label}`}
-                                  className={`bg-zinc-900 hover:bg-zinc-800 font-mono font-bold text-[9.5px] px-1.5 py-0.5 rounded border focus:outline-none cursor-pointer transition-colors flex-shrink-0 ${
-                                    isKeys
-                                      ? 'text-amber-400 border-amber-500/50 focus:border-amber-400'
-                                      : currentCh === 0
-                                      ? 'text-sky-300 border-zinc-700 focus:border-sky-400'
-                                      : 'text-emerald-300 border-emerald-500/50 focus:border-emerald-400'
-                                  }`}
-                                >
-                                  <option value={0}>OMNI</option>
-                                  {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
-                                    <option key={ch} value={ch}>
-                                      CH {String(ch).padStart(2, '0')}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  {isArpPresets && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handlePresetChangeModeUpdate(
+                                          presetChangeMode === 'custom' ? 'program_change' : 'custom'
+                                        )
+                                      }
+                                      title="Alternar entre Program Change padrão e Custom Program (MIDI Learn)"
+                                      className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold border cursor-pointer ${
+                                        presetChangeMode === 'custom'
+                                          ? 'bg-amber-500/20 text-amber-300 border-amber-400'
+                                          : 'bg-sky-950 text-sky-300 border-sky-500/50'
+                                      }`}
+                                    >
+                                      {presetChangeMode === 'custom' ? 'CUSTOM' : 'PC'}
+                                    </button>
+                                  )}
+                                  <select
+                                    value={currentCh}
+                                    onChange={(e) =>
+                                      handleMidiSectionChannelChange(sec.id, Number(e.target.value))
+                                    }
+                                    aria-label={`Selecionar Canal MIDI para ${sec.label}`}
+                                    className={`bg-zinc-900 hover:bg-zinc-800 font-mono font-bold text-[9.5px] px-1.5 py-0.5 rounded border focus:outline-none cursor-pointer transition-colors flex-shrink-0 ${
+                                      isKeys
+                                        ? 'text-amber-400 border-amber-500/50 focus:border-amber-400'
+                                        : currentCh === 0
+                                        ? 'text-sky-300 border-zinc-700 focus:border-sky-400'
+                                        : 'text-emerald-300 border-emerald-500/50 focus:border-emerald-400'
+                                    }`}
+                                  >
+                                    <option value={0}>OMNI</option>
+                                    {Array.from({ length: 16 }, (_, i) => i + 1).map((ch) => (
+                                      <option key={ch} value={ch}>
+                                        CH {String(ch).padStart(2, '0')}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                               </div>
                             );
                           })}
@@ -674,8 +781,8 @@ export const HeraApp: React.FC = () => {
                     )}
                   </div>
 
-                  {/* MIDI Controller Profile Tab / Suspended Dropdown (Auto-Saves Mappings & Channels) */}
-                  <div ref={profileDropdownRef} className="relative flex items-center gap-0.5 pl-1 border-l border-zinc-800">
+                  {/* MIDI Controller Profile Tab / Suspended Dropdown + Direct '+' Add Button */}
+                  <div ref={profileDropdownRef} className="relative flex items-center gap-1 pl-1 border-l border-zinc-800">
                     <span className="text-[8.5px] text-emerald-400 font-bold">PERFIL:</span>
                     <button
                       type="button"
@@ -683,53 +790,134 @@ export const HeraApp: React.FC = () => {
                         setIsProfileMenuOpen((prev) => !prev);
                         setIsChannelsMenuOpen(false);
                         setIsCreatingProfile(false);
+                        setRenamingProfileId(null);
                       }}
-                      title="Selecionar ou criar Perfil de Mapeamento MIDI (Salva mapeamentos e canais de todas as seções automaticamente)"
+                      title="Selecionar, adicionar ou renomear Perfil de Mapeamento MIDI"
                       className="flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 text-emerald-300 font-mono font-bold text-[9.5px] px-1.5 py-0.5 rounded border border-zinc-700 hover:border-emerald-500/60 cursor-pointer transition-colors"
                     >
                       <span className="max-w-[96px] truncate">{activeMidiProfileName}</span>
                       <ChevronDown size={11} className="text-emerald-400 flex-shrink-0" />
                     </button>
 
+                    {/* Direct '+' Button to Create a New Custom Profile */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsProfileMenuOpen(true);
+                        setIsChannelsMenuOpen(false);
+                        setRenamingProfileId(null);
+                        setIsCreatingProfile(true);
+                        setNewProfileName(`User ${midiProfiles.length}`);
+                      }}
+                      title="Adicionar novo perfil MIDI customizado (+)"
+                      className="flex items-center justify-center w-5 h-5 rounded bg-emerald-950/80 hover:bg-emerald-800 text-emerald-300 border border-emerald-500/60 font-mono font-black text-xs cursor-pointer transition-colors"
+                    >
+                      <Plus size={11} />
+                    </button>
+
                     {isProfileMenuOpen && (
                       <div
                         onClick={(e) => e.stopPropagation()}
-                        className="absolute top-full left-0 mt-1 w-56 bg-zinc-950 border border-zinc-700 rounded-md shadow-2xl z-50 py-1 font-mono text-[10px] overflow-hidden"
+                        className="absolute top-full left-0 mt-1 w-64 bg-zinc-950 border border-zinc-700 rounded-md shadow-2xl z-50 py-1 font-mono text-[10px] overflow-hidden"
                       >
                         <div className="px-2.5 py-1 text-[8.5px] text-zinc-400 border-b border-zinc-800 flex items-center justify-between uppercase tracking-wider">
                           <span>Perfis MIDI (Auto-Save)</span>
                           <span className="text-emerald-400 font-bold">ATIVO</span>
                         </div>
 
-                        <div className="max-h-48 overflow-y-auto divide-y divide-zinc-900">
+                        <div className="max-h-52 overflow-y-auto divide-y divide-zinc-900">
                           {midiProfiles.map((profile) => {
                             const isSelected = profile.id === activeMidiProfileId;
+                            const isRenamingThis = renamingProfileId === profile.id;
                             return (
                               <div
                                 key={profile.id}
-                                onClick={() => handleSelectMidiProfile(profile.id)}
-                                className={`flex items-center justify-between px-2.5 py-1.5 cursor-pointer transition-colors ${
+                                onClick={() => {
+                                  if (!isRenamingThis) {
+                                    handleSelectMidiProfile(profile.id);
+                                  }
+                                }}
+                                className={`flex items-center justify-between px-2 py-1.5 cursor-pointer transition-colors gap-1 ${
                                   isSelected
                                     ? 'bg-emerald-950/60 text-emerald-300 font-bold'
                                     : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
                                 }`}
                               >
-                                <div className="flex items-center gap-1.5 truncate">
-                                  <Check
-                                    size={11}
-                                    className={isSelected ? 'text-emerald-400 opacity-100' : 'opacity-0'}
-                                  />
-                                  <span className="truncate">{profile.name}</span>
-                                </div>
-                                {profile.id !== DEFAULT_PROFILE_ID && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => handleDeleteMidiProfile(e, profile.id)}
-                                    className="text-zinc-500 hover:text-red-400 p-0.5 rounded cursor-pointer"
-                                    title={`Excluir perfil ${profile.name}`}
+                                {isRenamingThis ? (
+                                  <div
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="flex items-center gap-1 w-full"
                                   >
-                                    <Trash2 size={11} />
-                                  </button>
+                                    <input
+                                      type="text"
+                                      autoFocus
+                                      value={renameProfileValue}
+                                      onChange={(e) => setRenameProfileValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          handleConfirmRenameProfile(profile.id);
+                                        } else if (e.key === 'Escape') {
+                                          setRenamingProfileId(null);
+                                        }
+                                      }}
+                                      placeholder="Novo nome..."
+                                      className="flex-1 min-w-0 bg-zinc-900 text-zinc-100 px-1.5 py-0.5 rounded border border-amber-400 text-[10px] font-mono focus:outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConfirmRenameProfile(profile.id)}
+                                      className="p-1 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded cursor-pointer"
+                                      title="Salvar novo nome"
+                                    >
+                                      <Check size={10} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setRenamingProfileId(null)}
+                                      className="p-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded cursor-pointer"
+                                      title="Cancelar"
+                                    >
+                                      <X size={10} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex items-center gap-1.5 truncate">
+                                      <Check
+                                        size={11}
+                                        className={
+                                          isSelected ? 'text-emerald-400 opacity-100 flex-shrink-0' : 'opacity-0 flex-shrink-0'
+                                        }
+                                      />
+                                      <span className="truncate">{profile.name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setIsCreatingProfile(false);
+                                          setRenamingProfileId(profile.id);
+                                          setRenameProfileValue(profile.name);
+                                        }}
+                                        className="text-zinc-400 hover:text-amber-300 p-0.5 rounded cursor-pointer"
+                                        title={`Renomear perfil ${profile.name}`}
+                                      >
+                                        <Pencil size={11} />
+                                      </button>
+                                      {profile.id !== DEFAULT_PROFILE_ID && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleDeleteMidiProfile(e, profile.id)}
+                                          className="text-zinc-500 hover:text-red-400 p-0.5 rounded cursor-pointer"
+                                          title={`Excluir perfil ${profile.name}`}
+                                        >
+                                          <Trash2 size={11} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </>
                                 )}
                               </div>
                             );
@@ -739,17 +927,33 @@ export const HeraApp: React.FC = () => {
                         {/* '+' Option Inside the Dropdown List to Add User Profile */}
                         <div className="border-t border-zinc-800 pt-1 mt-0.5 px-1.5 pb-1 bg-zinc-950">
                           {!isCreatingProfile ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsCreatingProfile(true);
-                                setNewProfileName('');
-                              }}
-                              className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-emerald-400 hover:bg-emerald-950/50 hover:text-emerald-300 font-bold cursor-pointer transition-colors text-left"
-                            >
-                              <Plus size={12} className="text-emerald-400 flex-shrink-0" />
-                              <span>Novo Perfil MIDI...</span>
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRenamingProfileId(null);
+                                  setIsCreatingProfile(true);
+                                  setNewProfileName(`User ${midiProfiles.length}`);
+                                }}
+                                className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded text-emerald-400 hover:bg-emerald-950/50 hover:text-emerald-300 font-bold cursor-pointer transition-colors text-left"
+                              >
+                                <Plus size={12} className="text-emerald-400 flex-shrink-0" />
+                                <span>Adicionar Perfil...</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsCreatingProfile(false);
+                                  setRenamingProfileId(activeMidiProfileId);
+                                  setRenameProfileValue(activeMidiProfileName);
+                                }}
+                                className="flex items-center gap-1 px-2 py-1.5 rounded text-amber-400 hover:bg-amber-950/40 hover:text-amber-300 font-bold cursor-pointer transition-colors"
+                                title="Renomear perfil atual"
+                              >
+                                <Pencil size={11} />
+                                <span>Renomear</span>
+                              </button>
+                            </div>
                           ) : (
                             <div className="flex items-center gap-1 p-0.5">
                               <input
@@ -765,7 +969,7 @@ export const HeraApp: React.FC = () => {
                                     setIsCreatingProfile(false);
                                   }
                                 }}
-                                placeholder="Nome do perfil..."
+                                placeholder="Nome do novo perfil..."
                                 className="flex-1 min-w-0 bg-zinc-900 text-zinc-100 px-2 py-1 rounded border border-emerald-500/60 text-[10px] font-mono focus:outline-none"
                               />
                               <button
@@ -774,7 +978,15 @@ export const HeraApp: React.FC = () => {
                                 className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-black font-bold rounded cursor-pointer text-[10px] flex items-center justify-center"
                                 title="Criar e selecionar perfil"
                               >
-                                <Plus size={12} />
+                                <Check size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIsCreatingProfile(false)}
+                                className="px-1.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded cursor-pointer text-[10px] flex items-center justify-center"
+                                title="Cancelar"
+                              >
+                                <X size={12} />
                               </button>
                             </div>
                           )}
@@ -1616,11 +1828,15 @@ export const HeraApp: React.FC = () => {
               selectedLearnAction={selectedLearnAction}
               mappedCCPrev={getMappedActionCC('prevPreset')}
               mappedCCNext={getMappedActionCC('nextPreset')}
+              mappedCCSelect={getMappedActionCC('selectPreset')}
               channelLabel={getChannelLabelForAction('prevPreset')}
               onSelectActionForLearn={handleSelectActionForLearn}
               onUnmapAction={handleUnmapAction}
               onRegisterLoadByIndex={(fn) => {
                 loadPresetByIndexRef.current = fn;
+              }}
+              onRegisterPresetNav={(nav) => {
+                presetNavRef.current = nav;
               }}
             />
             <Arpeggiator

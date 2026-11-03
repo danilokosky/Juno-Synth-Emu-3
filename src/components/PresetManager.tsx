@@ -38,15 +38,21 @@ interface PresetManagerProps {
   isKeyboardOpen?: boolean;
   onToggleKeyboard?: () => void;
 
-  // MIDI Learn Integration for Preset navigation
+  // MIDI Learn Integration for Preset navigation & Custom Program
   isMidiLearnActive?: boolean;
   selectedLearnAction?: string | null;
   mappedCCPrev?: number | null;
   mappedCCNext?: number | null;
+  mappedCCSelect?: number | null;
   channelLabel?: string;
-  onSelectActionForLearn?: (action: 'prevPreset' | 'nextPreset') => void;
-  onUnmapAction?: (action: 'prevPreset' | 'nextPreset') => void;
+  onSelectActionForLearn?: (action: 'prevPreset' | 'nextPreset' | 'selectPreset') => void;
+  onUnmapAction?: (action: 'prevPreset' | 'nextPreset' | 'selectPreset') => void;
   onRegisterLoadByIndex?: (fn: (index: number) => void) => void;
+  onRegisterPresetNav?: (nav: {
+    prev: () => void;
+    next: () => void;
+    loadByIndex: (index: number) => void;
+  }) => void;
 }
 
 const LOCAL_STORAGE_KEY = 'hera_custom_presets_v1';
@@ -64,10 +70,12 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
   selectedLearnAction = null,
   mappedCCPrev = null,
   mappedCCNext = null,
+  mappedCCSelect = null,
   channelLabel,
   onSelectActionForLearn,
   onUnmapAction,
   onRegisterLoadByIndex,
+  onRegisterPresetNav,
 }) => {
   const [selectedId, setSelectedId] = useState<number>(0);
   const [presetName, setPresetName] = useState<string>(FACTORY_PRESETS[0]?.name || 'Strings 1');
@@ -125,29 +133,55 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
     onSelectPreset(preset.params as HeraParameters, preset.name);
   };
 
+  const latestPresetStateRef = useRef<{
+    selectedId: number;
+    allPresets: HeraPreset[];
+  }>({
+    selectedId,
+    allPresets,
+  });
+  latestPresetStateRef.current = { selectedId, allPresets };
+
   const handlePrev = () => {
-    const currentIndex = allPresets.findIndex((p) => p.id === selectedId);
-    const prevIndex = (currentIndex - 1 + allPresets.length) % allPresets.length;
-    loadPreset(allPresets[prevIndex]);
+    const { selectedId: curId, allPresets: list } = latestPresetStateRef.current;
+    if (list.length === 0) return;
+    const currentIndex = list.findIndex((p) => p.id === curId);
+    const baseIdx = currentIndex >= 0 ? currentIndex : 0;
+    const prevIndex = (baseIdx - 1 + list.length) % list.length;
+    loadPreset(list[prevIndex]);
   };
 
   const handleNext = () => {
-    const currentIndex = allPresets.findIndex((p) => p.id === selectedId);
-    const nextIndex = (currentIndex + 1) % allPresets.length;
-    loadPreset(allPresets[nextIndex]);
+    const { selectedId: curId, allPresets: list } = latestPresetStateRef.current;
+    if (list.length === 0) return;
+    const currentIndex = list.findIndex((p) => p.id === curId);
+    const baseIdx = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (baseIdx + 1) % list.length;
+    loadPreset(list[nextIndex]);
   };
 
-  // Register external Program Change loader
+  const handleLoadByIndex = (programNumber: number) => {
+    const { allPresets: list } = latestPresetStateRef.current;
+    if (list.length === 0) return;
+    const targetIndex = ((programNumber % list.length) + list.length) % list.length;
+    if (list[targetIndex]) {
+      loadPreset(list[targetIndex]);
+    }
+  };
+
+  // Register external Program Change & MIDI Action navigation loaders
   useEffect(() => {
     if (onRegisterLoadByIndex) {
-      onRegisterLoadByIndex((programNumber: number) => {
-        const targetIndex = programNumber % allPresets.length;
-        if (allPresets[targetIndex]) {
-          loadPreset(allPresets[targetIndex]);
-        }
+      onRegisterLoadByIndex(handleLoadByIndex);
+    }
+    if (onRegisterPresetNav) {
+      onRegisterPresetNav({
+        prev: handlePrev,
+        next: handleNext,
+        loadByIndex: handleLoadByIndex,
       });
     }
-  }, [allPresets, onRegisterLoadByIndex]);
+  }, [allPresets, onRegisterLoadByIndex, onRegisterPresetNav]);
 
   const handleOpenSaveCustom = () => {
     setCustomSaveName(`${presetName.replace(/\s*\(Custom\)$/i, '')} (Custom)`);
@@ -338,12 +372,39 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
     >
       {/* Top Header Row (Comfortable thickness, BANK/PATCH/PRESET NAME titles above, centered LED digits) */}
       <div className="flex flex-wrap items-center justify-between gap-2.5">
-        {/* Authentic Roland 7-Segment LED Bezel Slot Display */}
-        <div
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-3.5 bg-zinc-950 px-3.5 py-2 rounded-md border border-zinc-800 shadow-inner cursor-pointer"
-        >
-          {/* BANK Slot */}
+        {/* Authentic Roland 7-Segment LED Bezel Slot Display (Also mappable as Custom Program in MIDI Learn) */}
+        <div className="relative flex items-center">
+          <MidiLearnBadge
+            isMidiLearnActive={isMidiLearnActive}
+            isSelectedForLearn={selectedLearnAction === 'selectPreset'}
+            mappedCC={mappedCCSelect}
+            channelLabel={channelLabel}
+            onUnmap={() => onUnmapAction?.('selectPreset')}
+            positionClass="-top-4 left-1/2 -translate-x-1/2"
+          />
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isMidiLearnActive) {
+                onSelectActionForLearn?.('selectPreset');
+              } else {
+                setIsExpanded(!isExpanded);
+              }
+            }}
+            title={
+              isMidiLearnActive
+                ? 'Clique para mapear Seleção de Preset Customizada (Custom Program / CC / PC)'
+                : 'Clique para expandir/recolher a lista de Presets'
+            }
+            className={`flex items-center gap-3.5 bg-zinc-950 px-3.5 py-2 rounded-md border shadow-inner cursor-pointer transition-shadow ${
+              selectedLearnAction === 'selectPreset'
+                ? 'border-sky-400 ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
+                : isMidiLearnActive
+                ? 'border-zinc-800 ring-1 ring-sky-400/25 hover:ring-sky-400/70'
+                : 'border-zinc-800'
+            }`}
+          >
+            {/* BANK Slot */}
           <div className="flex flex-col items-center gap-1">
             <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-widest leading-none">
               BANK
@@ -387,6 +448,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
                 {presetName}
               </span>
             </div>
+          </div>
           </div>
         </div>
 
