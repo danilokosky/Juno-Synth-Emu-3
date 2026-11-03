@@ -335,14 +335,32 @@ fun HeraJunoNativeScreen(
                 .weight(1f)
                 .fillMaxHeight()
         ) {
-            val firstScreenHeight = maxHeight.coerceAtLeast(260.dp)
+            val isCompactViewport = maxHeight <= 440.dp
+            // On compact phone screens (e.g. Galaxy S25 landscape), Header + Synth Rack + Preset Bar fill 100% of the first screen.
+            // On taller/larger screens (tablets, foldables, desktop/DeX, AI Studio preview), cap the top synth rack to an ergonomic
+            // hardware proportion (395dp..430dp) so faders never over-stretch and the Arpeggiator + Keyboard appear right below on screen!
+            val firstScreenHeight = if (isCompactViewport) {
+                maxHeight.coerceAtLeast(270.dp)
+            } else {
+                (395.dp + (maxHeight - 440.dp) * 0.14f).coerceIn(395.dp, 430.dp)
+            }
+            val keyboardSectionHeight = if (isCompactViewport) {
+                162.dp
+            } else {
+                (maxHeight - firstScreenHeight - 48.dp).coerceIn(162.dp, 236.dp)
+            }
+            val responsiveSemitones = when {
+                maxWidth >= 1100.dp -> 48
+                maxWidth >= 820.dp -> 36
+                else -> 29
+            }
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(mainVerticalScroll)
             ) {
-                // FIRST SCREEN VIEWPORT: ONLY HEADER + MAIN SYNTHESIZER FADERS RACK FILLING 100% OF THE SCREEN
+                // FIRST SCREEN VIEWPORT: HEADER + MAIN SYNTHESIZER FADERS RACK + PRESET BAR
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -409,7 +427,7 @@ fun HeraJunoNativeScreen(
                     // 1B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Top Separator)
                     JunoRainbowSeparator()
 
-                    // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Fills the rest of the first screen height!)
+                    // 2. MAIN HORIZONTAL SCROLLABLE SYNTHESIZER RACK (Ergonomically proportioned across both compact phones and large displays)
                     val rackScrollState = rememberScrollState()
                     Row(
                         modifier = Modifier
@@ -418,7 +436,7 @@ fun HeraJunoNativeScreen(
                             .background(Color(0xFF11131A))
                             .horizontalScroll(rackScrollState)
                             .padding(horizontal = 8.dp, vertical = 5.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
                     ) {
                         // SECTION 1: LFO (Rate + Vib Del faders with MAN TRIG button directly below them inside the section)
                         val manTrigActive = (paramState[SynthParam.LFOManualTrig] ?: 0f) >= 0.5f
@@ -1011,7 +1029,7 @@ fun HeraJunoNativeScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(162.dp)
+                            .height(keyboardSectionHeight)
                             .background(Color(0xFF0A0C10), RoundedCornerShape(5.dp))
                             .border(1.dp, Color(0xFF1F2432), RoundedCornerShape(5.dp))
                             .padding(horizontal = 5.dp, vertical = 5.dp),
@@ -1161,11 +1179,11 @@ fun HeraJunoNativeScreen(
                             }
                         }
 
-                        // Multi-Touch Polyphonic Piano Keyboard (2.5 Octaves: 30 keys)
+                        // Multi-Touch Polyphonic Piano Keyboard (Scales semitone range dynamically on wider screens)
                         val startMidiNote = baseOctave * 12 + 12 // C3 = 48
                         MultiTouchPolyphonicKeyboard(
                             startNote = startMidiNote,
-                            numSemitones = 29,
+                            numSemitones = responsiveSemitones,
                             activeNotes = activeNotes,
                             onNoteOn = onTriggerNoteOn,
                             onNoteOff = { note ->
