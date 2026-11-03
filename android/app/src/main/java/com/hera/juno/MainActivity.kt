@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -404,7 +405,7 @@ fun HeraJunoNativeScreen(
         val previewMatchedDensity = remember(baseDensity, dpiScale) {
             Density(
                 density = baseDensity.density * dpiScale,
-                fontScale = baseDensity.fontScale
+                fontScale = 1.0f
             )
         }
 
@@ -475,7 +476,7 @@ fun HeraJunoNativeScreen(
                     val rackZoomedDensity = remember(previewMatchedDensity, rackZoomFactor) {
                         Density(
                             density = previewMatchedDensity.density * rackZoomFactor,
-                            fontScale = previewMatchedDensity.fontScale
+                            fontScale = 1.0f
                         )
                     }
 
@@ -1895,7 +1896,10 @@ private fun MidiProfileInlineDrawer(
 
     if (dialogMode != null) {
         val isCreate = dialogMode == "create"
-        Dialog(onDismissRequest = { dialogMode = null }) {
+        Dialog(
+            onDismissRequest = { dialogMode = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Column(
                 modifier = Modifier
                     .width(340.dp)
@@ -4944,11 +4948,19 @@ private fun MidiChannelsDialog(
     val presetMode = prof.presetChangeMode
     val isProjectionEnabled = remember(revIgnore) { midiManager.sectionProjectionEnabled }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .width(460.dp)
-                .heightIn(max = 390.dp)
+    val callerDensity = LocalDensity.current
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        CompositionLocalProvider(
+            LocalDensity provides Density(callerDensity.density, fontScale = 1.0f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(470.dp)
+                    .heightIn(max = 390.dp)
                 .background(Color(0xFF0E121B), RoundedCornerShape(10.dp))
                 .border(1.5.dp, JunoCyanLearn, RoundedCornerShape(10.dp))
                 .padding(12.dp)
@@ -4958,18 +4970,22 @@ private fun MidiChannelsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(
                         text = "CANAIS MIDI POR SEÇÃO",
                         color = Color.White,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "Salvo no perfil: ${prof.name}",
                         color = JunoGreenReady,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 SmallHeaderButton(text = "✕", onClick = onDismiss)
@@ -4989,8 +5005,11 @@ private fun MidiChannelsDialog(
                 Text(
                     text = "APLICAR A TODAS SEÇÕES FX:",
                     color = JunoCyanLearn,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(end = 6.dp)
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     SmallHeaderButton(
@@ -5026,113 +5045,117 @@ private fun MidiChannelsDialog(
 
             Spacer(Modifier.height(6.dp))
 
-            // Preset Change Mode Option (Program Change vs Custom Program)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF181424), RoundedCornerShape(6.dp))
-                    .border(1.dp, Color(0xFF3B2F5E), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "MUDANÇA DE PRESETS (TIMBRES):",
-                        color = JunoAmberLed,
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = if (presetMode == "custom") "Custom Program (CC / PC mapeado nos botões)" else "Program Change (Padrão MIDI PC 0..127)",
-                        color = Color(0xFF9CA3AF),
-                        fontSize = 9.sp
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    val isStdPc = presetMode == "program_change"
-                    SmallHeaderButton(
-                        text = "PROGRAM CHANGE",
-                        bgColor = if (isStdPc) JunoAmberLed else Color(0xFF161922),
-                        borderColor = if (isStdPc) JunoAmberLed else Color(0xFF2E3548),
-                        textColor = if (isStdPc) Color.Black else Color(0xFFE5E7EB),
-                        onClick = {
-                            midiManager.setPresetChangeMode("program_change")
-                            onNotifyUiChanged()
-                        }
-                    )
-                    val isCustomPrg = presetMode == "custom"
-                    SmallHeaderButton(
-                        text = "CUSTOM PROGRAM",
-                        bgColor = if (isCustomPrg) JunoCyanLearn else Color(0xFF161922),
-                        borderColor = if (isCustomPrg) JunoCyanLearn else Color(0xFF2E3548),
-                        textColor = if (isCustomPrg) Color.Black else Color(0xFFE5E7EB),
-                        onClick = {
-                            midiManager.setPresetChangeMode("custom")
-                            onNotifyUiChanged()
-                        }
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // Live Section Projection Pop-up Option (LIGADO / DESLIGADO)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF111C1B), RoundedCornerShape(6.dp))
-                    .border(1.dp, Color(0xFF1F3D39), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "PROJEÇÃO DE SEÇÃO (POP-UP):",
-                        color = JunoGreenReady,
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = if (isProjectionEnabled) "Exibe a seção no centro ao alterar pelo controlador" else "Projeção de seção desativada",
-                        color = Color(0xFF9CA3AF),
-                        fontSize = 9.sp
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SmallHeaderButton(
-                        text = "LIGADO",
-                        bgColor = if (isProjectionEnabled) JunoGreenReady else Color(0xFF161922),
-                        borderColor = if (isProjectionEnabled) JunoGreenReady else Color(0xFF2E3548),
-                        textColor = if (isProjectionEnabled) Color.Black else Color(0xFFE5E7EB),
-                        onClick = {
-                            midiManager.setSectionProjection(true)
-                            onNotifyUiChanged()
-                        }
-                    )
-                    SmallHeaderButton(
-                        text = "DESLIGADO",
-                        bgColor = if (!isProjectionEnabled) JunoRed else Color(0xFF161922),
-                        borderColor = if (!isProjectionEnabled) JunoRed else Color(0xFF2E3548),
-                        textColor = if (!isProjectionEnabled) Color.White else Color(0xFFE5E7EB),
-                        onClick = {
-                            midiManager.setSectionProjection(false)
-                            onDisableProjectedSection()
-                            onNotifyUiChanged()
-                        }
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                // Preset Change Mode Option (Program Change vs Custom Program)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF181424), RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(0xFF3B2F5E), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = "MUDANÇA DE PRESETS (TIMBRES):",
+                            color = JunoAmberLed,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = if (presetMode == "custom") "Custom Program (CC / PC mapeado nos botões)" else "Program Change (Padrão MIDI PC 0..127)",
+                            color = Color(0xFF9CA3AF),
+                            fontSize = 8.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val isStdPc = presetMode == "program_change"
+                        SmallHeaderButton(
+                            text = "PROGRAM CHANGE",
+                            bgColor = if (isStdPc) JunoAmberLed else Color(0xFF161922),
+                            borderColor = if (isStdPc) JunoAmberLed else Color(0xFF2E3548),
+                            textColor = if (isStdPc) Color.Black else Color(0xFFE5E7EB),
+                            onClick = {
+                                midiManager.setPresetChangeMode("program_change")
+                                onNotifyUiChanged()
+                            }
+                        )
+                        val isCustomPrg = presetMode == "custom"
+                        SmallHeaderButton(
+                            text = "CUSTOM PROGRAM",
+                            bgColor = if (isCustomPrg) JunoCyanLearn else Color(0xFF161922),
+                            borderColor = if (isCustomPrg) JunoCyanLearn else Color(0xFF2E3548),
+                            textColor = if (isCustomPrg) Color.Black else Color(0xFFE5E7EB),
+                            onClick = {
+                                midiManager.setPresetChangeMode("custom")
+                                onNotifyUiChanged()
+                            }
+                        )
+                    }
+                }
+
+                // Live Section Projection Pop-up Option (LIGADO / DESLIGADO)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF111C1B), RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(0xFF1F3D39), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = "PROJEÇÃO DE SEÇÃO (POP-UP):",
+                            color = JunoGreenReady,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = if (isProjectionEnabled) "Exibe a seção no centro ao alterar pelo controlador" else "Projeção de seção desativada",
+                            color = Color(0xFF9CA3AF),
+                            fontSize = 8.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SmallHeaderButton(
+                            text = "LIGADO",
+                            bgColor = if (isProjectionEnabled) JunoGreenReady else Color(0xFF161922),
+                            borderColor = if (isProjectionEnabled) JunoGreenReady else Color(0xFF2E3548),
+                            textColor = if (isProjectionEnabled) Color.Black else Color(0xFFE5E7EB),
+                            onClick = {
+                                midiManager.setSectionProjection(true)
+                                onNotifyUiChanged()
+                            }
+                        )
+                        SmallHeaderButton(
+                            text = "DESLIGADO",
+                            bgColor = if (!isProjectionEnabled) JunoRed else Color(0xFF161922),
+                            borderColor = if (!isProjectionEnabled) JunoRed else Color(0xFF2E3548),
+                            textColor = if (!isProjectionEnabled) Color.White else Color(0xFFE5E7EB),
+                            onClick = {
+                                midiManager.setSectionProjection(false)
+                                onDisableProjectedSection()
+                                onNotifyUiChanged()
+                            }
+                        )
+                    }
+                }
+
                 for (sec in MidiSection.entries) {
                     val ch = prof.sectionChannels[sec] ?: 0
                     val isKeys = sec == MidiSection.KEYS
@@ -5146,12 +5169,14 @@ private fun MidiChannelsDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                             Text(
                                 text = sec.title,
                                 color = if (isKeys) JunoAmberLed else Color.White,
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = if (isArpPresets) {
@@ -5160,7 +5185,9 @@ private fun MidiChannelsDialog(
                                     sec.subtitle
                                 },
                                 color = if (isArpPresets) JunoCyanLearn else Color(0xFF9CA3AF),
-                                fontSize = 10.sp
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -5222,6 +5249,7 @@ private fun MidiChannelsDialog(
                 }
             }
         }
+        }
     }
 }
 
@@ -5231,7 +5259,10 @@ private fun MidiProfileDialog(
     onNotifyUiChanged: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Column(
             modifier = Modifier
                 .width(380.dp)
@@ -5343,7 +5374,10 @@ private fun PresetBrowserDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Column(
             modifier = Modifier
                 .width(460.dp)
@@ -5502,7 +5536,10 @@ private fun SavePresetDialog(
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(initialName) }
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Column(
             modifier = Modifier
                 .width(340.dp)
