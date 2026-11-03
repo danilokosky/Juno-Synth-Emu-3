@@ -27,6 +27,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.nativeCanvas
+import android.graphics.Paint
+import android.graphics.Typeface
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -206,6 +209,7 @@ fun HeraJunoNativeScreen(
     // Keyboard & Modals State
     var showKeyboard by remember { mutableStateOf(true) }
     var holdSustain by remember { mutableStateOf(false) }
+    var showKeyShortcuts by remember { mutableStateOf(true) }
     var baseOctave by remember { mutableIntStateOf(3) } // C3..C5
     var pitchBendUi by remember { mutableFloatStateOf(0f) }
     var modWheelUi by remember { mutableFloatStateOf(0f) }
@@ -327,10 +331,14 @@ fun HeraJunoNativeScreen(
             .fillMaxSize()
             .background(JunoBgDark)
     ) {
-        // Dynamically scale density so the virtual viewport width is always ~1090.dp (matching the AI Studio Preview DPI:
-        // LFO + DCO + HPF + VCF + VCA + first fader 'A' of ENV fit across the screen, and remaining faders scroll horizontally!)
-        val targetVirtualWidth = 1090.dp
-        val dpiScale = (maxWidth / targetVirtualWidth).coerceIn(0.75f, 2.6f)
+        // Ergonomic responsive density:
+        // On compact phones (e.g. Galaxy S25 landscape maxWidth < 960dp), scale gently (0.84f..1.0f) to fit.
+        // On large screens / tablets / DeX / monitors (maxWidth >= 960dp), maintain native 1.0f scale so elements don't artificially blow up between small window and full screen!
+        val dpiScale = if (maxWidth < 960.dp) {
+            (maxWidth / 960.dp).coerceIn(0.84f, 1.0f)
+        } else {
+            1.0f
+        }
         val previewMatchedDensity = remember(baseDensity, dpiScale) {
             Density(
                 density = baseDensity.density * dpiScale,
@@ -360,17 +368,18 @@ fun HeraJunoNativeScreen(
                     // Compact wide phone screens (e.g. Galaxy S25 landscape ~20:9 have virtual maxHeight ~480..550.dp).
                     // Taller windows / tablets / DeX / 4:3 AI Studio preview have virtual maxHeight ~640..830.dp.
                     val isCompactViewport = maxHeight <= 560.dp
+                    val keyboardSectionHeight = if (isCompactViewport) {
+                        210.dp
+                    } else {
+                        (maxHeight * 0.32f).coerceIn(200.dp, 280.dp)
+                    }
                     val firstScreenHeight = if (isCompactViewport) {
                         maxHeight.coerceAtLeast(320.dp)
                     } else {
-                        (maxHeight * 0.65f).coerceIn(410.dp, 530.dp)
+                        val nonKeyboardH = if (showKeyboard) (maxHeight - keyboardSectionHeight - 8.dp) else maxHeight
+                        nonKeyboardH.coerceAtLeast(360.dp)
                     }
-                    val keyboardSectionHeight = if (isCompactViewport) {
-                        205.dp
-                    } else {
-                        (maxHeight - firstScreenHeight - 10.dp).coerceIn(195.dp, 315.dp)
-                    }
-                    val responsiveSemitones = 36
+                    val responsiveSemitones = if (maxWidth >= 1200.dp) 48 else 36
 
                     Column(
                         modifier = Modifier
@@ -469,8 +478,8 @@ fun HeraJunoNativeScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                                     modifier = Modifier
-                                        .heightIn(max = 178.dp)
-                                        .fillMaxHeight(0.68f)
+                                        .heightIn(max = 260.dp)
+                                        .fillMaxHeight(0.82f)
                                 ) {
                                     JunoParamFader(
                                         param = SynthParam.LFORate,
@@ -1118,42 +1127,44 @@ fun HeraJunoNativeScreen(
                         )
                     }
 
-                // 3C. KEYBOARD CONTROLS + BENDER/MOD WHEELS + MULTI-TOUCH POLYPHONIC KEYBOARD
+                // 3C. KEYBOARD CONTROLS + BENDER/MOD WHEELS + MULTI-TOUCH POLYPHONIC KEYBOARD (Matching Reference UI)
                 if (showKeyboard) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(keyboardSectionHeight)
                             .background(Color(0xFF0A0C10), RoundedCornerShape(5.dp))
                             .border(1.dp, Color(0xFF1F2432), RoundedCornerShape(5.dp))
-                            .padding(horizontal = 5.dp, vertical = 5.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // Left Bender / Mod Wheel / Octave / Hold Panel
-                        Column(
-                            modifier = Modifier
-                                .width(126.dp)
-                                .fillMaxHeight()
-                                .background(Color(0xFF11141C), RoundedCornerShape(5.dp))
-                                .border(1.dp, Color(0xFF242A3A), RoundedCornerShape(5.dp))
-                                .padding(5.dp),
-                            verticalArrangement = Arrangement.SpaceBetween,
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        // Top Controls Bar (Octave Transpose, HOLD, Shortcuts Toggle, and 61-Key description)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Octave Selector Row + Hold Badge
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                // Octave Transpose [-] 0 [+]
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                                     modifier = Modifier
                                         .background(Color(0xFF080A0E), RoundedCornerShape(3.dp))
                                         .border(1.dp, Color(0xFF222838), RoundedCornerShape(3.dp))
-                                        .padding(horizontal = 3.dp, vertical = 1.5.dp)
+                                        .padding(horizontal = 4.dp, vertical = 1.5.dp)
                                 ) {
+                                    Text(
+                                        text = "OCTAVE",
+                                        color = Color(0xFF6B7280),
+                                        fontSize = 7.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.padding(end = 2.dp)
+                                    )
                                     Box(
                                         contentAlignment = Alignment.Center,
                                         modifier = Modifier
@@ -1162,12 +1173,13 @@ fun HeraJunoNativeScreen(
                                             .clickable { baseOctave = (baseOctave - 1).coerceIn(1, 5) }
                                             .padding(horizontal = 5.dp, vertical = 1.dp)
                                     ) {
-                                        Text("-", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text("-", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
                                     }
+                                    val octOffset = baseOctave - 3
                                     Text(
-                                        text = "C$baseOctave",
+                                        text = if (octOffset > 0) "+$octOffset" else "$octOffset",
                                         color = JunoAmberLed,
-                                        fontSize = 9.sp,
+                                        fontSize = 8.5.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         fontFamily = FontFamily.Monospace,
                                         modifier = Modifier.padding(horizontal = 2.dp)
@@ -1180,10 +1192,11 @@ fun HeraJunoNativeScreen(
                                             .clickable { baseOctave = (baseOctave + 1).coerceIn(1, 5) }
                                             .padding(horizontal = 5.dp, vertical = 1.dp)
                                     ) {
-                                        Text("+", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text("+", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
                                     }
                                 }
 
+                                // HOLD Button
                                 Box(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier
@@ -1199,96 +1212,139 @@ fun HeraJunoNativeScreen(
                                             holdSustain = next
                                             if (!next) onPanicAllNotesOff()
                                         }
-                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                        .padding(horizontal = 7.dp, vertical = 2.5.dp)
                                 ) {
                                     Text(
                                         text = "HOLD",
                                         color = if (holdSustain) Color.Black else Color(0xFF9CA3AF),
-                                        fontSize = 8.sp,
+                                        fontSize = 7.8.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         fontFamily = FontFamily.Monospace
                                     )
                                 }
-                            }
 
-                            // Pitch Bend (Spring-back to 0)
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                // Shortcuts On / Off Button
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (showKeyShortcuts) Color(0xFF1E2330) else Color(0xFF0F1218))
+                                        .border(
+                                            1.dp,
+                                            if (showKeyShortcuts) Color(0xFF3F4B65) else Color(0xFF242A38),
+                                            RoundedCornerShape(3.dp)
+                                        )
+                                        .clickable { showKeyShortcuts = !showKeyShortcuts }
+                                        .padding(horizontal = 6.dp, vertical = 2.5.dp)
                                 ) {
-                                    Text("PITCH BEND", color = Color(0xFF9CA3AF), fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
                                     Text(
-                                        text = if (kotlin.math.abs(pitchBendUi) < 0.02f) "CTR" else "${(pitchBendUi * 100).roundToInt()}%",
-                                        color = JunoRed,
+                                        text = if (showKeyShortcuts) "Shortcuts On" else "Shortcuts Off",
+                                        color = if (showKeyShortcuts) Color(0xFFE5E7EB) else Color(0xFF6B7280),
                                         fontSize = 7.5.sp,
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
-                                Spacer(Modifier.height(2.dp))
-                                HorizontalTouchStrip(
-                                    value = (pitchBendUi + 1f) * 0.5f,
-                                    accentColor = JunoRed,
+                            }
+
+                            // Right description
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "61-Key Polyphonic Keyboard",
+                                    color = Color(0xFF6B7280),
+                                    fontSize = 7.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = "|",
+                                    color = Color(0xFF374151),
+                                    fontSize = 7.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = "Click & Drag / QWERTY Keyboard Supported",
+                                    color = Color(0xFF6B7280),
+                                    fontSize = 7.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+
+                        // Main Playing Area: Left Vertical Wheels (PITCH + MOD) + MultiTouch Polyphonic Keyboard
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Left Wheels Section: Two vertical wheels side-by-side
+                            Row(
+                                modifier = Modifier
+                                    .width(82.dp)
+                                    .fillMaxHeight()
+                                    .background(Color(0xFF11141C), RoundedCornerShape(4.dp))
+                                    .border(1.dp, Color(0xFF242A3A), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 5.dp, vertical = 3.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                VerticalWheel(
+                                    label = "PITCH",
+                                    value = pitchBendUi,
                                     springCenter = true,
-                                    width = 112.dp,
+                                    valueLabel = if (kotlin.math.abs(pitchBendUi) < 0.02f) "CTR" else if (pitchBendUi > 0) "+${(pitchBendUi * 100).roundToInt()}%" else "${(pitchBendUi * 100).roundToInt()}%",
+                                    valueColor = JunoAmberLed,
                                     onChange = { norm ->
-                                        pitchBendUi = (norm * 2f - 1f).coerceIn(-1f, 1f)
+                                        pitchBendUi = norm.coerceIn(-1f, 1f)
                                         NativeSynthBridge.setPitchBend(pitchBendUi, modWheelUi)
                                     },
                                     onRelease = {
                                         pitchBendUi = 0f
                                         NativeSynthBridge.setPitchBend(0f, modWheelUi)
-                                    }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
                                 )
-                            }
-
-                            // Mod Wheel
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("MOD / LFO", color = Color(0xFF9CA3AF), fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
-                                    Text(
-                                        text = "${(modWheelUi * 100).roundToInt()}%",
-                                        color = JunoOrange,
-                                        fontSize = 7.5.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(Modifier.height(2.dp))
-                                HorizontalTouchStrip(
+                                Spacer(Modifier.width(5.dp))
+                                VerticalWheel(
+                                    label = "MOD",
                                     value = modWheelUi,
-                                    accentColor = JunoOrange,
                                     springCenter = false,
-                                    width = 112.dp,
+                                    valueLabel = "${(modWheelUi * 100).roundToInt()}%",
+                                    valueColor = Color(0xFF38BDF8),
                                     onChange = { norm ->
                                         modWheelUi = norm.coerceIn(0f, 1f)
                                         NativeSynthBridge.setPitchBend(pitchBendUi, modWheelUi)
                                     },
-                                    onRelease = {}
+                                    onRelease = {},
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
                                 )
                             }
-                        }
 
-                        // Multi-Touch Polyphonic Piano Keyboard (Scales semitone range dynamically on wider screens)
-                        val startMidiNote = baseOctave * 12 + 12 // C3 = 48
-                        MultiTouchPolyphonicKeyboard(
-                            startNote = startMidiNote,
-                            numSemitones = responsiveSemitones,
-                            activeNotes = activeNotes,
-                            onNoteOn = onTriggerNoteOn,
-                            onNoteOff = { note ->
-                                if (!holdSustain) {
-                                    onTriggerNoteOff(note)
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                        )
+                            // Polyphonic Keyboard with QWERTY shortcut overlays
+                            val startMidiNote = baseOctave * 12 + 12 // C3 = 48
+                            MultiTouchPolyphonicKeyboard(
+                                startNote = startMidiNote,
+                                numSemitones = responsiveSemitones,
+                                activeNotes = activeNotes,
+                                showShortcuts = showKeyShortcuts,
+                                onNoteOn = onTriggerNoteOn,
+                                onNoteOff = { note ->
+                                    if (!holdSustain) {
+                                        onTriggerNoteOff(note)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                            )
+                        }
                     }
                 }
             }
@@ -2129,19 +2185,18 @@ private fun VoicingPresetBar(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(width = 18.dp, height = 18.dp)
+                        .size(width = 16.dp, height = 16.dp)
                         .background(Color(0xFF160205), RoundedCornerShape(2.5.dp))
                         .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.5.dp))
                 ) {
                     Text(
                         text = if (preset.isUserPreset) "U" else bankNumber.toString(),
                         color = Color(0xFFEF4444),
-                        fontSize = 10.sp,
-                        lineHeight = 10.sp,
+                        fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
                         textAlign = TextAlign.Center,
-                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                        modifier = Modifier.offset(y = (-0.5).dp)
                     )
                 }
             }
@@ -2161,19 +2216,18 @@ private fun VoicingPresetBar(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(width = 18.dp, height = 18.dp)
+                        .size(width = 16.dp, height = 16.dp)
                         .background(Color(0xFF160205), RoundedCornerShape(2.5.dp))
                         .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.5.dp))
                 ) {
                     Text(
                         text = patchNumber.toString(),
                         color = Color(0xFFEF4444),
-                        fontSize = 10.sp,
-                        lineHeight = 10.sp,
+                        fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
                         textAlign = TextAlign.Center,
-                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                        modifier = Modifier.offset(y = (-0.5).dp)
                     )
                 }
             }
@@ -2978,11 +3032,11 @@ private fun SynthModuleCard(
                 .background(accentColor)
         )
 
-        // 2. Ultra-Slim Full-Width Tinted Header Bar right at the top with strictly centered title
+        // 2. Full-Width Tinted Header Bar right at the top with strictly centered title
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(13.dp)
+                .height(16.dp)
                 .background(accentColor.copy(alpha = 0.18f))
                 .padding(horizontal = 4.dp),
             contentAlignment = Alignment.Center
@@ -3023,7 +3077,10 @@ private fun SynthModuleCard(
             }
 
             if (headerRight != null) {
-                Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                Box(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    contentAlignment = Alignment.Center
+                ) {
                     headerRight()
                 }
             }
@@ -3037,12 +3094,12 @@ private fun SynthModuleCard(
                 .background(accentColor.copy(alpha = 0.35f))
         )
 
-        // 3. Main Controls Area (Double horizontal padding at start/end compared to inter-fader spacing + comfortable vertical breathing room)
+        // 3. Main Controls Area (Occupies 50% more vertical space with 3.5.dp vertical padding)
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 3.5.dp),
             contentAlignment = Alignment.Center
         ) {
             content()
@@ -3111,7 +3168,7 @@ private fun JunoParamFader(
     capColor: Color,
     midiManager: MidiControllerManager,
     uiRevision: Int,
-    heightFraction: Float = 0.72f,
+    heightFraction: Float = 0.88f,
     onValueChange: (Float) -> Unit,
     onNotifyUiChanged: () -> Unit
 ) {
@@ -3125,7 +3182,7 @@ private fun JunoParamFader(
         contentAlignment = Alignment.TopCenter,
         modifier = Modifier
             .width(42.dp)
-            .heightIn(max = 195.dp)
+            .heightIn(max = 285.dp)
             .fillMaxHeight(heightFraction)
     ) {
         // Fixed-dimension Fader Body (Never shifts when MIDI Learn toggles!)
@@ -3531,11 +3588,11 @@ private fun JunoParamSwitchWithBadge(
     val isLearnMode = midiManager.isMidiLearnActive
     val isWaiting = isLearnMode && midiManager.learningTargetKey == param.key
 
-    Box(contentAlignment = Alignment.TopCenter) {
+    Box(contentAlignment = Alignment.Center) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(if (compact) 2.dp else 3.dp))
+                .clip(RoundedCornerShape(if (compact) 2.5.dp else 3.dp))
                 .background(
                     when {
                         isWaiting -> Color(0xFF0A2236)
@@ -3544,14 +3601,14 @@ private fun JunoParamSwitchWithBadge(
                     }
                 )
                 .border(
-                    width = if (isWaiting) 1.2.dp else 0.8.dp,
+                    width = if (isWaiting) 1.2.dp else 1.dp,
                     color = when {
                         isWaiting -> Color(0xFF38BDF8)
                         isLearnMode -> Color(0xFF0369A1)
                         active -> Color.White
                         else -> Color(0xFF2B3244)
                     },
-                    shape = RoundedCornerShape(if (compact) 2.dp else 3.dp)
+                    shape = RoundedCornerShape(if (compact) 2.5.dp else 3.dp)
                 )
                 .clickable {
                     if (isLearnMode) {
@@ -3562,16 +3619,17 @@ private fun JunoParamSwitchWithBadge(
                     }
                 }
                 .padding(
-                    horizontal = if (compact) 4.dp else 4.5.dp,
-                    vertical = if (compact) 0.5.dp else 1.dp
+                    horizontal = if (compact) 4.5.dp else 5.dp,
+                    vertical = if (compact) 1.dp else 1.5.dp
                 )
         ) {
             Text(
                 text = if (active) activeLabel else inactiveLabel,
-                color = if (active) Color.Black else Color(0xFF9CA3AF),
-                fontSize = if (compact) 6.sp else 6.8.sp,
+                color = if (active) Color.White else Color(0xFF9CA3AF),
+                fontSize = if (compact) 6.2.sp else 6.8.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold
+                fontWeight = FontWeight.ExtraBold,
+                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
             )
         }
 
@@ -3814,14 +3872,155 @@ private fun HorizontalTouchStrip(
 }
 
 /**
+ * Tactile Vertical Wheel (Pitch Bender with center detent & spring-back, or Modulation 0..100%)
+ * Matching Screenshot_20261102_231903_Chrome.jpg
+ */
+@Composable
+private fun VerticalWheel(
+    label: String,
+    value: Float,
+    springCenter: Boolean,
+    valueLabel: String,
+    valueColor: Color,
+    onChange: (Float) -> Unit,
+    onRelease: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val currentVal by rememberUpdatedState(value)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+    ) {
+        Text(
+            text = label,
+            color = Color(0xFF9CA3AF),
+            fontSize = 7.5.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .width(26.dp)
+                .weight(1f)
+                .clip(RoundedCornerShape(3.dp))
+                .background(Color(0xFF06080D))
+                .border(1.dp, Color(0xFF262E3E), RoundedCornerShape(3.dp))
+                .pointerInput(springCenter) {
+                    detectTapGestures { offset ->
+                        val h = size.height.toFloat().coerceAtLeast(1f)
+                        val norm = (1f - (offset.y / h)).coerceIn(0f, 1f)
+                        if (springCenter) {
+                            onChange(norm * 2f - 1f)
+                        } else {
+                            onChange(norm)
+                        }
+                    }
+                }
+                .pointerInput(springCenter) {
+                    detectDragGestures(
+                        onDrag = { change, _ ->
+                            change.consume()
+                            val h = size.height.toFloat().coerceAtLeast(1f)
+                            val norm = (1f - (change.position.y / h)).coerceIn(0f, 1f)
+                            if (springCenter) {
+                                onChange(norm * 2f - 1f)
+                            } else {
+                                onChange(norm)
+                            }
+                        },
+                        onDragEnd = {
+                            if (springCenter) onRelease()
+                        },
+                        onDragCancel = {
+                            if (springCenter) onRelease()
+                        }
+                    )
+                }
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+                val thumbH = 22.dp.toPx()
+                val thumbW = w - 4.dp.toPx()
+                val usableTravel = (h - thumbH).coerceAtLeast(1f)
+
+                // Center detent mark line for Pitch Wheel
+                if (springCenter) {
+                    val midY = h * 0.5f
+                    drawLine(
+                        color = Color(0xFF4B5563),
+                        start = Offset(2.dp.toPx(), midY),
+                        end = Offset(w - 2.dp.toPx(), midY),
+                        strokeWidth = 1.2f
+                    )
+                }
+
+                // Thumb position calculation
+                val fraction = if (springCenter) {
+                    ((currentVal + 1f) * 0.5f).coerceIn(0f, 1f)
+                } else {
+                    currentVal.coerceIn(0f, 1f)
+                }
+                val thumbY = usableTravel * (1f - fraction)
+                val thumbX = (w - thumbW) * 0.5f
+
+                // Metallic gradient thumb
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color(0xFF52525B),
+                            Color(0xFFA1A1AA),
+                            Color(0xFFE4E4E7),
+                            Color(0xFF71717A),
+                            Color(0xFF3F3F46)
+                        ),
+                        startY = thumbY,
+                        endY = thumbY + thumbH
+                    ),
+                    topLeft = Offset(thumbX, thumbY),
+                    size = Size(thumbW, thumbH),
+                    cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx())
+                )
+                // Highlight border
+                drawRoundRect(
+                    color = Color(0xFFD4D4D8),
+                    topLeft = Offset(thumbX, thumbY),
+                    size = Size(thumbW, thumbH),
+                    cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx()),
+                    style = Stroke(width = 1f)
+                )
+                // Center tactile ridge
+                drawLine(
+                    color = Color(0xFF27272A),
+                    start = Offset(thumbX + 3.dp.toPx(), thumbY + thumbH * 0.5f),
+                    end = Offset(thumbX + thumbW - 3.dp.toPx(), thumbY + thumbH * 0.5f),
+                    strokeWidth = 1.5f
+                )
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = valueLabel,
+            color = valueColor,
+            fontSize = 7.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+/**
  * True Multi-Touch Polyphonic Keyboard in Jetpack Compose
  * Tracks multiple simultaneous fingers and glissandos across white and black keys.
+ * Displays QWERTY keyboard shortcuts when showShortcuts is enabled.
  */
 @Composable
 private fun MultiTouchPolyphonicKeyboard(
     startNote: Int,
     numSemitones: Int,
     activeNotes: List<Int>,
+    showShortcuts: Boolean = true,
     onNoteOn: (Int, Float) -> Unit,
     onNoteOff: (Int) -> Unit,
     modifier: Modifier = Modifier
@@ -3838,6 +4037,25 @@ private fun MultiTouchPolyphonicKeyboard(
     }
 
     val touchedNotesRef = remember { mutableStateOf(emptySet<Int>()) }
+
+    val whiteShortcutLetters = remember {
+        listOf("Z", "X", "C", "V", "B", "N", "M", ",", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]")
+    }
+    val blackShortcutMap = remember {
+        mapOf(
+            1 to "S", 3 to "D", 6 to "G", 8 to "H", 10 to "J",
+            13 to "2", 15 to "3", 18 to "5", 20 to "6", 22 to "7",
+            25 to "9", 27 to "0"
+        )
+    }
+
+    val textPaint = remember {
+        Paint().apply {
+            isAntiAlias = true
+            typeface = Typeface.MONOSPACE
+            textAlign = Paint.Align.CENTER
+        }
+    }
 
     Box(
         modifier = modifier
@@ -3926,6 +4144,21 @@ private fun MultiTouchPolyphonicKeyboard(
                     size = Size(whiteKeyW - 2.dp.toPx(), h - 2.dp.toPx()),
                     cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
                 )
+
+                if (showShortcuts) {
+                    val letter = whiteShortcutLetters.getOrNull(i)
+                    if (letter != null) {
+                        textPaint.color = if (isPressed) android.graphics.Color.WHITE else android.graphics.Color.rgb(105, 112, 125)
+                        textPaint.textSize = (whiteKeyW * 0.36f).coerceIn(8.sp.toPx(), 11.sp.toPx())
+                        textPaint.isFakeBoldText = true
+                        drawContext.canvas.nativeCanvas.drawText(
+                            letter,
+                            left + whiteKeyW * 0.5f,
+                            h - 7.dp.toPx(),
+                            textPaint
+                        )
+                    }
+                }
             }
 
             // Draw Black Keys
@@ -3934,12 +4167,29 @@ private fun MultiTouchPolyphonicKeyboard(
                 if (prevWhiteIdx >= 0) {
                     val isPressed = activeNotes.contains(bNote)
                     val centerX = (prevWhiteIdx + 1) * whiteKeyW
+                    val left = centerX - blackKeyW * 0.5f
                     drawRoundRect(
                         color = if (isPressed) JunoRed else Color(0xFF111827),
-                        topLeft = Offset(centerX - blackKeyW * 0.5f, 0f),
+                        topLeft = Offset(left, 0f),
                         size = Size(blackKeyW, blackKeyH),
                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                     )
+
+                    if (showShortcuts) {
+                        val semiOffset = bNote - startNote
+                        val letter = blackShortcutMap[semiOffset]
+                        if (letter != null) {
+                            textPaint.color = android.graphics.Color.WHITE
+                            textPaint.textSize = (blackKeyW * 0.42f).coerceIn(7.sp.toPx(), 9.5.sp.toPx())
+                            textPaint.isFakeBoldText = true
+                            drawContext.canvas.nativeCanvas.drawText(
+                                letter,
+                                centerX,
+                                blackKeyH - 6.dp.toPx(),
+                                textPaint
+                            )
+                        }
+                    }
                 }
             }
         }
