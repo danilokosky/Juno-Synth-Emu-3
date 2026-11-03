@@ -198,6 +198,16 @@ class MidiControllerManager(
                         }
                     }
 
+                    for ((k, _) in ccMap) {
+                        if (!chMap.containsKey(k) || (chMap[k] ?: 0) !in 1..16) {
+                            val p = SynthParam.fromKey(k)
+                            val secCh = if (p != null) (secMap[p.section] ?: 0) else 0
+                            if (secCh in 1..16) {
+                                chMap[k] = secCh
+                            }
+                        }
+                    }
+
                     profiles.add(MidiMappingProfile(id, name, ccMap, chMap, secMap))
                 }
             } catch (e: Exception) {
@@ -268,7 +278,18 @@ class MidiControllerManager(
 
     fun setSectionChannel(section: MidiSection, channel: Int) {
         val prof = getActiveProfile()
-        prof.sectionChannels[section] = channel.coerceIn(0, 16)
+        val clamped = channel.coerceIn(0, 16)
+        prof.sectionChannels[section] = clamped
+        for ((paramKey, _) in prof.paramToCC) {
+            val param = SynthParam.fromKey(paramKey) ?: continue
+            if (param.section == section) {
+                if (clamped == 0) {
+                    prof.paramToChannel.remove(paramKey)
+                } else {
+                    prof.paramToChannel[paramKey] = clamped
+                }
+            }
+        }
         saveProfiles()
         onProfileUpdated()
     }
@@ -279,6 +300,16 @@ class MidiControllerManager(
         for (sec in MidiSection.entries) {
             if (sec != MidiSection.KEYS) {
                 prof.sectionChannels[sec] = ch
+            }
+        }
+        for ((paramKey, _) in prof.paramToCC) {
+            val param = SynthParam.fromKey(paramKey) ?: continue
+            if (param.section != MidiSection.KEYS) {
+                if (ch == 0) {
+                    prof.paramToChannel.remove(paramKey)
+                } else {
+                    prof.paramToChannel[paramKey] = ch
+                }
             }
         }
         saveProfiles()
@@ -298,6 +329,11 @@ class MidiControllerManager(
 
     fun getMappedCC(paramKey: String): Int? = getActiveProfile().paramToCC[paramKey]
 
+    /**
+     * Returns the effective MIDI channel (1..16) for a parameter, or null if OMNI (0).
+     * Always prioritizes the parameter's individual learned channel (`paramToChannel`) over the section default (`sectionChannels`),
+     * so identical CC numbers (e.g. CC7) on different channels are strictly differentiated.
+     */
     fun getMappedChannel(paramKey: String): Int? {
         val prof = getActiveProfile()
         val explicit = prof.paramToChannel[paramKey]
@@ -305,6 +341,13 @@ class MidiControllerManager(
         val param = SynthParam.fromKey(paramKey) ?: return null
         val secCh = prof.sectionChannels[param.section] ?: 0
         return if (secCh in 1..16) secCh else null
+    }
+
+    private fun getEffectiveChannelForParam(prof: MidiMappingProfile, paramKey: String, param: SynthParam): Int {
+        val explicit = prof.paramToChannel[paramKey]
+        if (explicit != null && explicit in 1..16) return explicit
+        val secCh = prof.sectionChannels[param.section] ?: 0
+        return if (secCh in 1..16) secCh else 0
     }
 
     private fun initHardwareMidi() {
@@ -476,40 +519,35 @@ class MidiControllerManager(
         val prof = getActiveProfile()
         val pcCode = 1000 + programNumber.coerceIn(0, 127)
 
-        // 1. If MIDI Learn is active on PresetPrev or PresetNext, map this Program Change (PC#) directly!
+        // 1. If MIDI Learn is active on PresetPrev or PresetNext, map this Program Change (PC#) and its exact channel!
         val targetKey = learningTargetKey
         if (isMidiLearnActive && targetKey != null) {
             val targetParam = SynthParam.fromKey(targetKey)
             if (targetParam == SynthParam.PresetPrev || targetParam == SynthParam.PresetNext) {
-                val expectedSecCh = prof.sectionChannels[targetParam.section] ?: 0
-                if (expectedSecCh == 0 || expectedSecCh == channel) {
-                    val toRemove = prof.paramToCC.filter { (otherKey, otherCode) ->
-                        if (otherKey == targetKey || otherCode != pcCode) return@filter false
-                        val otherExplicitCh = prof.paramToChannel[otherKey] ?: 0
-                        otherExplicitCh == channel || otherExplicitCh == 0
-                    }.keys.toList()
-                    for (k in toRemove) {
-                        prof.paramToCC.remove(k)
-                        prof.paramToChannel.remove(k)
-                    }
-                    prof.paramToCC[targetKey] = pcCode
-                    prof.paramToChannel[targetKey] = channel
-                    learningTargetKey = null
-                    lastLearnedInfo = "${targetParam.label} -> PC$programNumber (CH$channel)"
-                    saveProfiles()
-                    mainHandler.post { onProfileUpdated() }
-                    return
+                val toRemove = prof.paramToCC.filter { (otherKey, otherCode) ->
+                    if (otherKey == targetKey || otherCode != pcCode) return@filter false
+                    val otherParam = SynthParam.fromKey(otherKey) ?: return@filter false
+                    val otherCh = getEffectiveChannelForParam(prof, otherKey, otherParam)
+                    otherCh == channel
+                }.keys.toList()
+                for (k in toRemove) {
+                    prof.paramToCC.remove(k)
+                    prof.paramToChannel.remove(k)
                 }
+                prof.paramToCC[targetKey] = pcCode
+                prof.paramToChannel[targetKey] = channel
+                learningTargetKey = null
+                lastLearnedInfo = "${targetParam.label} -> PC$programNumber (CH$channel)"
+                saveProfiles()
+                mainHandler.post { onProfileUpdated() }
+                return
             }
         }
 
-        // 2. Check if PresetPrev or PresetNext is mapped to this Program Change code
-        val arpSecCh = prof.sectionChannels[MidiSection.ARP_PRESETS] ?: 0
-        val keysSecCh = prof.sectionChannels[MidiSection.KEYS] ?: 0
-
+        // 2. Check if PresetPrev or PresetNext is mapped to this Program Change code on this channel
         val prevCode = prof.paramToCC[SynthParam.PresetPrev.key]
-        val prevCh = prof.paramToChannel[SynthParam.PresetPrev.key] ?: arpSecCh
-        if (prevCode == pcCode && (prevCh == 0 || prevCh == channel || arpSecCh == 0 || arpSecCh == channel)) {
+        val prevCh = getEffectiveChannelForParam(prof, SynthParam.PresetPrev.key, SynthParam.PresetPrev)
+        if (prevCode == pcCode && (prevCh == 0 || prevCh == channel)) {
             mainHandler.post {
                 onPresetStep?.invoke(-1)
                 onProfileUpdated()
@@ -518,8 +556,8 @@ class MidiControllerManager(
         }
 
         val nextCode = prof.paramToCC[SynthParam.PresetNext.key]
-        val nextCh = prof.paramToChannel[SynthParam.PresetNext.key] ?: arpSecCh
-        if (nextCode == pcCode && (nextCh == 0 || nextCh == channel || arpSecCh == 0 || arpSecCh == channel)) {
+        val nextCh = getEffectiveChannelForParam(prof, SynthParam.PresetNext.key, SynthParam.PresetNext)
+        if (nextCode == pcCode && (nextCh == 0 || nextCh == channel)) {
             mainHandler.post {
                 onPresetStep?.invoke(1)
                 onProfileUpdated()
@@ -528,6 +566,8 @@ class MidiControllerManager(
         }
 
         // 3. Standard MIDI Program Change fallback on ARP_PRESETS or KEYS channel
+        val arpSecCh = prof.sectionChannels[MidiSection.ARP_PRESETS] ?: 0
+        val keysSecCh = prof.sectionChannels[MidiSection.KEYS] ?: 0
         if (arpSecCh == 0 || arpSecCh == channel || keysSecCh == 0 || keysSecCh == channel) {
             mainHandler.post {
                 onProgramChange?.invoke(programNumber)
@@ -542,7 +582,7 @@ class MidiControllerManager(
         // Ignore Bank Select / Select Change (CC 0 MSB and CC 32 LSB) for Preset Arrows so they only respond to Program Change or dedicated triggers
         val isBankSelectChange = (cc == 0 || cc == 32)
 
-        // 1. MIDI Learn active with a selected control
+        // 1. MIDI Learn active with a selected control: capture BOTH the CC number AND the exact incoming MIDI channel (1..16)!
         val targetKey = learningTargetKey
         if (isMidiLearnActive && targetKey != null) {
             val targetParam = SynthParam.fromKey(targetKey)
@@ -551,32 +591,32 @@ class MidiControllerManager(
                 if ((targetParam == SynthParam.PresetPrev || targetParam == SynthParam.PresetNext) && isBankSelectChange) {
                     return
                 }
-                val expectedSecCh = prof.sectionChannels[targetParam.section] ?: 0
-                if (expectedSecCh == 0 || expectedSecCh == channel) {
-                    // Remove duplicate mapping only if same CC on same channel/section
-                    val toRemove = prof.paramToCC.filter { (otherKey, otherCC) ->
-                        if (otherKey == targetKey || otherCC != cc) return@filter false
-                        val otherExplicitCh = prof.paramToChannel[otherKey] ?: 0
-                        otherExplicitCh == channel || otherExplicitCh == 0
-                    }.keys.toList()
+                // Only remove an existing mapping if it uses the exact same CC on the exact same effective channel!
+                // Same CC on different MIDI channels (e.g. CC7 on CH1 vs CC7 on CH2 vs CC7 on CH6) must NEVER overwrite each other.
+                val toRemove = prof.paramToCC.filter { (otherKey, otherCC) ->
+                    if (otherKey == targetKey || otherCC != cc) return@filter false
+                    val otherParam = SynthParam.fromKey(otherKey) ?: return@filter false
+                    val otherEffectiveCh = getEffectiveChannelForParam(prof, otherKey, otherParam)
+                    otherEffectiveCh == channel
+                }.keys.toList()
 
-                    for (k in toRemove) {
-                        prof.paramToCC.remove(k)
-                        prof.paramToChannel.remove(k)
-                    }
-
-                    prof.paramToCC[targetKey] = cc
-                    prof.paramToChannel[targetKey] = channel
-                    learningTargetKey = null
-                    lastLearnedInfo = "${targetParam.label} -> CC$cc (CH$channel)"
-                    saveProfiles()
+                for (k in toRemove) {
+                    prof.paramToCC.remove(k)
+                    prof.paramToChannel.remove(k)
                 }
+
+                prof.paramToCC[targetKey] = cc
+                prof.paramToChannel[targetKey] = channel
+                learningTargetKey = null
+                lastLearnedInfo = "${targetParam.label} -> CC$cc (CH$channel)"
+                saveProfiles()
             }
         }
 
-        // 2. Two-Pass CC Resolution (disambiguates shared CCs across channels, e.g. CC7 on CH2 vs CH6)
-        val strictMatches = mutableListOf<SynthParam>()
-        val fallbackMatches = mutableListOf<SynthParam>()
+        // 2. Strict (CC + Channel) Resolution:
+        //    Each parameter's individual learned channel (`paramToChannel`) takes priority over `sectionChannels`.
+        //    NEVER fall back to parameters mapped to the same CC on other MIDI channels!
+        val matchedParams = mutableListOf<SynthParam>()
 
         for ((paramKey, mappedCC) in prof.paramToCC) {
             if (mappedCC != cc) continue
@@ -584,27 +624,15 @@ class MidiControllerManager(
             if ((param == SynthParam.PresetPrev || param == SynthParam.PresetNext) && isBankSelectChange) {
                 continue
             }
-            val secCh = prof.sectionChannels[param.section] ?: 0
-            val explicitCh = prof.paramToChannel[paramKey] ?: 0
-            val effectiveCh = if (secCh > 0) secCh else explicitCh
-
-            if (effectiveCh > 0) {
-                if (effectiveCh == channel) {
-                    strictMatches.add(param)
-                } else {
-                    fallbackMatches.add(param)
-                }
-            } else {
-                // OMNI
-                strictMatches.add(param)
+            val effectiveCh = getEffectiveChannelForParam(prof, paramKey, param)
+            if (effectiveCh == channel || effectiveCh == 0) {
+                matchedParams.add(param)
             }
         }
 
-        val resolvedParams = if (strictMatches.isNotEmpty()) strictMatches else fallbackMatches
-
-        if (resolvedParams.isNotEmpty()) {
+        if (matchedParams.isNotEmpty()) {
             mainHandler.post {
-                for (param in resolvedParams) {
+                for (param in matchedParams) {
                     when (param) {
                         SynthParam.PresetPrev -> {
                             if (value >= 64) onPresetStep?.invoke(-1)
@@ -623,7 +651,7 @@ class MidiControllerManager(
             return
         }
 
-        // 3. Mod Wheel (CC1) fallback if not mapped
+        // 3. Mod Wheel (CC1) fallback if not mapped on this channel
         val keysCh = prof.sectionChannels[MidiSection.KEYS] ?: 0
         if (cc == 1 && (keysCh == 0 || keysCh == channel)) {
             currentModWheel = (min(100, value) / 100f).coerceIn(0f, 1f)

@@ -317,11 +317,17 @@ export const HeraApp: React.FC = () => {
   };
 
   const getChannelLabelForParam = (param: keyof HeraParameters): string => {
+    if (midiManagerInstance) {
+      return formatMidiChannelShort(midiManagerInstance.getChannelForParam(param));
+    }
     const sec = getSectionForParam(param);
     return formatMidiChannelShort(midiSectionChannels[sec] ?? 0);
   };
 
   const getChannelLabelForAction = (action: MidiMappableAction): string => {
+    if (midiManagerInstance) {
+      return formatMidiChannelShort(midiManagerInstance.getChannelForAction(action));
+    }
     const sec = getSectionForAction(action);
     return formatMidiChannelShort(midiSectionChannels[sec] ?? 0);
   };

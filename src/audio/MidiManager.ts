@@ -699,37 +699,23 @@ export class MidiManager {
 
   /**
    * Determines whether a given parameter strictly matches `msgChannel` (1..16).
-   * Matches if the section is set to OMNI (0), or if `msgChannel` equals the configured
-   * section channel, or if `msgChannel` equals the parameter's individual learned channel.
+   * Always prioritizes the parameter's individual learned channel (`paramToChannel[param]`) over `sectionChannels`.
+   * Same CC numbers on different channels (e.g. CC7 on CH1 vs CH2 vs CH6) are strictly differentiated.
    */
   private doesParamMatchChannel(param: keyof HeraParameters, msgChannel: number): boolean {
-    const section = getSectionForParam(param);
-    const sectionCh = this.sectionChannels[section] ?? 0;
-    if (sectionCh === 0) {
+    const effectiveCh = this.getChannelForParam(param);
+    if (effectiveCh === 0) {
       return true; // OMNI
     }
-
-    const learnedCh = this.paramToChannel[param];
-    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16 && msgChannel === learnedCh) {
-      return true;
-    }
-
-    return msgChannel === sectionCh;
+    return msgChannel === effectiveCh;
   }
 
   private doesActionMatchChannel(action: MidiMappableAction, msgChannel: number): boolean {
-    const section = getSectionForAction(action);
-    const sectionCh = this.sectionChannels[section] ?? 0;
-    if (sectionCh === 0) {
+    const effectiveCh = this.getChannelForAction(action);
+    if (effectiveCh === 0) {
       return true; // OMNI
     }
-
-    const learnedCh = this.actionToChannel[action];
-    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16 && msgChannel === learnedCh) {
-      return true;
-    }
-
-    return msgChannel === sectionCh;
+    return msgChannel === effectiveCh;
   }
 
   async init(
@@ -826,20 +812,17 @@ export class MidiManager {
         ? learnedChannel
         : sectionCh;
 
-    // Remove duplicate CC for any other parameter that listens on the same MIDI channel / section
+    // Only remove an existing mapping if it uses the exact same CC on the exact same effective channel!
+    // Same CC on different MIDI channels (e.g. CC7 on CH1 vs CC7 on CH2 vs CC7 on CH6) must never collide.
     for (const [p, existingCC] of Object.entries(this.paramToCC)) {
       const paramKey = p as keyof HeraParameters;
       if (paramKey === param || existingCC !== cc) continue;
 
-      const otherSection = getSectionForParam(paramKey);
-      const otherSectionCh = this.sectionChannels[otherSection] ?? 0;
-      const otherLearnedCh = this.paramToChannel[paramKey] ?? otherSectionCh;
+      const otherEffectiveCh = this.getChannelForParam(paramKey);
 
       if (
-        otherSection === targetSection ||
-        otherLearnedCh === effectiveChannel ||
-        otherSectionCh === effectiveChannel ||
-        otherSectionCh === 0 ||
+        otherEffectiveCh === effectiveChannel ||
+        otherEffectiveCh === 0 ||
         effectiveChannel === 0
       ) {
         delete this.paramToCC[paramKey];
@@ -883,6 +866,10 @@ export class MidiManager {
   }
 
   getChannelForParam(param: keyof HeraParameters): number {
+    const learnedCh = this.paramToChannel[param];
+    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16) {
+      return learnedCh;
+    }
     const section = getSectionForParam(param);
     return this.sectionChannels[section] ?? 0;
   }
@@ -962,6 +949,10 @@ export class MidiManager {
   }
 
   getChannelForAction(action: MidiMappableAction): number {
+    const learnedCh = this.actionToChannel[action];
+    if (learnedCh !== undefined && learnedCh >= 1 && learnedCh <= 16) {
+      return learnedCh;
+    }
     const section = getSectionForAction(action);
     return this.sectionChannels[section] ?? 0;
   }
@@ -1140,10 +1131,10 @@ export class MidiManager {
           this.activeLearnAction = null;
         }
 
-        // 3. Check if CC triggers an Action
+        // 3. Check if CC triggers an Action on the matching MIDI channel
         // Rule: 0 = OFF, >= 1 = ON
         const targetAction = this.actionMapping[cc];
-        if (targetAction) {
+        if (targetAction && this.doesActionMatchChannel(targetAction, msgChannel)) {
           if (targetAction === 'arpToggle' || targetAction === 'arpHold') {
             this.onActionTriggered?.(targetAction, value);
           } else if (value >= 1) {
@@ -1151,26 +1142,20 @@ export class MidiManager {
           }
         }
 
-        // 4. Two-Pass Parameter Resolution for CC:
-        //    Pass 1: Parameters mapped to `cc` that strictly match `msgChannel` (disambiguates shared CCs like CC7 on CH2 vs CH6).
-        //    Pass 2: If no parameter on `msgChannel` claimed `cc`, fallback to any parameter mapped to `cc`
-        //            so hardware controllers transmitting on CH1 or another channel still control all mapped knobs/faders!
+        // 4. Strict (CC + Channel) Parameter Resolution:
+        //    Only update parameters mapped to `cc` whose effective channel matches `msgChannel` (or OMNI 0).
+        //    Never fall back to parameters on other MIDI channels (e.g. CC7 on CH2 vs CH6 must never collide).
         const strictMatchedParams: Array<keyof HeraParameters> = [];
-        const allMappedParamsForCC: Array<keyof HeraParameters> = [];
 
         for (const [paramKey, mappedCC] of Object.entries(this.paramToCC)) {
           if (mappedCC !== cc) continue;
           const targetParam = paramKey as keyof HeraParameters;
-          allMappedParamsForCC.push(targetParam);
           if (this.doesParamMatchChannel(targetParam, msgChannel)) {
             strictMatchedParams.push(targetParam);
           }
         }
 
-        const paramsToUpdate =
-          strictMatchedParams.length > 0 ? strictMatchedParams : allMappedParamsForCC;
-
-        for (const targetParam of paramsToUpdate) {
+        for (const targetParam of strictMatchedParams) {
           let paramValue: number = normalized;
 
           // Handle switches & buttons: 0 is OFF (0), >= 1 is ON (1)
