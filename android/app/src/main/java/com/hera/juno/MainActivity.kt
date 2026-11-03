@@ -281,15 +281,16 @@ fun HeraJunoNativeScreen(
     var showProfileDialog by remember { mutableStateOf(false) }
 
     // Live Rack Section Projection Pop-up Animation (Immediate appearance on MIDI change, disappears in 500ms)
-    val projectionAlpha = remember { Animatable(0f) }
-    LaunchedEffect(projectedSectionTriggerCount) {
+    val projectionAlpha = remember { Animatable(1f) }
+    LaunchedEffect(projectedSectionTriggerCount, projectedSection) {
         if (projectedSection != null && projectedSectionTriggerCount > 0) {
             projectionAlpha.snapTo(1f)
-            delay(150L)
+            delay(250L)
             projectionAlpha.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 350)
+                animationSpec = tween(durationMillis = 250)
             )
+            projectionAlpha.snapTo(1f)
             onDismissProjectedSection()
         }
     }
@@ -973,13 +974,13 @@ fun HeraJunoNativeScreen(
                     }
                 }
             }
+                    }
 
                     // Centered Live Rack Section Projection Pop-up (Immediate on MIDI controller change, disappears in 500ms, inhibited during MIDI Learn)
                     if (
                         midiManager.sectionProjectionEnabled &&
                         !midiManager.isMidiLearnActive &&
-                        projectedSection != null &&
-                        projectionAlpha.value > 0.01f
+                        projectedSection != null
                     ) {
                         val haloColor = when (projectedSection) {
                             MidiSection.LFO -> Color(0xFFEAB308)
@@ -996,7 +997,7 @@ fun HeraJunoNativeScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .zIndex(50f)
+                                .zIndex(100f)
                                 .graphicsLayer { alpha = projectionAlpha.value },
                             contentAlignment = Alignment.Center
                         ) {
@@ -1007,13 +1008,19 @@ fun HeraJunoNativeScreen(
                                 Box(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier
+                                        .wrapContentSize()
                                         .background(
-                                            haloColor.copy(alpha = 0.10f),
+                                            haloColor.copy(alpha = 0.12f),
                                             RoundedCornerShape(9.dp)
                                         )
                                         .padding(3.dp)
                                         .background(
-                                            haloColor.copy(alpha = 0.18f),
+                                            haloColor.copy(alpha = 0.22f),
+                                            RoundedCornerShape(7.dp)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            haloColor.copy(alpha = 0.45f),
                                             RoundedCornerShape(7.dp)
                                         )
                                         .padding(2.dp)
@@ -1031,7 +1038,6 @@ fun HeraJunoNativeScreen(
                         }
                     }
                 }
-            }
 
         // Right Vintage Walnut / Rosewood Side Cheek
         Box(
