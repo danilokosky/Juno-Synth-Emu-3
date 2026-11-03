@@ -31,6 +31,13 @@ interface PresetManagerProps {
   onSelectPreset: (params: HeraParameters, name: string) => void;
   className?: string;
 
+  // Collapsible ARP & Keyboard sections
+  isArpSectionOpen?: boolean;
+  isArpEnabled?: boolean;
+  onToggleArpSection?: () => void;
+  isKeyboardOpen?: boolean;
+  onToggleKeyboard?: () => void;
+
   // MIDI Learn Integration for Preset navigation
   isMidiLearnActive?: boolean;
   selectedLearnAction?: string | null;
@@ -48,6 +55,11 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
   currentParams,
   onSelectPreset,
   className = '',
+  isArpSectionOpen = false,
+  isArpEnabled = false,
+  onToggleArpSection,
+  isKeyboardOpen = true,
+  onToggleKeyboard,
   isMidiLearnActive = false,
   selectedLearnAction = null,
   mappedCCPrev = null,
@@ -322,43 +334,46 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
 
   return (
     <div
-      className={`flex flex-col bg-zinc-900 border border-zinc-700/80 rounded-lg p-2 shadow-md transition-all ${className}`}
+      className={`flex flex-col bg-zinc-900 border border-zinc-700/80 rounded-lg px-3 py-2.5 shadow-md transition-all ${className}`}
     >
-      {/* Top Header Row (Always visible, ultra-compact) */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* Top Header Row (Comfortable thickness, BANK/PATCH/PRESET NAME titles above, centered LED digits) */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
         {/* Authentic Roland 7-Segment LED Bezel Slot Display */}
-        <div className="flex items-center gap-2.5 bg-zinc-950 px-2.5 py-1 rounded-md border border-zinc-800 shadow-inner">
+        <div
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-3.5 bg-zinc-950 px-3.5 py-2 rounded-md border border-zinc-800 shadow-inner cursor-pointer"
+        >
           {/* BANK Slot */}
-          <div className="flex flex-col items-center">
-            <span className="text-[7.5px] font-mono font-bold text-zinc-400 uppercase tracking-widest leading-none mb-0.5">
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-widest leading-none">
               BANK
             </span>
-            <div className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center bg-[#100103] border border-red-950/80 rounded shadow-[inset_0_2px_4px_rgba(0,0,0,0.95)]">
-              <span className="font-mono text-lg sm:text-xl font-black text-red-500 tracking-tight drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]">
+            <div className="w-8 h-8 sm:w-9 sm:h-8 flex items-center justify-center bg-[#140204] border border-red-950/90 rounded shadow-[inset_0_2px_4px_rgba(0,0,0,0.95)]">
+              <span className="inline-flex items-center justify-center w-full h-full font-mono text-base sm:text-lg font-black text-red-500 leading-none text-center tabular-nums drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]">
                 {selectedId < 56 ? String(bankNumber) : 'U'}
               </span>
             </div>
           </div>
 
           {/* PATCH Slot */}
-          <div className="flex flex-col items-center">
-            <span className="text-[7.5px] font-mono font-bold text-zinc-400 uppercase tracking-widest leading-none mb-0.5">
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-widest leading-none">
               PATCH
             </span>
-            <div className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center bg-[#100103] border border-red-950/80 rounded shadow-[inset_0_2px_4px_rgba(0,0,0,0.95)]">
-              <span className="font-mono text-lg sm:text-xl font-black text-red-500 tracking-tight drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]">
+            <div className="w-8 h-8 sm:w-9 sm:h-8 flex items-center justify-center bg-[#140204] border border-red-950/90 rounded shadow-[inset_0_2px_4px_rgba(0,0,0,0.95)]">
+              <span className="inline-flex items-center justify-center w-full h-full font-mono text-base sm:text-lg font-black text-red-500 leading-none text-center tabular-nums drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]">
                 {selectedId < 56 ? String(patchNumber) : String((selectedId % 9) + 1)}
               </span>
             </div>
           </div>
 
           {/* Divider */}
-          <div className="w-[1px] h-7 bg-zinc-800 self-center" />
+          <div className="w-[1px] h-9 bg-zinc-800 self-center" />
 
           {/* PRESET NAME */}
-          <div className="flex flex-col justify-center pl-0.5">
+          <div className="flex flex-col justify-center gap-1 pl-0.5 min-w-[130px] sm:min-w-[165px]">
             <div className="flex items-center gap-1.5">
-              <span className="text-[7.5px] font-mono font-bold text-zinc-400 uppercase tracking-wider leading-none mb-0.5">
+              <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-wider leading-none">
                 PRESET NAME
               </span>
               {statusMessage && (
@@ -367,9 +382,11 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
                 </span>
               )}
             </div>
-            <span className="text-xs sm:text-sm font-mono font-bold text-amber-400 tracking-wide truncate max-w-[150px] sm:max-w-[200px] drop-shadow-[0_0_6px_rgba(245,158,11,0.35)]">
-              {presetName}
-            </span>
+            <div className="h-8 flex items-center">
+              <span className="text-sm sm:text-base font-mono font-extrabold text-amber-400 tracking-wide truncate max-w-[160px] sm:max-w-[220px] leading-none drop-shadow-[0_0_6px_rgba(245,158,11,0.35)]">
+                {presetName}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -412,7 +429,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
         )}
 
         {/* Action Controls & Navigation */}
-        <div className="flex items-center gap-1.5 ml-auto">
+        <div className="flex flex-wrap items-center gap-1.5 ml-auto">
           {/* Previous Preset Button (Mappable via MIDI) */}
           <div className="relative flex flex-col items-center">
             <MidiLearnBadge
@@ -483,7 +500,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
           <button
             type="button"
             onClick={handleOpenSaveCustom}
-            className="flex items-center gap-1 px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-xs font-mono text-amber-400 rounded border border-zinc-700 shadow-sm cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-xs font-mono text-amber-400 rounded border border-zinc-700 shadow-sm cursor-pointer"
             title="Salvar Preset Customizado"
           >
             <Save size={13} />
@@ -494,7 +511,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
           <button
             type="button"
             onClick={handleExportXML}
-            className="flex items-center gap-1 px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-xs font-mono text-zinc-200 rounded border border-zinc-700 shadow-sm cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-xs font-mono text-zinc-200 rounded border border-zinc-700 shadow-sm cursor-pointer"
             title="Baixar / Exportar Preset atual em arquivo .XML"
           >
             <Download size={13} className="text-emerald-400" />
@@ -505,7 +522,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-xs font-mono text-zinc-200 rounded border border-zinc-700 shadow-sm cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-xs font-mono text-zinc-200 rounded border border-zinc-700 shadow-sm cursor-pointer"
             title="Carregar / Importar Preset de arquivo .XML"
           >
             <Upload size={13} className="text-sky-400" />
@@ -530,6 +547,43 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
             <span>{isExpanded ? 'RECOLHER' : `PRESETS (${allPresets.length})`}</span>
             {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
+
+          {/* Expand / Collapse ARP Section Button */}
+          {onToggleArpSection && (
+            <button
+              type="button"
+              onClick={onToggleArpSection}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono font-bold cursor-pointer transition-colors border shadow-sm ${
+                isArpEnabled || isArpSectionOpen
+                  ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border-amber-500/50'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+              }`}
+              title={isArpSectionOpen ? 'Recolher seção Arpejador' : 'Abrir seção Arpejador'}
+            >
+              {isArpEnabled && (
+                <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_6px_#fbbf24]" />
+              )}
+              <span>ARP</span>
+              {isArpSectionOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+          )}
+
+          {/* Expand / Collapse Keyboard Section Button */}
+          {onToggleKeyboard && (
+            <button
+              type="button"
+              onClick={onToggleKeyboard}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-mono font-bold cursor-pointer transition-colors border shadow-sm ${
+                isKeyboardOpen
+                  ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border-amber-500/50'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+              }`}
+              title={isKeyboardOpen ? 'Recolher teclado virtual' : 'Abrir teclado virtual'}
+            >
+              <span>TECLADO</span>
+              {isKeyboardOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+          )}
         </div>
       </div>
 

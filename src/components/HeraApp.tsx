@@ -62,6 +62,11 @@ export const HeraApp: React.FC = () => {
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
 
+  // Collapsible ARP & Keyboard sections controlled from the Voices/Preset bar
+  const [isArpSectionOpen, setIsArpSectionOpen] = useState<boolean>(false);
+  const [isArpEnabled, setIsArpEnabled] = useState<boolean>(false);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState<boolean>(true);
+
   // MIDI
   const [midiDevices, setMidiDevices] = useState<MidiDevice[]>([]);
   const [midiActive, setMidiActive] = useState<boolean>(false);
@@ -880,11 +885,11 @@ export const HeraApp: React.FC = () => {
             <div className="w-full overflow-x-auto pt-3.5 pb-1.5 scrollbar-thin">
               <div className="min-w-max w-fit flex flex-row items-stretch justify-start gap-1 sm:gap-1.5 px-2 mx-auto">
                 {/* SECTION: LFO */}
-              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
-                <div className="text-[10px] font-black font-mono tracking-widest text-yellow-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-yellow-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-yellow-400 uppercase text-center pb-1 border-b border-zinc-800/80">
                   LFO
                 </div>
-                <div className="flex items-center justify-center gap-1.5 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-3 py-1">
                   <Slider
                     label="Rate"
                     value={params.LFORate}
@@ -913,7 +918,7 @@ export const HeraApp: React.FC = () => {
                   />
                 </div>
                 {/* Manual LFO Trigger button (iconic Juno button - Mappable via MIDI!) */}
-                <div className="relative pt-0.5 border-t border-zinc-800/80 flex flex-col items-center">
+                <div className="relative pt-1 border-t border-zinc-800/80 flex flex-col items-center">
                   <MidiLearnBadge
                     isMidiLearnActive={isMidiLearnActive}
                     isSelectedForLearn={selectedLearnAction === 'lfoTrig'}
@@ -951,11 +956,11 @@ export const HeraApp: React.FC = () => {
               </div>
 
               {/* SECTION: DCO */}
-              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-red-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
-                <div className="text-[10px] font-black font-mono tracking-widest text-red-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-red-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-red-400 uppercase text-center pb-1 border-b border-zinc-800/80">
                   DCO (Oscillator)
                 </div>
-                <div className="flex items-center justify-center gap-1.5 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-3 py-1">
                   {/* Selectors Column */}
                   <div className="flex flex-col gap-1 pr-1 border-r border-zinc-800/80">
                     <ToggleSwitch
@@ -1087,17 +1092,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('DCONoiseLevel')}
                   />
                 </div>
-                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-1 border-t border-zinc-800/80">
                   POLYBLEP ANALOG WAVEFORMS
                 </div>
               </div>
 
               {/* SECTION: HPF */}
-              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-cyan-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
-                <div className="text-[10px] font-black font-mono tracking-widest text-cyan-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-cyan-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-cyan-400 uppercase text-center pb-1 border-b border-zinc-800/80">
                   HPF
                 </div>
-                <div className="flex items-center justify-center my-1">
+                <div className="flex items-center justify-center my-3 py-1">
                   <Slider
                     label="Freq"
                     value={params.HPF}
@@ -1112,17 +1117,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('HPF')}
                   />
                 </div>
-                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-1 border-t border-zinc-800/80">
                   4-WAY
                 </div>
               </div>
 
               {/* SECTION: VCF */}
-              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-cyan-400 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
-                <div className="text-[10px] font-black font-mono tracking-widest text-cyan-300 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-cyan-400 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-cyan-300 uppercase text-center pb-1 border-b border-zinc-800/80">
                   VCF (Filter)
                 </div>
-                <div className="flex items-center justify-center gap-1.5 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-3 py-1">
                   <Slider
                     label="Freq"
                     value={params.VCFCutoff}
@@ -1206,17 +1211,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('VCFBendDepth')}
                   />
                 </div>
-                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-1 border-t border-zinc-800/80">
                   24dB/OCT RESONANT OTA
                 </div>
               </div>
 
               {/* SECTION: VCA */}
-              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-amber-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
-                <div className="text-[10px] font-black font-mono tracking-widest text-amber-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-amber-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-amber-400 uppercase text-center pb-1 border-b border-zinc-800/80">
                   VCA
                 </div>
-                <div className="flex items-center justify-center gap-1.5 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-3 py-1">
                   <ToggleSwitch
                     label="Type"
                     options={[
@@ -1246,17 +1251,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('VCADepth')}
                   />
                 </div>
-                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-1 border-t border-zinc-800/80">
                   AMP
                 </div>
               </div>
 
               {/* SECTION: ENV */}
-              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-amber-400 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
-                <div className="text-[10px] font-black font-mono tracking-widest text-amber-300 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-amber-400 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-amber-300 uppercase text-center pb-1 border-b border-zinc-800/80">
                   ENV (ADSR)
                 </div>
-                <div className="flex items-center justify-center gap-1.5 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-3 py-1">
                   <Slider
                     label="A"
                     value={params.ENVAttack}
@@ -1310,17 +1315,17 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('ENVRelease')}
                   />
                 </div>
-                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-1 border-t border-zinc-800/80">
                   EXPONENTIAL ADSR
                 </div>
               </div>
 
               {/* SECTION: CHORUS */}
-              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-rose-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
-                <div className="text-[10px] font-black font-mono tracking-widest text-rose-400 uppercase text-center pb-0.5 border-b border-zinc-800/80">
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-rose-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-rose-400 uppercase text-center pb-1 border-b border-zinc-800/80">
                   CHORUS
                 </div>
-                <div className="flex items-center justify-center gap-1.5 my-1">
+                <div className="flex items-center justify-center gap-1.5 my-3 py-1">
                   <ChorusButton
                     label="I"
                     active={params.ChorusI > 0.5}
@@ -1344,7 +1349,7 @@ export const HeraApp: React.FC = () => {
                     onUnmap={() => handleUnmapParam('ChorusII')}
                   />
                 </div>
-                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-1 border-t border-zinc-800/80">
                   {params.ChorusI && params.ChorusII
                     ? 'I+II (ROTARY)'
                     : params.ChorusI
@@ -1356,205 +1361,171 @@ export const HeraApp: React.FC = () => {
               </div>
 
               {/* SECTION: STEREO ECHO DELAY */}
-              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-emerald-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
-                <div className="flex items-center justify-between pb-0.5 border-b border-zinc-800/80 gap-1.5 px-0.5">
-                  <span className="text-[10px] font-black font-mono tracking-widest text-emerald-400 uppercase">
-                    ECHO DELAY
-                  </span>
-                  <div className="relative flex items-center">
-                    <MidiLearnBadge
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-emerald-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
+                <div className="text-[10px] font-black font-mono tracking-widest text-emerald-400 uppercase text-center pb-1 border-b border-zinc-800/80">
+                  ECHO DELAY
+                </div>
+                <div className="flex flex-col items-stretch justify-center my-2 py-0.5 gap-1.5">
+                  {/* Top-left ON/OFF Switch right below the header and right above the faders */}
+                  <div className="flex justify-start pl-0.5">
+                    <ToggleSwitch
+                      label="Delay Power"
+                      hideLabel
+                      orientation="horizontal"
+                      options={[
+                        { label: 'OFF', value: 0 },
+                        { label: 'ON', value: 1 },
+                      ]}
+                      value={params.DelayEnabled > 0.5 ? 1 : 0}
+                      onChange={(v) => handleParamChange('DelayEnabled', v)}
+                      activeColorClass="bg-emerald-600 text-white shadow-[0_0_8px_#10b981] font-black border border-emerald-400"
                       isMidiLearnActive={isMidiLearnActive}
                       isSelectedForLearn={selectedLearnParam === 'DelayEnabled'}
                       mappedCC={getMappedCC('DelayEnabled')}
                       channelLabel={getChannelLabelForParam('DelayEnabled')}
+                      onSelectForLearn={() => handleSelectForLearn('DelayEnabled')}
                       onUnmap={() => handleUnmapParam('DelayEnabled')}
-                      title="Desmapear Delay ON/OFF"
-                      positionClass="bottom-[calc(100%+2px)] left-1/2 -translate-x-1/2"
                     />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (isMidiLearnActive) {
-                          handleSelectForLearn('DelayEnabled');
-                        } else {
-                          handleParamChange('DelayEnabled', params.DelayEnabled > 0.5 ? 0 : 1);
-                        }
-                      }}
-                      className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold border transition-shadow cursor-pointer ${
-                        selectedLearnParam === 'DelayEnabled'
-                          ? 'bg-sky-500/30 text-white border-sky-400 ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
-                          : isMidiLearnActive
-                          ? 'bg-zinc-800 text-zinc-200 border-zinc-700 ring-1 ring-sky-400/25 hover:ring-sky-400/70'
-                          : params.DelayEnabled > 0.5
-                          ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_8px_#10b981]'
-                          : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
-                      }`}
-                      title={
-                        isMidiLearnActive
-                          ? 'Clique para mapear Echo Delay ON/OFF via MIDI'
-                          : 'Ativar/Desativar Efeito de Delay / Eco Estéreo'
-                      }
-                    >
-                      {params.DelayEnabled > 0.5 ? 'ON' : 'OFF'}
-                    </button>
+                  </div>
+                  <div className="flex items-center justify-center gap-1.5">
+                    <Slider
+                      label="Time"
+                      value={params.DelayTime}
+                      onChange={(v) => handleParamChange('DelayTime', v)}
+                      defaultValue={0.35}
+                      color="amber"
+                      isMidiLearnActive={isMidiLearnActive}
+                      isSelectedForLearn={selectedLearnParam === 'DelayTime'}
+                      mappedCC={getMappedCC('DelayTime')}
+                      channelLabel={getChannelLabelForParam('DelayTime')}
+                      onSelectForLearn={() => handleSelectForLearn('DelayTime')}
+                      onUnmap={() => handleUnmapParam('DelayTime')}
+                    />
+                    <Slider
+                      label="F-Back"
+                      value={params.DelayFeedback}
+                      onChange={(v) => handleParamChange('DelayFeedback', v)}
+                      defaultValue={0.4}
+                      color="amber"
+                      isMidiLearnActive={isMidiLearnActive}
+                      isSelectedForLearn={selectedLearnParam === 'DelayFeedback'}
+                      mappedCC={getMappedCC('DelayFeedback')}
+                      channelLabel={getChannelLabelForParam('DelayFeedback')}
+                      onSelectForLearn={() => handleSelectForLearn('DelayFeedback')}
+                      onUnmap={() => handleUnmapParam('DelayFeedback')}
+                    />
+                    <Slider
+                      label="Mix"
+                      value={params.DelayMix}
+                      onChange={(v) => handleParamChange('DelayMix', v)}
+                      defaultValue={0.35}
+                      color="amber"
+                      isMidiLearnActive={isMidiLearnActive}
+                      isSelectedForLearn={selectedLearnParam === 'DelayMix'}
+                      mappedCC={getMappedCC('DelayMix')}
+                      channelLabel={getChannelLabelForParam('DelayMix')}
+                      onSelectForLearn={() => handleSelectForLearn('DelayMix')}
+                      onUnmap={() => handleUnmapParam('DelayMix')}
+                    />
                   </div>
                 </div>
-                <div className="flex items-center justify-center gap-1.5 my-1">
-                  <Slider
-                    label="Time"
-                    value={params.DelayTime}
-                    onChange={(v) => handleParamChange('DelayTime', v)}
-                    defaultValue={0.35}
-                    color="amber"
-                    isMidiLearnActive={isMidiLearnActive}
-                    isSelectedForLearn={selectedLearnParam === 'DelayTime'}
-                    mappedCC={getMappedCC('DelayTime')}
-                    channelLabel={getChannelLabelForParam('DelayTime')}
-                    onSelectForLearn={() => handleSelectForLearn('DelayTime')}
-                    onUnmap={() => handleUnmapParam('DelayTime')}
-                  />
-                  <Slider
-                    label="F-Back"
-                    value={params.DelayFeedback}
-                    onChange={(v) => handleParamChange('DelayFeedback', v)}
-                    defaultValue={0.4}
-                    color="amber"
-                    isMidiLearnActive={isMidiLearnActive}
-                    isSelectedForLearn={selectedLearnParam === 'DelayFeedback'}
-                    mappedCC={getMappedCC('DelayFeedback')}
-                    channelLabel={getChannelLabelForParam('DelayFeedback')}
-                    onSelectForLearn={() => handleSelectForLearn('DelayFeedback')}
-                    onUnmap={() => handleUnmapParam('DelayFeedback')}
-                  />
-                  <Slider
-                    label="Mix"
-                    value={params.DelayMix}
-                    onChange={(v) => handleParamChange('DelayMix', v)}
-                    defaultValue={0.35}
-                    color="amber"
-                    isMidiLearnActive={isMidiLearnActive}
-                    isSelectedForLearn={selectedLearnParam === 'DelayMix'}
-                    mappedCC={getMappedCC('DelayMix')}
-                    channelLabel={getChannelLabelForParam('DelayMix')}
-                    onSelectForLearn={() => handleSelectForLearn('DelayMix')}
-                    onUnmap={() => handleUnmapParam('DelayMix')}
-                  />
-                </div>
-                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-1 border-t border-zinc-800/80">
                   {params.DelayEnabled > 0.5 ? 'STEREO TAPE ECHO' : 'BYPASS'}
                 </div>
               </div>
 
               {/* SECTION: GLOBAL POST-PROCESSING REVERB */}
-              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-violet-500 border border-zinc-800 rounded p-1.5 flex flex-col justify-between shadow-md">
-                <div className="flex items-center justify-between pb-0.5 border-b border-zinc-800/80 gap-1.5 px-0.5">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] font-black font-mono tracking-widest text-violet-400 uppercase">
-                      REVERB
-                    </span>
-                    <span className="text-[7px] font-mono font-bold px-1 py-0.2 rounded bg-violet-950/90 text-violet-300 border border-violet-700/60 uppercase">
-                      GLOBAL
-                    </span>
-                  </div>
-                  <div className="relative flex items-center">
-                    <MidiLearnBadge
+              <div className="flex-shrink-0 bg-zinc-950/70 border-t-4 border-t-violet-500 border border-zinc-800 rounded p-2 flex flex-col justify-between shadow-md">
+                <div className="flex items-center justify-center pb-1 border-b border-zinc-800/80 gap-1.5 px-0.5">
+                  <span className="text-[10px] font-black font-mono tracking-widest text-violet-400 uppercase">
+                    REVERB
+                  </span>
+                  <span className="text-[7px] font-mono font-bold px-1 py-0.2 rounded bg-violet-950/90 text-violet-300 border border-violet-700/60 uppercase">
+                    GLOBAL
+                  </span>
+                </div>
+                <div className="flex flex-col items-stretch justify-center my-2 py-0.5 gap-1.5">
+                  {/* Top-left ON/OFF Switch right below the header and right above the faders */}
+                  <div className="flex justify-start pl-0.5">
+                    <ToggleSwitch
+                      label="Reverb Power"
+                      hideLabel
+                      orientation="horizontal"
+                      options={[
+                        { label: 'OFF', value: 0 },
+                        { label: 'ON', value: 1 },
+                      ]}
+                      value={params.ReverbEnabled > 0.5 ? 1 : 0}
+                      onChange={(v) => handleParamChange('ReverbEnabled', v)}
+                      activeColorClass="bg-violet-600 text-white shadow-[0_0_8px_#8b5cf6] font-black border border-violet-400"
                       isMidiLearnActive={isMidiLearnActive}
                       isSelectedForLearn={selectedLearnParam === 'ReverbEnabled'}
                       mappedCC={getMappedCC('ReverbEnabled')}
                       channelLabel={getChannelLabelForParam('ReverbEnabled')}
+                      onSelectForLearn={() => handleSelectForLearn('ReverbEnabled')}
                       onUnmap={() => handleUnmapParam('ReverbEnabled')}
-                      title="Desmapear Reverb ON/OFF"
-                      positionClass="bottom-[calc(100%+2px)] left-1/2 -translate-x-1/2"
                     />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (isMidiLearnActive) {
-                          handleSelectForLearn('ReverbEnabled');
-                        } else {
-                          handleParamChange('ReverbEnabled', params.ReverbEnabled > 0.5 ? 0 : 1);
-                        }
-                      }}
-                      className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold border transition-shadow cursor-pointer ${
-                        selectedLearnParam === 'ReverbEnabled'
-                          ? 'bg-sky-500/30 text-white border-sky-400 ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
-                          : isMidiLearnActive
-                          ? 'bg-zinc-800 text-zinc-200 border-zinc-700 ring-1 ring-sky-400/25 hover:ring-sky-400/70'
-                          : params.ReverbEnabled > 0.5
-                          ? 'bg-violet-600 text-white border-violet-400 shadow-[0_0_8px_#8b5cf6]'
-                          : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
-                      }`}
-                      title={
-                        isMidiLearnActive
-                          ? 'Clique para mapear Global Reverb ON/OFF via MIDI'
-                          : 'Ativar/Desativar Reverb Global de Pós-Processamento'
-                      }
-                    >
-                      {params.ReverbEnabled > 0.5 ? 'ON' : 'OFF'}
-                    </button>
                   </div>
-                </div>
-                <div className="flex items-center justify-center gap-1.5 my-1">
-                  <div className="flex flex-col justify-center pr-1 border-r border-zinc-800/80">
-                    <ToggleSwitch
-                      label="Mode"
-                      options={[
-                        { label: 'PLATE', value: 0 },
-                        { label: 'HALL', value: 1 },
-                      ]}
-                      value={params.ReverbType >= 0.5 ? 1 : 0}
-                      onChange={(v) => handleParamChange('ReverbType', v)}
+                  <div className="flex items-center justify-center gap-1.5">
+                    <div className="flex flex-col justify-center pr-1 border-r border-zinc-800/80">
+                      <ToggleSwitch
+                        label="Mode"
+                        options={[
+                          { label: 'PLATE', value: 0 },
+                          { label: 'HALL', value: 1 },
+                        ]}
+                        value={params.ReverbType >= 0.5 ? 1 : 0}
+                        onChange={(v) => handleParamChange('ReverbType', v)}
+                        isMidiLearnActive={isMidiLearnActive}
+                        isSelectedForLearn={selectedLearnParam === 'ReverbType'}
+                        mappedCC={getMappedCC('ReverbType')}
+                        channelLabel={getChannelLabelForParam('ReverbType')}
+                        onSelectForLearn={() => handleSelectForLearn('ReverbType')}
+                        onUnmap={() => handleUnmapParam('ReverbType')}
+                      />
+                    </div>
+                    <Slider
+                      label="Time"
+                      value={params.ReverbTime}
+                      onChange={(v) => handleParamChange('ReverbTime', v)}
+                      defaultValue={0.45}
+                      color="cyan"
                       isMidiLearnActive={isMidiLearnActive}
-                      isSelectedForLearn={selectedLearnParam === 'ReverbType'}
-                      mappedCC={getMappedCC('ReverbType')}
-                      channelLabel={getChannelLabelForParam('ReverbType')}
-                      onSelectForLearn={() => handleSelectForLearn('ReverbType')}
-                      onUnmap={() => handleUnmapParam('ReverbType')}
+                      isSelectedForLearn={selectedLearnParam === 'ReverbTime'}
+                      mappedCC={getMappedCC('ReverbTime')}
+                      channelLabel={getChannelLabelForParam('ReverbTime')}
+                      onSelectForLearn={() => handleSelectForLearn('ReverbTime')}
+                      onUnmap={() => handleUnmapParam('ReverbTime')}
+                    />
+                    <Slider
+                      label="Decay"
+                      value={params.ReverbDecay}
+                      onChange={(v) => handleParamChange('ReverbDecay', v)}
+                      defaultValue={0.55}
+                      color="cyan"
+                      isMidiLearnActive={isMidiLearnActive}
+                      isSelectedForLearn={selectedLearnParam === 'ReverbDecay'}
+                      mappedCC={getMappedCC('ReverbDecay')}
+                      channelLabel={getChannelLabelForParam('ReverbDecay')}
+                      onSelectForLearn={() => handleSelectForLearn('ReverbDecay')}
+                      onUnmap={() => handleUnmapParam('ReverbDecay')}
+                    />
+                    <Slider
+                      label="Mix"
+                      value={params.ReverbMix}
+                      onChange={(v) => handleParamChange('ReverbMix', v)}
+                      defaultValue={0.3}
+                      color="cyan"
+                      isMidiLearnActive={isMidiLearnActive}
+                      isSelectedForLearn={selectedLearnParam === 'ReverbMix'}
+                      mappedCC={getMappedCC('ReverbMix')}
+                      channelLabel={getChannelLabelForParam('ReverbMix')}
+                      onSelectForLearn={() => handleSelectForLearn('ReverbMix')}
+                      onUnmap={() => handleUnmapParam('ReverbMix')}
                     />
                   </div>
-                  <Slider
-                    label="Time"
-                    value={params.ReverbTime}
-                    onChange={(v) => handleParamChange('ReverbTime', v)}
-                    defaultValue={0.45}
-                    color="cyan"
-                    isMidiLearnActive={isMidiLearnActive}
-                    isSelectedForLearn={selectedLearnParam === 'ReverbTime'}
-                    mappedCC={getMappedCC('ReverbTime')}
-                    channelLabel={getChannelLabelForParam('ReverbTime')}
-                    onSelectForLearn={() => handleSelectForLearn('ReverbTime')}
-                    onUnmap={() => handleUnmapParam('ReverbTime')}
-                  />
-                  <Slider
-                    label="Decay"
-                    value={params.ReverbDecay}
-                    onChange={(v) => handleParamChange('ReverbDecay', v)}
-                    defaultValue={0.55}
-                    color="cyan"
-                    isMidiLearnActive={isMidiLearnActive}
-                    isSelectedForLearn={selectedLearnParam === 'ReverbDecay'}
-                    mappedCC={getMappedCC('ReverbDecay')}
-                    channelLabel={getChannelLabelForParam('ReverbDecay')}
-                    onSelectForLearn={() => handleSelectForLearn('ReverbDecay')}
-                    onUnmap={() => handleUnmapParam('ReverbDecay')}
-                  />
-                  <Slider
-                    label="Mix"
-                    value={params.ReverbMix}
-                    onChange={(v) => handleParamChange('ReverbMix', v)}
-                    defaultValue={0.3}
-                    color="cyan"
-                    isMidiLearnActive={isMidiLearnActive}
-                    isSelectedForLearn={selectedLearnParam === 'ReverbMix'}
-                    mappedCC={getMappedCC('ReverbMix')}
-                    channelLabel={getChannelLabelForParam('ReverbMix')}
-                    onSelectForLearn={() => handleSelectForLearn('ReverbMix')}
-                    onUnmap={() => handleUnmapParam('ReverbMix')}
-                  />
                 </div>
-                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-0.5 border-t border-zinc-800/80">
+                <div className="text-[7.5px] font-mono text-zinc-500 text-center tracking-wider pt-1 border-t border-zinc-800/80">
                   {params.ReverbEnabled > 0.5
                     ? params.ReverbType >= 0.5
                       ? 'POST-FX CONCERT HALL'
@@ -1571,6 +1542,11 @@ export const HeraApp: React.FC = () => {
             <PresetManager
               currentParams={params}
               onSelectPreset={handleSelectPreset}
+              isArpSectionOpen={isArpSectionOpen}
+              isArpEnabled={isArpEnabled}
+              onToggleArpSection={() => setIsArpSectionOpen((prev) => !prev)}
+              isKeyboardOpen={isKeyboardOpen}
+              onToggleKeyboard={() => setIsKeyboardOpen((prev) => !prev)}
               isMidiLearnActive={isMidiLearnActive}
               selectedLearnAction={selectedLearnAction}
               mappedCCPrev={getMappedActionCC('prevPreset')}
@@ -1583,6 +1559,8 @@ export const HeraApp: React.FC = () => {
               }}
             />
             <Arpeggiator
+              isOpen={isArpSectionOpen}
+              onArpEnabledChange={setIsArpEnabled}
               isMidiLearnActive={isMidiLearnActive}
               selectedLearnAction={selectedLearnAction}
               mappedCCArpToggle={getMappedActionCC('arpToggle')}
@@ -1597,9 +1575,11 @@ export const HeraApp: React.FC = () => {
           </div>
 
           {/* Bottom Virtual Piano Keyboard & Controls */}
-          <div className="bg-zinc-950">
-            <PianoKeyboard />
-          </div>
+          {isKeyboardOpen && (
+            <div className="bg-zinc-950">
+              <PianoKeyboard />
+            </div>
+          )}
         </div>
       </div>
 

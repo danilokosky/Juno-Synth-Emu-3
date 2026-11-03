@@ -437,13 +437,13 @@ fun HeraJunoNativeScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(205.dp)
+                            .height(232.dp)
                             .background(Color(0xFF11131A))
                             .horizontalScroll(rackScrollState)
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // SECTION 1: LFO (Rate + Vib Del faders with MAN TRIG button directly below them inside the section)
+                        // SECTION 1: LFO (Rate + Vib Del faders with MAN TRIG button comfortably spaced)
                         val manTrigActive = (paramState[SynthParam.LFOManualTrig] ?: 0f) >= 0.5f
                         SynthModuleCard(
                             title = "LFO",
@@ -452,13 +452,12 @@ fun HeraJunoNativeScreen(
                         ) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+                                verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
                                 modifier = Modifier.fillMaxHeight()
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    modifier = Modifier.height(152.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp)
                                 ) {
                                     JunoParamFader(
                                         param = SynthParam.LFORate,
@@ -466,7 +465,7 @@ fun HeraJunoNativeScreen(
                                         capColor = JunoOrange,
                                         midiManager = midiManager,
                                         uiRevision = rev,
-                                        heightFraction = 1f,
+                                        faderHeight = 136.dp,
                                         onValueChange = { onUpdateParam(SynthParam.LFORate, it) },
                                         onNotifyUiChanged = onNotifyUiChanged
                                     )
@@ -476,7 +475,7 @@ fun HeraJunoNativeScreen(
                                         capColor = JunoOrange,
                                         midiManager = midiManager,
                                         uiRevision = rev,
-                                        heightFraction = 1f,
+                                        faderHeight = 136.dp,
                                         onValueChange = { onUpdateParam(SynthParam.LFODelay, it) },
                                         onNotifyUiChanged = onNotifyUiChanged
                                     )
@@ -816,127 +815,133 @@ fun HeraJunoNativeScreen(
                     }
                 }
 
-                // SECTION 8: ECHO DELAY
+                // SECTION 8: ECHO DELAY (ON/OFF switch outside header, top-left right below header & above fader)
                 val delayOn = (paramState[SynthParam.DelayEnabled] ?: 0f) >= 0.5f
                 SynthModuleCard(
                     title = "ECHO DELAY",
                     footer = if (delayOn) "STEREO TAPE ECHO" else "BYPASS",
-                    accentColor = JunoGreenReady,
-                    headerRight = {
-                        JunoParamSwitchWithBadge(
+                    accentColor = JunoGreenReady
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.Start,
+                        verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
+                        modifier = Modifier.fillMaxHeight()
+                    ) {
+                        JunoTopLeftPowerSwitch(
                             param = SynthParam.DelayEnabled,
                             active = delayOn,
-                            activeLabel = "ON",
-                            inactiveLabel = "OFF",
                             activeColor = JunoGreenReady,
                             midiManager = midiManager,
                             uiRevision = rev,
-                            compact = true,
-                            onToggle = { onUpdateParam(SynthParam.DelayEnabled, if (delayOn) 0f else 1f) },
+                            onSelectActive = { on -> onUpdateParam(SynthParam.DelayEnabled, if (on) 1f else 0f) },
                             onNotifyUiChanged = onNotifyUiChanged
                         )
-                    }
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        modifier = Modifier.fillMaxHeight()
-                    ) {
-                        JunoParamFader(
-                            param = SynthParam.DelayTime,
-                            value = paramState[SynthParam.DelayTime] ?: 0.35f,
-                            capColor = JunoOrange,
-                            midiManager = midiManager,
-                            uiRevision = rev,
-                            onValueChange = { onUpdateParam(SynthParam.DelayTime, it) },
-                            onNotifyUiChanged = onNotifyUiChanged
-                        )
-                        JunoParamFader(
-                            param = SynthParam.DelayFeedback,
-                            value = paramState[SynthParam.DelayFeedback] ?: 0.35f,
-                            capColor = JunoOrange,
-                            midiManager = midiManager,
-                            uiRevision = rev,
-                            onValueChange = { onUpdateParam(SynthParam.DelayFeedback, it) },
-                            onNotifyUiChanged = onNotifyUiChanged
-                        )
-                        JunoParamFader(
-                            param = SynthParam.DelayMix,
-                            value = paramState[SynthParam.DelayMix] ?: 0.25f,
-                            capColor = JunoOrange,
-                            midiManager = midiManager,
-                            uiRevision = rev,
-                            onValueChange = { onUpdateParam(SynthParam.DelayMix, it) },
-                            onNotifyUiChanged = onNotifyUiChanged
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            JunoParamFader(
+                                param = SynthParam.DelayTime,
+                                value = paramState[SynthParam.DelayTime] ?: 0.35f,
+                                capColor = JunoOrange,
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                faderHeight = 136.dp,
+                                onValueChange = { onUpdateParam(SynthParam.DelayTime, it) },
+                                onNotifyUiChanged = onNotifyUiChanged
+                            )
+                            JunoParamFader(
+                                param = SynthParam.DelayFeedback,
+                                value = paramState[SynthParam.DelayFeedback] ?: 0.35f,
+                                capColor = JunoOrange,
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                faderHeight = 136.dp,
+                                onValueChange = { onUpdateParam(SynthParam.DelayFeedback, it) },
+                                onNotifyUiChanged = onNotifyUiChanged
+                            )
+                            JunoParamFader(
+                                param = SynthParam.DelayMix,
+                                value = paramState[SynthParam.DelayMix] ?: 0.25f,
+                                capColor = JunoOrange,
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                faderHeight = 136.dp,
+                                onValueChange = { onUpdateParam(SynthParam.DelayMix, it) },
+                                onNotifyUiChanged = onNotifyUiChanged
+                            )
+                        }
                     }
                 }
 
-                // SECTION 9: REVERB GLOBAL (POST-PROCESSING PLATE & HALL)
+                // SECTION 9: REVERB GLOBAL (ON/OFF switch outside header, top-left right below header & above fader)
                 val reverbOn = (paramState[SynthParam.ReverbEnabled] ?: 0f) >= 0.5f
                 val reverbTypeIdx = (paramState[SynthParam.ReverbType] ?: 0f).roundToInt().coerceIn(0, 1)
                 SynthModuleCard(
                     title = "REVERB",
                     titleBadge = "GLOBAL",
                     footer = if (!reverbOn) "POST-FX BYPASS" else if (reverbTypeIdx == 0) "POST-FX STUDIO PLATE" else "POST-FX CONCERT HALL",
-                    accentColor = JunoPurple,
-                    headerRight = {
-                        JunoParamSwitchWithBadge(
+                    accentColor = JunoPurple
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.Start,
+                        verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
+                        modifier = Modifier.fillMaxHeight()
+                    ) {
+                        JunoTopLeftPowerSwitch(
                             param = SynthParam.ReverbEnabled,
                             active = reverbOn,
-                            activeLabel = "ON",
-                            inactiveLabel = "OFF",
                             activeColor = JunoPurple,
                             midiManager = midiManager,
                             uiRevision = rev,
-                            compact = true,
-                            onToggle = { onUpdateParam(SynthParam.ReverbEnabled, if (reverbOn) 0f else 1f) },
+                            onSelectActive = { on -> onUpdateParam(SynthParam.ReverbEnabled, if (on) 1f else 0f) },
                             onNotifyUiChanged = onNotifyUiChanged
                         )
-                    }
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        modifier = Modifier.fillMaxHeight()
-                    ) {
-                        SelectorGroupBox(
-                            param = SynthParam.ReverbType,
-                            title = "MODE",
-                            options = listOf("PLATE", "HALL"),
-                            selectedIndex = reverbTypeIdx,
-                            midiManager = midiManager,
-                            uiRevision = rev,
-                            onSelect = { onUpdateParam(SynthParam.ReverbType, it.toFloat()) },
-                            onNotifyUiChanged = onNotifyUiChanged
-                        )
-                        JunoParamFader(
-                            param = SynthParam.ReverbTime,
-                            value = paramState[SynthParam.ReverbTime] ?: 0.35f,
-                            capColor = JunoBlue,
-                            midiManager = midiManager,
-                            uiRevision = rev,
-                            onValueChange = { onUpdateParam(SynthParam.ReverbTime, it) },
-                            onNotifyUiChanged = onNotifyUiChanged
-                        )
-                        JunoParamFader(
-                            param = SynthParam.ReverbDecay,
-                            value = paramState[SynthParam.ReverbDecay] ?: 0.55f,
-                            capColor = JunoBlue,
-                            midiManager = midiManager,
-                            uiRevision = rev,
-                            onValueChange = { onUpdateParam(SynthParam.ReverbDecay, it) },
-                            onNotifyUiChanged = onNotifyUiChanged
-                        )
-                        JunoParamFader(
-                            param = SynthParam.ReverbMix,
-                            value = paramState[SynthParam.ReverbMix] ?: 0.25f,
-                            capColor = JunoBlue,
-                            midiManager = midiManager,
-                            uiRevision = rev,
-                            onValueChange = { onUpdateParam(SynthParam.ReverbMix, it) },
-                            onNotifyUiChanged = onNotifyUiChanged
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            SelectorGroupBox(
+                                param = SynthParam.ReverbType,
+                                title = "MODE",
+                                options = listOf("PLATE", "HALL"),
+                                selectedIndex = reverbTypeIdx,
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                onSelect = { onUpdateParam(SynthParam.ReverbType, it.toFloat()) },
+                                onNotifyUiChanged = onNotifyUiChanged
+                            )
+                            JunoParamFader(
+                                param = SynthParam.ReverbTime,
+                                value = paramState[SynthParam.ReverbTime] ?: 0.35f,
+                                capColor = JunoBlue,
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                faderHeight = 136.dp,
+                                onValueChange = { onUpdateParam(SynthParam.ReverbTime, it) },
+                                onNotifyUiChanged = onNotifyUiChanged
+                            )
+                            JunoParamFader(
+                                param = SynthParam.ReverbDecay,
+                                value = paramState[SynthParam.ReverbDecay] ?: 0.55f,
+                                capColor = JunoBlue,
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                faderHeight = 136.dp,
+                                onValueChange = { onUpdateParam(SynthParam.ReverbDecay, it) },
+                                onNotifyUiChanged = onNotifyUiChanged
+                            )
+                            JunoParamFader(
+                                param = SynthParam.ReverbMix,
+                                value = paramState[SynthParam.ReverbMix] ?: 0.25f,
+                                capColor = JunoBlue,
+                                midiManager = midiManager,
+                                uiRevision = rev,
+                                faderHeight = 136.dp,
+                                onValueChange = { onUpdateParam(SynthParam.ReverbMix, it) },
+                                onNotifyUiChanged = onNotifyUiChanged
+                            )
+                        }
                     }
                 }
             }
@@ -1053,27 +1058,7 @@ fun HeraJunoNativeScreen(
                         )
                     }
 
-                    // 2D. Dedicated Roland Arpeggiator Quick Status Bar (matching Screenshot_20261103_003110_Chrome_80e31999.jpg)
-                    ArpQuickStatusBar(
-                        arpEnabled = arpEnabled,
-                        arpMode = arpMode,
-                        arpRange = arpRange,
-                        arpBpm = arpBpm,
-                        isArpExpanded = arpExpanded,
-                        showKeyboard = showKeyboard,
-                        onToggleArp = {
-                            arpEnabled = !arpEnabled
-                            if (!arpEnabled && !holdSustain) onPanicAllNotesOff()
-                        },
-                        onToggleAdjustments = {
-                            arpExpanded = !arpExpanded
-                        },
-                        onToggleKeyboard = {
-                            showKeyboard = !showKeyboard
-                        }
-                    )
-
-                    // 3. BELOW SECTION (Expanded Timbres Browser + Full Expandable Arpeggiator Adjustments + Piano Keyboard)
+                    // 3. BELOW SECTION (Expanded Timbres Browser + Full Expandable Arpeggiator + Piano Keyboard)
                     Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2213,162 +2198,44 @@ private fun HamburgerLinesIcon(modifier: Modifier = Modifier.size(11.dp), color:
     }
 }
 
+/**
+ * Exact Sub-Pixel Centered Red 7-Segment LED Digit Box for BANK and PATCH
+ */
 @Composable
-private fun ArpQuickStatusBar(
-    arpEnabled: Boolean,
-    arpMode: Int,
-    arpRange: Int,
-    arpBpm: Float,
-    isArpExpanded: Boolean,
-    showKeyboard: Boolean,
-    onToggleArp: () -> Unit,
-    onToggleAdjustments: () -> Unit,
-    onToggleKeyboard: () -> Unit
+private fun JunoRedLedDigitBox(
+    text: String,
+    modifier: Modifier = Modifier
 ) {
-    val modeNames = listOf("UP", "U/D", "DOWN")
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(0xFF090B10))
-            .padding(horizontal = 8.dp, vertical = 3.5.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(width = 24.dp, height = 22.dp)
+            .background(Color(0xFF160205), RoundedCornerShape(3.dp))
+            .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(3.dp))
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // [ ARP OFF / ON ]
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(3.5.dp))
-                    .background(if (arpEnabled) Color(0xFFFBBF24) else Color(0xFF161A24))
-                    .border(1.dp, if (arpEnabled) Color(0xFFFDE68A) else Color(0xFF2D3446), RoundedCornerShape(3.5.dp))
-                    .clickable { onToggleArp() }
-                    .padding(horizontal = 9.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = if (arpEnabled) "ARP ON" else "ARP OFF",
-                    color = if (arpEnabled) Color.Black else Color(0xFF9CA3AF),
-                    fontSize = 8.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Black
-                )
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val paint = Paint().apply {
+                isAntiAlias = true
+                color = android.graphics.Color.parseColor("#EF4444")
+                textSize = 12.sp.toPx()
+                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                textAlign = Paint.Align.LEFT
+                setShadowLayer(6.dp.toPx(), 0f, 0f, android.graphics.Color.parseColor("#AAEF4444"))
             }
-
-            // Mode badge [ UP ]
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
-                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
-            ) {
-                Text(
-                    text = modeNames.getOrElse(arpMode) { "UP" },
-                    color = Color(0xFFD1D5DB),
-                    fontSize = 7.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Range badge [ 1 OCT ]
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
-                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
-            ) {
-                Text(
-                    text = "$arpRange ${if (arpRange == 1) "OCT" else "OCTS"}",
-                    color = Color(0xFFD1D5DB),
-                    fontSize = 7.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // BPM badge [ 120 BPM ]
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF131720), RoundedCornerShape(3.dp))
-                    .border(1.dp, Color(0xFF22293A), RoundedCornerShape(3.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
-            ) {
-                Text(
-                    text = "${arpBpm.roundToInt()} BPM",
-                    color = JunoAmberLed,
-                    fontSize = 7.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-        }
-
-        // Right side: [ ⚙ AJUSTES ▾ ] and [ TECLADO ▾ ]
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(3.5.dp))
-                    .background(if (isArpExpanded) Color(0xFF2B2112) else Color(0xFF161A24))
-                    .border(1.dp, if (isArpExpanded) JunoAmberLed else Color(0xFF2D3446), RoundedCornerShape(3.5.dp))
-                    .clickable { onToggleAdjustments() }
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = "⚙ AJUSTES",
-                    color = if (isArpExpanded) JunoAmberLed else Color(0xFFD1D5DB),
-                    fontSize = 7.8.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = if (isArpExpanded) "▴" else "▾",
-                    color = if (isArpExpanded) JunoAmberLed else Color(0xFF9CA3AF),
-                    fontSize = 7.8.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(3.5.dp))
-                    .background(if (showKeyboard) Color(0xFF261A0B) else Color(0xFF161A24))
-                    .border(1.dp, if (showKeyboard) JunoOrange else Color(0xFF2D3446), RoundedCornerShape(3.5.dp))
-                    .clickable { onToggleKeyboard() }
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = "TECLADO",
-                    color = if (showKeyboard) JunoAmberLed else Color(0xFFD1D5DB),
-                    fontSize = 7.8.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = if (showKeyboard) "▴" else "▾",
-                    color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
-                    fontSize = 7.8.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            val bounds = android.graphics.Rect()
+            paint.getTextBounds(text, 0, text.length, bounds)
+            val x = (size.width / 2f) - bounds.exactCenterX()
+            val y = (size.height / 2f) - bounds.exactCenterY()
+            drawContext.canvas.nativeCanvas.drawText(text, x, y, paint)
         }
     }
 }
 
 /**
- * ULTRA-SLIM VOICING / PATCH BAR & INLINE EXPANDABLE TIMBRES BROWSER:
- * - Drastically reduced thickness
- * - Buttons matching Screenshot_20261103_003912_Chrome.jpg:
- *   [ < ] [ > ] [ 💾 Save ] [ 📥 XML ] [ 📤 Load ] [ ≡ PRESETS (56) ▾ ]
+ * VOICING / PATCH BAR & INLINE EXPANDABLE TIMBRES BROWSER:
+ * - Comfortable thickness with BANK, PATCH, and PRESET NAME titles above their respective indicators
+ * - Centered digits inside the BANK and PATCH LED boxes
+ * - Includes dedicated ARP and TECLADO toggle buttons directly inside the Voices/Preset section
  */
 @Composable
 private fun VoicingPresetBar(
@@ -2418,110 +2285,106 @@ private fun VoicingPresetBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF10131B), RoundedCornerShape(4.dp))
-            .border(1.dp, Color(0xFF23293A), RoundedCornerShape(4.dp))
+            .background(Color(0xFF10131B), RoundedCornerShape(5.dp))
+            .border(1.dp, Color(0xFF23293A), RoundedCornerShape(5.dp))
             .horizontalScroll(barScroll)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // LEFT: BANK + PATCH (with centered Red LED digits) + Voice Name
+        // LEFT: BANK + PATCH (with top titles & centered Red LED digits) + Divider + PRESET NAME (with top title & preset name)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
-                .background(Color(0xFF07090D), RoundedCornerShape(3.5.dp))
-                .border(1.dp, Color(0xFF1D2230), RoundedCornerShape(3.5.dp))
+                .background(Color(0xFF07090D), RoundedCornerShape(4.dp))
+                .border(1.dp, Color(0xFF1D2230), RoundedCornerShape(4.dp))
                 .clickable { onToggleTimbresExpanded() }
-                .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                .padding(horizontal = 10.dp, vertical = 5.dp)
         ) {
-            // BANK inline LED (Centered red number without font-padding vertical offset bug)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.5.dp)
+            // BANK Column (Title above + Centered Red LED box below)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     text = "BANK",
-                    color = Color(0xFF6B7280),
-                    fontSize = 7.sp,
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 6.8.sp,
+                    lineHeight = 7.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                 )
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(width = 16.dp, height = 16.dp)
-                        .background(Color(0xFF160205), RoundedCornerShape(2.5.dp))
-                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.5.dp))
-                ) {
-                    Text(
-                        text = if (preset.isUserPreset) "U" else bankNumber.toString(),
-                        color = Color(0xFFEF4444),
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Black,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.offset(y = (-0.5).dp)
-                    )
-                }
+                JunoRedLedDigitBox(
+                    text = if (preset.isUserPreset) "U" else bankNumber.toString()
+                )
             }
 
-            // PATCH inline LED (Centered red number without font-padding vertical offset bug)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.5.dp)
+            // PATCH Column (Title above + Centered Red LED box below)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     text = "PATCH",
-                    color = Color(0xFF6B7280),
-                    fontSize = 7.sp,
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 6.8.sp,
+                    lineHeight = 7.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                 )
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(width = 16.dp, height = 16.dp)
-                        .background(Color(0xFF160205), RoundedCornerShape(2.5.dp))
-                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.5.dp))
-                ) {
-                    Text(
-                        text = patchNumber.toString(),
-                        color = Color(0xFFEF4444),
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Black,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.offset(y = (-0.5).dp)
-                    )
-                }
+                JunoRedLedDigitBox(
+                    text = patchNumber.toString()
+                )
             }
 
-            // Thin Divider
+            // Vertical Divider
             Box(
                 modifier = Modifier
                     .width(1.dp)
-                    .height(14.dp)
+                    .height(30.dp)
                     .background(Color(0xFF202636))
             )
 
-            // Voice Name
-            Text(
-                text = displayVoiceName,
-                color = JunoAmberLed,
-                fontSize = 9.5.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(min = 115.dp, max = 190.dp)
-            )
+            // PRESET NAME Column (Title above + Preset Name below)
+            Column(
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.widthIn(min = 125.dp, max = 200.dp)
+            ) {
+                Text(
+                    text = "PRESET NAME",
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 6.8.sp,
+                    lineHeight = 7.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                )
+                Box(
+                    contentAlignment = Alignment.CenterStart,
+                    modifier = Modifier.height(22.dp)
+                ) {
+                    Text(
+                        text = displayVoiceName,
+                        color = JunoAmberLed,
+                        fontSize = 11.sp,
+                        lineHeight = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                    )
+                }
+            }
         }
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
 
-        // RIGHT: Action buttons matching Screenshot_20261103_003912_Chrome.jpg:
-        // [ < ] [ > ] [ 💾 Save ] [ 📥 XML ] [ 📤 Load ] [ ≡ PRESETS (56) ▾ ]
+        // RIGHT: Action buttons + Presets + ARP button + TECLADO button
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -2531,7 +2394,7 @@ private fun VoicingPresetBar(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(width = 28.dp, height = 24.dp)
+                        .size(width = 30.dp, height = 28.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(if (prevWaiting) Color(0xFF0A2236) else Color(0xFF161922))
                         .border(
@@ -2552,7 +2415,7 @@ private fun VoicingPresetBar(
                             }
                         }
                 ) {
-                    ChevronLeftIcon(modifier = Modifier.size(10.dp), color = Color(0xFFE5E7EB))
+                    ChevronLeftIcon(modifier = Modifier.size(11.dp), color = Color(0xFFE5E7EB))
                 }
 
                 MidiCcBalloonBadge(
@@ -2580,7 +2443,7 @@ private fun VoicingPresetBar(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(width = 28.dp, height = 24.dp)
+                        .size(width = 30.dp, height = 28.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(if (nextWaiting) Color(0xFF0A2236) else Color(0xFF161922))
                         .border(
@@ -2601,7 +2464,7 @@ private fun VoicingPresetBar(
                             }
                         }
                 ) {
-                    ChevronRightIcon(modifier = Modifier.size(10.dp), color = Color(0xFFE5E7EB))
+                    ChevronRightIcon(modifier = Modifier.size(11.dp), color = Color(0xFFE5E7EB))
                 }
 
                 MidiCcBalloonBadge(
@@ -2629,7 +2492,7 @@ private fun VoicingPresetBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.5.dp),
                 modifier = Modifier
-                    .height(24.dp)
+                    .height(28.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(Color(0xFF1B160E))
                     .border(1.dp, Color(0xFF3D2E14), RoundedCornerShape(4.dp))
@@ -2640,7 +2503,7 @@ private fun VoicingPresetBar(
                 Text(
                     text = "Save",
                     color = Color(0xFFFBBF24),
-                    fontSize = 8.sp,
+                    fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
@@ -2651,7 +2514,7 @@ private fun VoicingPresetBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.5.dp),
                 modifier = Modifier
-                    .height(24.dp)
+                    .height(28.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(Color(0xFF0D1E18))
                     .border(1.dp, Color(0xFF1B3D30), RoundedCornerShape(4.dp))
@@ -2662,7 +2525,7 @@ private fun VoicingPresetBar(
                 Text(
                     text = "XML",
                     color = Color(0xFFE5E7EB),
-                    fontSize = 8.sp,
+                    fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
@@ -2673,7 +2536,7 @@ private fun VoicingPresetBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.5.dp),
                 modifier = Modifier
-                    .height(24.dp)
+                    .height(28.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(Color(0xFF0D1B29))
                     .border(1.dp, Color(0xFF1B334D), RoundedCornerShape(4.dp))
@@ -2684,7 +2547,7 @@ private fun VoicingPresetBar(
                 Text(
                     text = "Load",
                     color = Color(0xFFE5E7EB),
-                    fontSize = 8.sp,
+                    fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
@@ -2695,7 +2558,7 @@ private fun VoicingPresetBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.5.dp),
                 modifier = Modifier
-                    .height(24.dp)
+                    .height(28.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(if (isTimbresExpanded) Color(0xFF33240D) else Color(0xFF241B0D))
                     .border(
@@ -2710,7 +2573,7 @@ private fun VoicingPresetBar(
                 Text(
                     text = "PRESETS (${allPresets.size})",
                     color = Color(0xFFFBBF24),
-                    fontSize = 8.sp,
+                    fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.ExtraBold
                 )
@@ -2726,7 +2589,87 @@ private fun VoicingPresetBar(
                 Text(
                     text = if (isTimbresExpanded) "▴" else "▾",
                     color = Color(0xFFFBBF24),
-                    fontSize = 8.sp,
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // [ ARP ▾ ] Button to expand/collapse the ARP section directly from Voices/Presets bar
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .height(28.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        when {
+                            arpEnabled -> Color(0xFF33240D)
+                            isArpExpanded -> Color(0xFF231D12)
+                            else -> Color(0xFF161A24)
+                        }
+                    )
+                    .border(
+                        1.dp,
+                        when {
+                            arpEnabled -> JunoAmberLed
+                            isArpExpanded -> Color(0xFFF59E0B)
+                            else -> Color(0xFF2D3446)
+                        },
+                        RoundedCornerShape(4.dp)
+                    )
+                    .clickable { onToggleArpExpanded() }
+                    .padding(horizontal = 9.dp)
+            ) {
+                if (arpEnabled) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(JunoAmberLed)
+                    )
+                }
+                Text(
+                    text = "ARP",
+                    color = if (arpEnabled || isArpExpanded) JunoAmberLed else Color(0xFFD1D5DB),
+                    fontSize = 8.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = if (isArpExpanded) "▴" else "▾",
+                    color = if (arpEnabled || isArpExpanded) JunoAmberLed else Color(0xFF9CA3AF),
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // [ TECLADO ▾ ] Button to expand/collapse the Keyboard section directly from Voices/Presets bar
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .height(28.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (showKeyboard) Color(0xFF261A0B) else Color(0xFF161A24))
+                    .border(
+                        1.dp,
+                        if (showKeyboard) JunoOrange else Color(0xFF2D3446),
+                        RoundedCornerShape(4.dp)
+                    )
+                    .clickable { onToggleKeyboard() }
+                    .padding(horizontal = 9.dp)
+            ) {
+                Text(
+                    text = "TECLADO",
+                    color = if (showKeyboard) JunoAmberLed else Color(0xFFD1D5DB),
+                    fontSize = 8.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = if (showKeyboard) "▴" else "▾",
+                    color = if (showKeyboard) JunoAmberLed else Color(0xFF9CA3AF),
+                    fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -3196,7 +3139,7 @@ private fun SynthModuleCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .width(IntrinsicSize.Max)
-            .height(205.dp)
+            .height(224.dp)
             .clip(RoundedCornerShape(5.dp))
             .background(Color(0xFF0B0D13))
             .border(1.dp, Color(0xFF1F2533), RoundedCornerShape(5.dp))
@@ -3271,18 +3214,18 @@ private fun SynthModuleCard(
                 .background(accentColor.copy(alpha = 0.35f))
         )
 
-        // 3. Main Controls Area (Occupies 50% more vertical space with 3.5.dp vertical padding)
+        // 3. Main Controls Area (Comfortable vertical breathing room separating faders from header and footer)
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 3.5.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             contentAlignment = Alignment.Center
         ) {
             content()
         }
 
-        // 4. Ultra-Slim Full-Width Centered Footer Bar (or MAN TRIG) + Bottom Colored Bar
+        // 4. Ultra-Slim Full-Width Centered Footer Bar + Bottom Colored Bar
         if (bottomBar != null) {
             Box(
                 modifier = Modifier
@@ -3331,12 +3274,9 @@ private fun SynthModuleCard(
 }
 
 /**
- * Sleek Desktop-Grade Vertical Juno-60 Fader (`44.dp` wide):
+ * Sleek Desktop-Grade Vertical Juno-60 Fader (`42.dp` wide):
+ * - Comfortable vertical spacing away from both the header and the footer
  * - Fixed geometry: turning MIDI Learn ON/OFF or selecting a fader NEVER alters fader height or position!
- * - Luminous cyan halo/aura (`Color(0xFF38BDF8)`) when selected for MIDI Learn
- * - Floating truly-rounded blue cartridge (`MidiCcBalloonBadge`) overlaid at the top edge ONLY when mapped or selected
- * - Authentic `100`, `50`, `0` scale markings on the left and 3 tick lines on the right
- * - Smaller digital readout box at bottom to give the fader track even more vertical travel
  */
 @Composable
 private fun JunoParamFader(
@@ -3346,6 +3286,7 @@ private fun JunoParamFader(
     midiManager: MidiControllerManager,
     uiRevision: Int,
     heightFraction: Float = 0.88f,
+    faderHeight: Dp = 146.dp,
     onValueChange: (Float) -> Unit,
     onNotifyUiChanged: () -> Unit
 ) {
@@ -3359,7 +3300,7 @@ private fun JunoParamFader(
         contentAlignment = Alignment.TopCenter,
         modifier = Modifier
             .width(42.dp)
-            .height(152.dp)
+            .height(faderHeight)
     ) {
         // Fixed-dimension Fader Body (Never shifts when MIDI Learn toggles!)
         Column(
@@ -3810,6 +3751,118 @@ private fun JunoParamSwitchWithBadge(
         }
 
         // Floating Rounded MIDI Cartridge Overlay over the switch graphical area (Zero layout shift!)
+        MidiCcBalloonBadge(
+            mappedCC = mappedCC,
+            mappedChannel = mappedCh,
+            isLearnMode = isLearnMode,
+            isWaitingCC = isWaiting,
+            onSelectForLearn = {
+                midiManager.learningTargetKey = param.key
+                onNotifyUiChanged()
+            },
+            onClearMapping = {
+                midiManager.clearMappingForParam(param.key)
+                onNotifyUiChanged()
+            },
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(30f)
+        )
+    }
+}
+
+/**
+ * 2-Position Switch (OFF / ON) styled identically to SelectorGroupBox,
+ * placed outside the header at the top-left (right below the header and right above the fader)
+ * for Echo Delay and Reverb while preserving their section accent color.
+ */
+@Composable
+private fun JunoTopLeftPowerSwitch(
+    param: SynthParam,
+    active: Boolean,
+    activeColor: Color,
+    midiManager: MidiControllerManager,
+    uiRevision: Int,
+    onSelectActive: (Boolean) -> Unit,
+    onNotifyUiChanged: () -> Unit
+) {
+    val revIgnore = uiRevision
+    val mappedCC = remember(revIgnore, param) { midiManager.getMappedCC(param.key) }
+    val mappedCh = remember(revIgnore, param) { midiManager.getMappedChannel(param.key) }
+    val isLearnMode = midiManager.isMidiLearnActive
+    val isWaiting = isLearnMode && midiManager.learningTargetKey == param.key
+
+    Box(contentAlignment = Alignment.Center) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier
+                .background(
+                    if (isWaiting) Color(0xFF0A2236) else Color(0xFF0D1017),
+                    RoundedCornerShape(3.5.dp)
+                )
+                .border(
+                    width = if (isWaiting) 1.5.dp else 1.dp,
+                    color = when {
+                        isWaiting -> Color(0xFF38BDF8)
+                        isLearnMode -> Color(0xFF0369A1)
+                        else -> Color(0xFF1D2434)
+                    },
+                    shape = RoundedCornerShape(3.5.dp)
+                )
+                .clickable(enabled = isLearnMode) {
+                    midiManager.learningTargetKey = param.key
+                    onNotifyUiChanged()
+                }
+                .padding(horizontal = 2.5.dp, vertical = 2.dp)
+        ) {
+            val options = listOf("OFF" to false, "ON" to true)
+            for ((label, isOnOpt) in options) {
+                val isSel = active == isOnOpt
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .width(26.dp)
+                        .height(13.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(
+                            when {
+                                isSel && isOnOpt -> activeColor
+                                isSel && !isOnOpt -> Color(0xFF262D3D)
+                                else -> Color(0xFF171B26)
+                            }
+                        )
+                        .border(
+                            0.8.dp,
+                            when {
+                                isSel && isOnOpt -> Color.White.copy(alpha = 0.85f)
+                                isSel && !isOnOpt -> Color(0xFF4B5563)
+                                else -> Color(0xFF282F40)
+                            },
+                            RoundedCornerShape(2.dp)
+                        )
+                        .clickable {
+                            if (isLearnMode) {
+                                midiManager.learningTargetKey = param.key
+                                onNotifyUiChanged()
+                            } else {
+                                onSelectActive(isOnOpt)
+                            }
+                        }
+                ) {
+                    Text(
+                        text = label,
+                        color = if (isSel) Color.White else Color(0xFF9CA3AF),
+                        fontSize = 6.5.sp,
+                        lineHeight = 6.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                    )
+                }
+            }
+        }
+
         MidiCcBalloonBadge(
             mappedCC = mappedCC,
             mappedChannel = mappedCh,

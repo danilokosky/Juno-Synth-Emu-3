@@ -13,6 +13,8 @@ interface ToggleSwitchProps {
   onChange: (val: number) => void;
   className?: string;
   orientation?: 'vertical' | 'horizontal';
+  activeColorClass?: string;
+  hideLabel?: boolean;
 
   // MIDI Learn Integration
   isMidiLearnActive?: boolean;
@@ -30,6 +32,8 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   onChange,
   className = '',
   orientation = 'vertical',
+  activeColorClass = 'bg-amber-500 text-black shadow font-black border border-amber-400',
+  hideLabel = false,
   isMidiLearnActive = false,
   isSelectedForLearn = false,
   mappedCC = null,
@@ -68,9 +72,11 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         positionClass="bottom-[calc(100%-4px)] left-1/2 -translate-x-1/2"
       />
 
-      <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider mb-0.5 truncate max-w-[50px]">
-        {label}
-      </span>
+      {!hideLabel && (
+        <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider mb-0.5 truncate max-w-[50px]">
+          {label}
+        </span>
+      )}
 
       <div
         className={`flex ${
@@ -93,7 +99,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
               }}
               className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded transition-all duration-75 cursor-pointer ${
                 isSelected
-                  ? 'bg-amber-500 text-black shadow font-black border border-amber-400'
+                  ? activeColorClass
                   : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
               }`}
             >
