@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -88,7 +90,9 @@ class MainActivity : ComponentActivity() {
         // Start Native C++ AAudio Engine
         NativeSynthBridge.initEngine()
         for ((p, v) in paramStateMap) {
-            NativeSynthBridge.setParameter(p.id, v)
+            if (p.id in 0..36) {
+                NativeSynthBridge.setParameter(p.id, v)
+            }
         }
 
         // Start Native Android Hardware MIDI Manager
@@ -107,7 +111,9 @@ class MainActivity : ComponentActivity() {
             },
             onParamChanged = { param, value ->
                 paramStateMap[param] = value
-                NativeSynthBridge.setParameter(param.id, value)
+                if (param.id in 0..36) {
+                    NativeSynthBridge.setParameter(param.id, value)
+                }
             },
             onProfileUpdated = {
                 uiRevision++
@@ -126,7 +132,9 @@ class MainActivity : ComponentActivity() {
                         onNotifyUiChanged = { uiRevision++ },
                         onUpdateParam = { param, value ->
                             paramStateMap[param] = value
-                            NativeSynthBridge.setParameter(param.id, value)
+                            if (param.id in 0..36) {
+                                NativeSynthBridge.setParameter(param.id, value)
+                            }
                         },
                         onTriggerNoteOn = { note, vel ->
                             if (!activeNotesState.contains(note)) activeNotesState.add(note)
@@ -286,6 +294,18 @@ fun HeraJunoNativeScreen(
                 continue
             }
             onUpdateParam(p, v)
+        }
+    }
+
+    // Bind MIDI Program Change & Preset Prev/Next Arrow triggers to applyPreset
+    SideEffect {
+        midiManager.onPresetStep = { delta ->
+            applyPreset(currentPresetIndex + delta)
+        }
+        midiManager.onProgramChange = { prgNum ->
+            if (allPresets.isNotEmpty()) {
+                applyPreset(prgNum.coerceAtLeast(0) % allPresets.size)
+            }
         }
     }
 
@@ -898,54 +918,69 @@ fun HeraJunoNativeScreen(
                 }
             }
 
-            // END OF FIRST SCREEN VIEWPORT (Header + Synth Fader Rack fill 100% of first screen!)
-            }
+                    // 2B. Signature Roland Juno-60 5-Color Metallic Accent Stripe
+                    JunoRainbowSeparator()
 
-            // 2B. Signature Roland Juno-60 5-Color Metallic Accent Stripe (Separating Synth Rack & Below-the-Fold Keyboard/Voicing Section)
-            JunoRainbowSeparator()
-
-            // 3. BELOW-THE-FOLD KEYBOARD & PERFORMANCE SECTION (Appears when scrolling down: Slim Voicing Bar + Inline Timbres + Arpeggiator + Piano Keyboard)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF090B10))
-                    .border(1.dp, Color(0xFF1A202E))
-                    .padding(horizontal = 6.dp, vertical = 3.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                // 3A. ULTRA-SLIM VOICING / PATCH BAR + INLINE EXPANDABLE TIMBRES BROWSER (No pop-up!)
-                VoicingPresetBar(
-                    presetIndex = currentPresetIndex,
-                    preset = currentPreset,
-                    allPresets = allPresets,
-                    userPresetCount = userPresets.size,
-                    isTimbresExpanded = showPresetsDialog,
-                    onPrevPreset = { applyPreset(currentPresetIndex - 1) },
-                    onNextPreset = { applyPreset(currentPresetIndex + 1) },
-                    onToggleTimbresExpanded = { showPresetsDialog = !showPresetsDialog },
-                    onSelectPreset = { idx ->
-                        applyPreset(idx)
-                    },
-                    onDeleteUserPreset = { presetToDelete ->
-                        userPresets = PresetRepository.deleteUserPreset(context, presetToDelete.name)
-                        val newAll = PresetRepository.FACTORY_PRESETS + userPresets
-                        if (currentPresetIndex >= newAll.size) {
-                            currentPresetIndex = 0
-                        }
-                        Toast.makeText(context, "Timbre removido: ${presetToDelete.name}", Toast.LENGTH_SHORT).show()
-                    },
-                    onSaveUserPreset = { showSavePresetDialog = true },
-                    onExportPreset = {
-                        val safeName = currentPreset.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-                        exportPresetLauncher.launch("$safeName.xml")
-                    },
-                    onImportPreset = {
-                        importPresetLauncher.launch(arrayOf("*/*"))
+                    // 2C. FIRST PART OF PRESETS SECTION INCLUDED ON FIRST SCREEN (Slightly reduces synth rack height above so Preset Bar is always visible on main screen!)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF090B10))
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                    ) {
+                        VoicingPresetBar(
+                            presetIndex = currentPresetIndex,
+                            preset = currentPreset,
+                            allPresets = allPresets,
+                            userPresetCount = userPresets.size,
+                            isTimbresExpanded = showPresetsDialog,
+                            midiManager = midiManager,
+                            uiRevision = rev,
+                            onNotifyUiChanged = onNotifyUiChanged,
+                            onPrevPreset = { applyPreset(currentPresetIndex - 1) },
+                            onNextPreset = { applyPreset(currentPresetIndex + 1) },
+                            onToggleTimbresExpanded = { showPresetsDialog = !showPresetsDialog },
+                            onSaveUserPreset = { showSavePresetDialog = true },
+                            onExportPreset = {
+                                val safeName = currentPreset.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                                exportPresetLauncher.launch("$safeName.xml")
+                            },
+                            onImportPreset = {
+                                importPresetLauncher.launch(arrayOf("*/*"))
+                            }
+                        )
                     }
-                )
+                // END OF FIRST SCREEN VIEWPORT (Header + Synth Fader Rack + Preset Bar fill 100% of first screen!)
+                }
 
-                // 3B. ARPEGGIATOR BAR (Inside Keyboard Section)
-                ArpeggiatorKeyboardBar(
+                // 3. BELOW-THE-FOLD SECTION (Appears when scrolling down: Expanded Timbres Browser + Arpeggiator + Piano Keyboard)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF090B10))
+                        .border(1.dp, Color(0xFF1A202E))
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (showPresetsDialog) {
+                        VoicingTimbresInlineBrowser(
+                            presetIndex = currentPresetIndex,
+                            allPresets = allPresets,
+                            userPresetCount = userPresets.size,
+                            onSelectPreset = { idx -> applyPreset(idx) },
+                            onDeleteUserPreset = { presetToDelete ->
+                                userPresets = PresetRepository.deleteUserPreset(context, presetToDelete.name)
+                                val newAll = PresetRepository.FACTORY_PRESETS + userPresets
+                                if (currentPresetIndex >= newAll.size) {
+                                    currentPresetIndex = 0
+                                }
+                                Toast.makeText(context, "Timbre removido: ${presetToDelete.name}", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+
+                    // 3B. ARPEGGIATOR BAR (Visible when scrolling down)
+                    ArpeggiatorKeyboardBar(
                     arpEnabled = arpEnabled,
                     onToggleArp = {
                         arpEnabled = !arpEnabled
@@ -1931,18 +1966,29 @@ private fun VoicingPresetBar(
     allPresets: List<HeraPreset>,
     userPresetCount: Int,
     isTimbresExpanded: Boolean,
+    midiManager: MidiControllerManager,
+    uiRevision: Int,
+    onNotifyUiChanged: () -> Unit,
     onPrevPreset: () -> Unit,
     onNextPreset: () -> Unit,
     onToggleTimbresExpanded: () -> Unit,
-    onSelectPreset: (Int) -> Unit,
-    onDeleteUserPreset: (HeraPreset) -> Unit,
     onSaveUserPreset: () -> Unit,
     onExportPreset: () -> Unit,
     onImportPreset: () -> Unit
 ) {
+    val revIgnore = uiRevision
     val bankNumber = (presetIndex / 7) + 1
     val patchNumber = (presetIndex % 7) + 1
     val barScroll = rememberScrollState()
+    val isLearnMode = midiManager.isMidiLearnActive
+
+    val prevMappedCC = remember(revIgnore) { midiManager.getMappedCC(SynthParam.PresetPrev.key) }
+    val prevMappedCh = remember(revIgnore) { midiManager.getMappedChannel(SynthParam.PresetPrev.key) }
+    val prevWaiting = isLearnMode && midiManager.learningTargetKey == SynthParam.PresetPrev.key
+
+    val nextMappedCC = remember(revIgnore) { midiManager.getMappedCC(SynthParam.PresetNext.key) }
+    val nextMappedCh = remember(revIgnore) { midiManager.getMappedChannel(SynthParam.PresetNext.key) }
+    val nextWaiting = isLearnMode && midiManager.learningTargetKey == SynthParam.PresetNext.key
 
     val displayVoiceName = remember(preset, presetIndex) {
         val trimmed = preset.name.trim()
@@ -1953,402 +1999,502 @@ private fun VoicingPresetBar(
         }
     }
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFF10131B), RoundedCornerShape(4.dp))
             .border(1.dp, Color(0xFF23293A), RoundedCornerShape(4.dp))
+            .horizontalScroll(barScroll)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Slim Single-Line Voicing & Patch Header Row
+        // LEFT: BANK + PATCH (with centered Red LED digits) + Voice Name
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(barScroll)
-                .padding(horizontal = 5.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .background(Color(0xFF07090D), RoundedCornerShape(3.5.dp))
+                .border(1.dp, Color(0xFF1D2230), RoundedCornerShape(3.5.dp))
+                .clickable { onToggleTimbresExpanded() }
+                .padding(horizontal = 7.dp, vertical = 2.5.dp)
         ) {
-            // LEFT: Ultra-slim BANK + PATCH + Voice Name
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                modifier = Modifier
-                    .background(Color(0xFF07090D), RoundedCornerShape(3.dp))
-                    .border(1.dp, Color(0xFF1D2230), RoundedCornerShape(3.dp))
-                    .clickable { onToggleTimbresExpanded() }
-                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
-            ) {
-                // BANK inline LED
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
-                ) {
-                    Text(
-                        text = "BANK",
-                        color = Color(0xFF6B7280),
-                        fontSize = 6.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(width = 16.dp, height = 15.dp)
-                            .background(Color(0xFF160205), RoundedCornerShape(2.dp))
-                            .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.dp))
-                    ) {
-                        Text(
-                            text = if (preset.isUserPreset) "U" else bankNumber.toString(),
-                            color = Color(0xFFEF4444),
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                }
-
-                // PATCH inline LED
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
-                ) {
-                    Text(
-                        text = "PATCH",
-                        color = Color(0xFF6B7280),
-                        fontSize = 6.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(width = 16.dp, height = 15.dp)
-                            .background(Color(0xFF160205), RoundedCornerShape(2.dp))
-                            .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.dp))
-                    ) {
-                        Text(
-                            text = patchNumber.toString(),
-                            color = Color(0xFFEF4444),
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                }
-
-                // Thin Divider
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(13.dp)
-                        .background(Color(0xFF202636))
-                )
-
-                // Voice Name only (No "VOICING" or "FACTORY" label!)
-                Text(
-                    text = displayVoiceName,
-                    color = JunoAmberLed,
-                    fontSize = 9.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(min = 110.dp, max = 185.dp)
-                )
-            }
-
-            Spacer(Modifier.width(6.dp))
-
-            // RIGHT: Slim Navigation & Save / ↓ Download / ↑ Upload / Timbres Buttons
+            // BANK inline LED (Centered red number without font-padding vertical offset bug)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(3.5.dp)
             ) {
-                // Prev Timbre
+                Text(
+                    text = "BANK",
+                    color = Color(0xFF6B7280),
+                    fontSize = 7.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(Color(0xFF181C28))
-                        .border(1.dp, Color(0xFF2D3548), RoundedCornerShape(3.dp))
-                        .clickable { onPrevPreset() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text("◀", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold)
-                }
-
-                // Next Timbre
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(Color(0xFF181C28))
-                        .border(1.dp, Color(0xFF2D3548), RoundedCornerShape(3.dp))
-                        .clickable { onNextPreset() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text("▶", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold)
-                }
-
-                // SALVAR
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(Color(0xFF21190D))
-                        .border(1.dp, JunoAmberLed, RoundedCornerShape(3.dp))
-                        .clickable { onSaveUserPreset() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .size(width = 18.dp, height = 18.dp)
+                        .background(Color(0xFF160205), RoundedCornerShape(2.5.dp))
+                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.5.dp))
                 ) {
                     Text(
-                        text = "SALVAR",
-                        color = JunoAmberLed,
-                        fontSize = 7.5.sp,
+                        text = if (preset.isUserPreset) "U" else bankNumber.toString(),
+                        color = Color(0xFFEF4444),
+                        fontSize = 10.sp,
+                        lineHeight = 10.sp,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                    )
+                }
+            }
+
+            // PATCH inline LED (Centered red number without font-padding vertical offset bug)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.5.dp)
+            ) {
+                Text(
+                    text = "PATCH",
+                    color = Color(0xFF6B7280),
+                    fontSize = 7.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(width = 18.dp, height = 18.dp)
+                        .background(Color(0xFF160205), RoundedCornerShape(2.5.dp))
+                        .border(1.dp, Color(0xFF450A0A), RoundedCornerShape(2.5.dp))
+                ) {
+                    Text(
+                        text = patchNumber.toString(),
+                        color = Color(0xFFEF4444),
+                        fontSize = 10.sp,
+                        lineHeight = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                    )
+                }
+            }
+
+            // Thin Divider
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(14.dp)
+                    .background(Color(0xFF202636))
+            )
+
+            // Voice Name
+            Text(
+                text = displayVoiceName,
+                color = JunoAmberLed,
+                fontSize = 9.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(min = 115.dp, max = 190.dp)
+            )
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        // RIGHT: Wider, More Spaced Navigation Arrows (Responding to MIDI Program Change) & Preset Action Options
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Prev Timbre Arrow (Wider & comfortable + MIDI Program Change mapping support)
+            Box(contentAlignment = Alignment.Center) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .width(34.dp)
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(3.5.dp))
+                        .background(if (prevWaiting) Color(0xFF0A2236) else Color(0xFF181C28))
+                        .border(
+                            width = if (prevWaiting) 1.5.dp else 1.dp,
+                            color = when {
+                                prevWaiting -> Color(0xFF38BDF8)
+                                isLearnMode -> Color(0xFF0369A1)
+                                else -> Color(0xFF2D3548)
+                            },
+                            shape = RoundedCornerShape(3.5.dp)
+                        )
+                        .clickable {
+                            if (isLearnMode) {
+                                midiManager.learningTargetKey = SynthParam.PresetPrev.key
+                                onNotifyUiChanged()
+                            } else {
+                                onPrevPreset()
+                            }
+                        }
+                ) {
+                    Text(
+                        text = "◀",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        lineHeight = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                     )
                 }
 
-                // ↓ DOWNLOAD (without "XML")
+                MidiCcBalloonBadge(
+                    mappedCC = prevMappedCC,
+                    mappedChannel = prevMappedCh,
+                    isLearnMode = isLearnMode,
+                    isWaitingCC = prevWaiting,
+                    preferProgramChangeLabel = true,
+                    onSelectForLearn = {
+                        midiManager.learningTargetKey = SynthParam.PresetPrev.key
+                        onNotifyUiChanged()
+                    },
+                    onClearMapping = {
+                        midiManager.clearMappingForParam(SynthParam.PresetPrev.key)
+                        onNotifyUiChanged()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .zIndex(30f)
+                )
+            }
+
+            // Next Timbre Arrow (Wider & comfortable + MIDI Program Change mapping support)
+            Box(contentAlignment = Alignment.Center) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(Color(0xFF0D1E18))
-                        .border(1.dp, JunoGreenReady, RoundedCornerShape(3.dp))
-                        .clickable { onExportPreset() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .width(34.dp)
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(3.5.dp))
+                        .background(if (nextWaiting) Color(0xFF0A2236) else Color(0xFF181C28))
+                        .border(
+                            width = if (nextWaiting) 1.5.dp else 1.dp,
+                            color = when {
+                                nextWaiting -> Color(0xFF38BDF8)
+                                isLearnMode -> Color(0xFF0369A1)
+                                else -> Color(0xFF2D3548)
+                            },
+                            shape = RoundedCornerShape(3.5.dp)
+                        )
+                        .clickable {
+                            if (isLearnMode) {
+                                midiManager.learningTargetKey = SynthParam.PresetNext.key
+                                onNotifyUiChanged()
+                            } else {
+                                onNextPreset()
+                            }
+                        }
                 ) {
                     Text(
-                        text = "↓ DOWNLOAD",
-                        color = Color(0xFF6EE7B7),
-                        fontSize = 7.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold
+                        text = "▶",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        lineHeight = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                     )
                 }
 
-                // ↑ UPLOAD (without "XML")
+                MidiCcBalloonBadge(
+                    mappedCC = nextMappedCC,
+                    mappedChannel = nextMappedCh,
+                    isLearnMode = isLearnMode,
+                    isWaitingCC = nextWaiting,
+                    preferProgramChangeLabel = true,
+                    onSelectForLearn = {
+                        midiManager.learningTargetKey = SynthParam.PresetNext.key
+                        onNotifyUiChanged()
+                    },
+                    onClearMapping = {
+                        midiManager.clearMappingForParam(SynthParam.PresetNext.key)
+                        onNotifyUiChanged()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .zIndex(30f)
+                )
+            }
+
+            // SALVAR
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(Color(0xFF21190D))
+                    .border(1.dp, JunoAmberLed, RoundedCornerShape(3.5.dp))
+                    .clickable { onSaveUserPreset() }
+                    .padding(horizontal = 9.dp)
+            ) {
+                Text(
+                    text = "SALVAR",
+                    color = JunoAmberLed,
+                    fontSize = 7.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            // ↓ DOWNLOAD
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(Color(0xFF0D1E18))
+                    .border(1.dp, JunoGreenReady, RoundedCornerShape(3.5.dp))
+                    .clickable { onExportPreset() }
+                    .padding(horizontal = 9.dp)
+            ) {
+                Text(
+                    text = "↓ DOWNLOAD",
+                    color = Color(0xFF6EE7B7),
+                    fontSize = 7.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            // ↑ UPLOAD
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(Color(0xFF0D1B29))
+                    .border(1.dp, JunoCyanLearn, RoundedCornerShape(3.5.dp))
+                    .clickable { onImportPreset() }
+                    .padding(horizontal = 9.dp)
+            ) {
+                Text(
+                    text = "↑ UPLOAD",
+                    color = Color(0xFF7DD3FC),
+                    fontSize = 7.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            // TIMBRES Inline Expand Button
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(if (isTimbresExpanded) Color(0xFF33240D) else Color(0xFF241B0D))
+                    .border(
+                        1.dp,
+                        if (isTimbresExpanded) Color(0xFFFDE68A) else Color(0xFFF59E0B),
+                        RoundedCornerShape(3.5.dp)
+                    )
+                    .clickable { onToggleTimbresExpanded() }
+                    .padding(horizontal = 9.dp)
+            ) {
+                Text(
+                    text = "TIMBRES (${allPresets.size})",
+                    color = Color(0xFFFBBF24),
+                    fontSize = 7.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                if (userPresetCount > 0) {
+                    Text(
+                        text = "+$userPresetCount",
+                        color = JunoCyanLearn,
+                        fontSize = 7.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = if (isTimbresExpanded) "▴" else "▾",
+                    color = Color(0xFFFBBF24),
+                    fontSize = 7.8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoicingTimbresInlineBrowser(
+    presetIndex: Int,
+    allPresets: List<HeraPreset>,
+    userPresetCount: Int,
+    onSelectPreset: (Int) -> Unit,
+    onDeleteUserPreset: (HeraPreset) -> Unit
+) {
+    var selectedBankFilter by remember { mutableIntStateOf(0) } // 0 = TODOS EM ORDEM, 1..8 = BANK 1..8, 99 = USER
+    val bankTabsScroll = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF0A0D14), RoundedCornerShape(4.dp))
+            .border(1.dp, Color(0xFF242B3D), RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 5.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Top Bank Selector Bar (All Banks in Order: TODOS, BANK 1 .. BANK 8, USER)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(bankTabsScroll),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            val totalFactoryBanks = ((PresetRepository.FACTORY_PRESETS.size + 6) / 7).coerceAtLeast(1)
+            val bankOptions = buildList {
+                add(0 to "TODOS (${allPresets.size})")
+                for (b in 1..totalFactoryBanks) {
+                    add(b to "BANK $b")
+                }
+                if (userPresetCount > 0) {
+                    add(99 to "USER ($userPresetCount)")
+                }
+            }
+
+            for ((bankId, label) in bankOptions) {
+                val isSel = selectedBankFilter == bankId
                 Box(
-                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .clip(RoundedCornerShape(3.dp))
-                        .background(Color(0xFF0D1B29))
-                        .border(1.dp, JunoCyanLearn, RoundedCornerShape(3.dp))
-                        .clickable { onImportPreset() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "↑ UPLOAD",
-                        color = Color(0xFF7DD3FC),
-                        fontSize = 7.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-
-                // TIMBRES Inline Expand Button (Expands downwards instead of opening a pop-up!)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.5.dp),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(if (isTimbresExpanded) Color(0xFF33240D) else Color(0xFF241B0D))
+                        .background(if (isSel) JunoAmberLed else Color(0xFF151924))
                         .border(
                             1.dp,
-                            if (isTimbresExpanded) Color(0xFFFDE68A) else Color(0xFFF59E0B),
+                            if (isSel) Color(0xFFFDE68A) else Color(0xFF262E40),
                             RoundedCornerShape(3.dp)
                         )
-                        .clickable { onToggleTimbresExpanded() }
+                        .clickable { selectedBankFilter = bankId }
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "TIMBRES (${allPresets.size})",
-                        color = Color(0xFFFBBF24),
+                        text = label,
+                        color = if (isSel) Color.Black else Color(0xFFD1D5DB),
                         fontSize = 7.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold
-                    )
-                    if (userPresetCount > 0) {
-                        Text(
-                            text = "+$userPresetCount",
-                            color = JunoCyanLearn,
-                            fontSize = 7.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Text(
-                        text = if (isTimbresExpanded) "▴" else "▾",
-                        color = Color(0xFFFBBF24),
-                        fontSize = 7.5.sp,
-                        fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
 
-        // INLINE DOWNWARD EXPANSION FOR TIMBRES (All Banks & Patches in Order, No Pop-up!)
-        if (isTimbresExpanded) {
-            var selectedBankFilter by remember { mutableIntStateOf(0) } // 0 = TODOS EM ORDEM, 1..8 = BANK 1..8, 9 = USER
-            val bankTabsScroll = rememberScrollState()
+        // Ordered Grid/List of Banks and Patches (4 columns per row for clean desktop browser look)
+        val filteredIndices = remember(allPresets, selectedBankFilter) {
+            allPresets.indices.filter { idx ->
+                val p = allPresets[idx]
+                val bNum = (idx / 7) + 1
+                when (selectedBankFilter) {
+                    0 -> true
+                    99 -> p.isUserPreset
+                    else -> !p.isUserPreset && bNum == selectedBankFilter
+                }
+            }
+        }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF0A0D14))
-                    .border(1.dp, Color(0xFF242B3D))
-                    .padding(horizontal = 6.dp, vertical = 5.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                // Top Bank Selector Bar (All Banks in Order: TODOS, BANK 1 .. BANK 8, USER)
+        val rows = filteredIndices.chunked(4)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            for (rowIndices in rows) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(bankTabsScroll),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    val totalFactoryBanks = ((PresetRepository.FACTORY_PRESETS.size + 6) / 7).coerceAtLeast(1)
-                    val bankOptions = buildList {
-                        add(0 to "TODOS (${allPresets.size})")
-                        for (b in 1..totalFactoryBanks) {
-                            add(b to "BANK $b")
+                    for (idx in rowIndices) {
+                        val p = allPresets[idx]
+                        val isCurrent = idx == presetIndex
+                        val bNum = (idx / 7) + 1
+                        val pNum = (idx % 7) + 1
+                        val patchCode = if (p.isUserPreset) "U-$pNum" else "$bNum-$pNum"
+                        val itemName = p.name.trim().ifEmpty {
+                            "Factory #${(idx + 1).toString().padStart(2, '0')}"
                         }
-                        if (userPresetCount > 0) {
-                            add(99 to "USER ($userPresetCount)")
-                        }
-                    }
 
-                    for ((bankId, label) in bankOptions) {
-                        val isSel = selectedBankFilter == bankId
-                        Box(
+                        Row(
                             modifier = Modifier
+                                .weight(1f)
                                 .clip(RoundedCornerShape(3.dp))
-                                .background(if (isSel) JunoAmberLed else Color(0xFF151924))
+                                .background(if (isCurrent) Color(0xFF2B2112) else Color(0xFF131722))
                                 .border(
                                     1.dp,
-                                    if (isSel) Color(0xFFFDE68A) else Color(0xFF262E40),
+                                    if (isCurrent) JunoAmberLed else Color(0xFF22293A),
                                     RoundedCornerShape(3.dp)
                                 )
-                                .clickable { selectedBankFilter = bankId }
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .clickable { onSelectPreset(idx) }
+                                .padding(horizontal = 5.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                text = label,
-                                color = if (isSel) Color.Black else Color(0xFFD1D5DB),
-                                fontSize = 7.5.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                    }
-                }
-
-                // Ordered Grid/List of Banks and Patches (4 columns per row for clean desktop browser look)
-                val filteredIndices = remember(allPresets, selectedBankFilter) {
-                    allPresets.indices.filter { idx ->
-                        val p = allPresets[idx]
-                        val bNum = (idx / 7) + 1
-                        when (selectedBankFilter) {
-                            0 -> true
-                            99 -> p.isUserPreset
-                            else -> !p.isUserPreset && bNum == selectedBankFilter
-                        }
-                    }
-                }
-
-                val rows = filteredIndices.chunked(4)
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    for (rowIndices in rows) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            for (idx in rowIndices) {
-                                val p = allPresets[idx]
-                                val isCurrent = idx == presetIndex
-                                val bNum = (idx / 7) + 1
-                                val pNum = (idx % 7) + 1
-                                val patchCode = if (p.isUserPreset) "U-$pNum" else "$bNum-$pNum"
-                                val itemName = p.name.trim().ifEmpty {
-                                    "Factory #${(idx + 1).toString().padStart(2, '0')}"
-                                }
-
-                                Row(
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(if (isCurrent) Color(0xFF2B2112) else Color(0xFF131722))
-                                        .border(
-                                            1.dp,
-                                            if (isCurrent) JunoAmberLed else Color(0xFF22293A),
-                                            RoundedCornerShape(3.dp)
-                                        )
-                                        .clickable { onSelectPreset(idx) }
-                                        .padding(horizontal = 5.dp, vertical = 3.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                        .background(Color(0xFF180407), RoundedCornerShape(2.dp))
+                                        .border(0.8.dp, Color(0xFF450A0A), RoundedCornerShape(2.dp))
+                                        .padding(horizontal = 3.5.dp, vertical = 1.5.dp)
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .background(Color(0xFF180407), RoundedCornerShape(2.dp))
-                                                .border(0.8.dp, Color(0xFF450A0A), RoundedCornerShape(2.dp))
-                                                .padding(horizontal = 3.dp, vertical = 0.5.dp)
-                                        ) {
-                                            Text(
-                                                text = patchCode,
-                                                color = Color(0xFFEF4444),
-                                                fontSize = 7.sp,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.Black
-                                            )
-                                        }
-                                        Text(
-                                            text = itemName,
-                                            color = if (isCurrent) JunoAmberLed else Color(0xFFE5E7EB),
-                                            fontSize = 8.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
+                                    Text(
+                                        text = patchCode,
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 7.sp,
+                                        lineHeight = 7.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Black,
+                                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                                    )
+                                }
+                                Text(
+                                    text = itemName,
+                                    color = if (isCurrent) JunoAmberLed else Color(0xFFE5E7EB),
+                                    fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
 
-                                    if (p.isUserPreset) {
-                                        Box(
-                                            modifier = Modifier
-                                                .padding(start = 3.dp)
-                                                .clip(RoundedCornerShape(2.dp))
-                                                .background(Color(0xFF2B1216))
-                                                .border(0.8.dp, JunoRed, RoundedCornerShape(2.dp))
-                                                .clickable { onDeleteUserPreset(p) }
-                                                .padding(horizontal = 3.5.dp, vertical = 0.5.dp)
-                                        ) {
-                                            Text(
-                                                text = "✕",
-                                                color = Color(0xFFFCA5A5),
-                                                fontSize = 7.sp,
-                                                fontWeight = FontWeight.Black
-                                            )
-                                        }
-                                    }
+                            if (p.isUserPreset) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(start = 3.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(Color(0xFF2B1216))
+                                        .border(0.8.dp, JunoRed, RoundedCornerShape(2.dp))
+                                        .clickable { onDeleteUserPreset(p) }
+                                        .padding(horizontal = 3.5.dp, vertical = 0.5.dp)
+                                ) {
+                                    Text(
+                                        text = "✕",
+                                        color = Color(0xFFFCA5A5),
+                                        fontSize = 7.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
                                 }
                             }
-                            // Fill empty columns in last row so grid cells stay aligned
-                            val remaining = 4 - rowIndices.size
-                            for (emptyIdx in 0 until remaining) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
                         }
+                    }
+                    val remaining = 4 - rowIndices.size
+                    for (emptyIdx in 0 until remaining) {
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -2885,7 +3031,7 @@ private fun JunoParamFader(
                     midiManager.learningTargetKey = param.key
                     onNotifyUiChanged()
                 }
-                .padding(top = 2.dp, bottom = 1.5.dp, start = 2.dp, end = 2.dp)
+                .padding(top = 2.5.dp, bottom = 4.5.dp, start = 2.dp, end = 2.dp)
         ) {
             // Parameter Title Label (Fixed position at top of slot)
             Text(
@@ -2951,7 +3097,7 @@ private fun JunoParamFader(
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
-                    val padY = 7.dp.toPx()
+                    val padY = 8.dp.toPx()
                     val usableH = (h - padY * 2f).coerceAtLeast(10f)
                     val centerX = w * 0.52f
 
@@ -3006,21 +3152,27 @@ private fun JunoParamFader(
                 }
             }
 
-            // Smaller Digital Readout Box at bottom (0 .. 100) to maximize fader travel
+            Spacer(modifier = Modifier.height(3.5.dp))
+
+            // Compact Low-Profile Digital Readout Box at bottom (0 .. 100) with minimal top/bottom padding and separated from fader & bottom border
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .widthIn(min = 19.dp)
+                    .widthIn(min = 21.dp)
+                    .height(12.dp)
                     .background(Color(0xFF07090D), RoundedCornerShape(2.dp))
                     .border(0.8.dp, Color(0xFF1B2230), RoundedCornerShape(2.dp))
-                    .padding(horizontal = 2.5.dp, vertical = 0.dp)
+                    .padding(horizontal = 3.dp)
             ) {
                 Text(
                     text = "${(value * 100f).roundToInt().coerceIn(0, 100)}",
                     color = JunoAmberLed,
-                    fontSize = 6.5.sp,
+                    fontSize = 7.sp,
+                    lineHeight = 7.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                 )
             }
         }
@@ -3065,6 +3217,7 @@ private fun MidiCcBalloonBadge(
     mappedChannel: Int?,
     isLearnMode: Boolean,
     isWaitingCC: Boolean,
+    preferProgramChangeLabel: Boolean = false,
     onSelectForLearn: () -> Unit,
     onClearMapping: () -> Unit,
     modifier: Modifier = Modifier
@@ -3072,6 +3225,12 @@ private fun MidiCcBalloonBadge(
     if (!isLearnMode || (mappedCC == null && !isWaitingCC)) return
 
     val badgeShape = if (isWaitingCC) RoundedCornerShape(12.dp) else RoundedCornerShape(50)
+    val badgeTitle = when {
+        mappedCC != null && mappedCC >= 1000 -> "PC${mappedCC - 1000}"
+        mappedCC != null -> "CC$mappedCC"
+        preferProgramChangeLabel -> "PC--"
+        else -> "CC--"
+    }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -3090,9 +3249,9 @@ private fun MidiCcBalloonBadge(
                 vertical = if (isWaitingCC) 2.5.dp else 2.dp
             )
     ) {
-        // Line 1: MIDI CC Name
+        // Line 1: MIDI CC or PC Name
         Text(
-            text = if (mappedCC != null) "CC$mappedCC" else "CC--",
+            text = badgeTitle,
             color = Color.White,
             fontSize = 8.sp,
             lineHeight = 8.5.sp,

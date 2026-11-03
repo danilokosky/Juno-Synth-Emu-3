@@ -86,7 +86,9 @@ enum class SynthParam(
     ReverbTime(33, "ReverbTime", "TIME", MidiSection.REVERB, 0.35f),
     ReverbDecay(34, "ReverbDecay", "DECAY", MidiSection.REVERB, 0.55f),
     ReverbMix(35, "ReverbMix", "MIX", MidiSection.REVERB, 0.25f),
-    MasterVolume(36, "MasterVolume", "MASTER", MidiSection.KEYS, 0.8f);
+    MasterVolume(36, "MasterVolume", "MASTER", MidiSection.KEYS, 0.8f),
+    PresetPrev(37, "PresetPrev", "PRG ◀", MidiSection.ARP_PRESETS, 0.0f, true),
+    PresetNext(38, "PresetNext", "PRG ▶", MidiSection.ARP_PRESETS, 0.0f, true);
 
     companion object {
         private val byKey = entries.associateBy { it.key }
