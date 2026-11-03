@@ -280,17 +280,18 @@ fun HeraJunoNativeScreen(
     var showSavePresetDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
 
-    // Live Rack Section Projection Pop-up Animation (Immediate appearance on MIDI change, disappears in 500ms)
+    // Live Rack Section Projection Pop-up Animation (Immediate appearance on MIDI change, waits 1.5s then fades out smoothly without blinking)
     val projectionAlpha = remember { Animatable(1f) }
-    LaunchedEffect(projectedSectionTriggerCount, projectedSection) {
+    var settledTriggerCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(projectedSectionTriggerCount) {
         if (projectedSection != null && projectedSectionTriggerCount > 0) {
             projectionAlpha.snapTo(1f)
-            delay(250L)
+            settledTriggerCount = projectedSectionTriggerCount
+            delay(1500L)
             projectionAlpha.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 250)
+                animationSpec = tween(durationMillis = 350)
             )
-            projectionAlpha.snapTo(1f)
             onDismissProjectedSection()
         }
     }
@@ -976,29 +977,20 @@ fun HeraJunoNativeScreen(
             }
                     }
 
-                    // Centered Live Rack Section Projection Pop-up (Immediate on MIDI controller change, disappears in 500ms, inhibited during MIDI Learn)
+                    // Centered Live Rack Section Projection Pop-up (Immediate on MIDI controller change, waits 1.5s before smooth fade-out, inhibited during MIDI Learn)
+                    val effectiveProjectionAlpha = if (projectedSectionTriggerCount != settledTriggerCount) 1f else projectionAlpha.value
                     if (
                         midiManager.sectionProjectionEnabled &&
                         !midiManager.isMidiLearnActive &&
-                        projectedSection != null
+                        projectedSection != null &&
+                        effectiveProjectionAlpha > 0.005f
                     ) {
-                        val haloColor = when (projectedSection) {
-                            MidiSection.LFO -> Color(0xFFEAB308)
-                            MidiSection.DCO -> JunoRed
-                            MidiSection.HPF -> Color(0xFF06B6D4)
-                            MidiSection.VCF -> Color(0xFF22D3EE)
-                            MidiSection.VCA -> JunoOrange
-                            MidiSection.ENV -> Color(0xFFFBBF24)
-                            MidiSection.CHORUS -> Color(0xFFF43F5E)
-                            MidiSection.DELAY -> JunoGreenReady
-                            MidiSection.REVERB -> JunoPurple
-                            else -> JunoCyanLearn
-                        }
+                        val haloColor = Color(0xFFFBBF24) // Faint warm yellow / golden aura
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .zIndex(100f)
-                                .graphicsLayer { alpha = projectionAlpha.value },
+                                .graphicsLayer { alpha = effectiveProjectionAlpha },
                             contentAlignment = Alignment.Center
                         ) {
                             CompositionLocalProvider(
@@ -1010,17 +1002,17 @@ fun HeraJunoNativeScreen(
                                     modifier = Modifier
                                         .wrapContentSize()
                                         .background(
-                                            haloColor.copy(alpha = 0.12f),
+                                            haloColor.copy(alpha = 0.05f),
                                             RoundedCornerShape(9.dp)
                                         )
                                         .padding(3.dp)
                                         .background(
-                                            haloColor.copy(alpha = 0.22f),
+                                            haloColor.copy(alpha = 0.09f),
                                             RoundedCornerShape(7.dp)
                                         )
                                         .border(
-                                            1.dp,
-                                            haloColor.copy(alpha = 0.45f),
+                                            0.8.dp,
+                                            haloColor.copy(alpha = 0.22f),
                                             RoundedCornerShape(7.dp)
                                         )
                                         .padding(2.dp)

@@ -62,17 +62,7 @@ const RACK_SECTION_IDS: RackSectionId[] = [
   'reverb',
 ];
 
-const RACK_SECTION_HALO_COLOR: Record<RackSectionId, string> = {
-  lfo: 'rgba(234, 179, 8, 0.22)',
-  dco: 'rgba(239, 68, 68, 0.22)',
-  hpf: 'rgba(6, 182, 212, 0.22)',
-  vcf: 'rgba(34, 211, 238, 0.22)',
-  vca: 'rgba(245, 158, 11, 0.22)',
-  env: 'rgba(251, 191, 36, 0.22)',
-  chorus: 'rgba(244, 63, 94, 0.22)',
-  delay: 'rgba(16, 185, 129, 0.22)',
-  reverb: 'rgba(139, 92, 246, 0.22)',
-};
+const RACK_SECTION_GOLDEN_HALO = 'rgba(251, 191, 36, 0.12)';
 
 function getVisualRackSectionForParam(param: keyof HeraParameters): RackSectionId | null {
   if (param === 'MasterVolume') return null;
@@ -289,11 +279,11 @@ export const HeraApp: React.FC = () => {
 
     projectionFadeTimerRef.current = window.setTimeout(() => {
       setProjectedSectionFading(true);
-    }, 150);
+    }, 1500);
     projectionHideTimerRef.current = window.setTimeout(() => {
       setProjectedSection(null);
       setProjectedSectionFading(false);
-    }, 500);
+    }, 1850);
   }, []);
 
   const handleSetSectionProjectionEnabled = useCallback((enabled: boolean) => {
@@ -688,7 +678,8 @@ export const HeraApp: React.FC = () => {
       ? {
           width: projectedSectionDims.width ? `${projectedSectionDims.width}px` : undefined,
           height: projectedSectionDims.height ? `${projectedSectionDims.height}px` : undefined,
-          boxShadow: `0 0 22px 3px rgba(255, 255, 255, 0.06), 0 0 38px 8px ${RACK_SECTION_HALO_COLOR[sectionId]}, 0 14px 36px rgba(0, 0, 0, 0.85)`,
+          boxShadow: `0 0 18px 2px rgba(251, 191, 36, 0.14), 0 0 34px 6px ${RACK_SECTION_GOLDEN_HALO}, 0 14px 36px rgba(0, 0, 0, 0.85)`,
+          outline: '1px solid rgba(251, 191, 36, 0.22)',
         }
       : undefined;
 
